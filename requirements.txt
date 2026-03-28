@@ -1,0 +1,10 @@
+huggingface-hub
+numpy
+openai
+scikit-learn
+sentence-transformers
+torch
+tqdm
+transformers
+nbconvert
+jupyter
