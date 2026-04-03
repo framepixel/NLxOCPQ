@@ -238,7 +238,7 @@ ONLY output valid JSON.
     content = response.choices[0].message.content
     return parse_llm_json(content)
 
-def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json"):
+def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json"):
     structure = structure_extraction(query)
     print("Extracted Structure:", json.dumps(structure, indent=2))
     json_tree = query_tree_generation(structure)
@@ -247,6 +247,13 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     print("Final OCPQ JSON:", json.dumps(ocpq_json, indent=2))
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
+        
+    try:
+        from QueryExecutor import run_ocpq_query
+        run_ocpq_query(ocel_path, output_file)
+    except Exception as e:
+        print(f"Error running query automatically: {e}")
+        
     return ocpq_json
 
 # In[8]:
