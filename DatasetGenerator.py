@@ -6,111 +6,17 @@
 
 import random
 import json
-import os
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
 
 from huggingface_hub import InferenceClient
 
-# #### JSON from the editor
-# ```json
-# {
-#   "nodes": [
-#     {
-#       "width": 240,
-#       "height": 276,
-#       "id": "0.05272377425322505-1756500835216",
-#       "type": "eventType",
-#       "position": {
-#         "x": 145.53354881065553,
-#         "y": 1196.7836919286149
-#       },
-#       "data": {
-#         "box": {
-#           "newEventVars": {
-#             "0": [
-#               "payment reminder"
-#             ],
-#             "1": [
-#               "pay order"
-#             ]
-#           },
-#           "newObjectVars": {
-#             "0": [
-#               "orders"
-#             ]
-#           },
-#           "filters": [
-#             {
-#               "type": "O2E",
-#               "object": 0,
-#               "event": 0,
-#               "qualifier": null
-#             },
-#             {
-#               "type": "O2E",
-#               "object": 0,
-#               "event": 1,
-#               "qualifier": null
-#             }
-#           ],
-#           "sizeFilters": [],
-#           "constraints": [
-#             {
-#               "type": "Filter",
-#               "filter": {
-#                 "type": "TimeBetweenEvents",
-#                 "from_event": 0,
-#                 "to_event": 1,
-#                 "min_seconds": 0,
-#                 "max_seconds": null
-#               }
-#             }
-#           ],
-#           "evVarLabels": {},
-#           "obVarLabels": {}
-#         }
-#       },
-#       "positionAbsolute": {
-#         "x": 145.53354881065553,
-#         "y": 1196.7836919286149
-#       },
-#       "selected": true,
-#       "dragging": false
-#     }
-#   ],
-#   "edges": []
-# }
-# ```
-
-# #### JSON given to the DB
-# ```json
-# {
-#   "nodes": [
-#     {
-#       "Box": [
-#         {
-#           "newEventVars": { "0": ["payment reminder"], "1": ["pay order"] },
-#           "newObjectVars": { "0": ["orders"] },
-#           "filters": [
-#             { "type": "O2E", "object": 0, "event": 0, "qualifier": null },
-#             { "type": "O2E", "object": 0, "event": 1, "qualifier": null }
-#           ],
-#           "sizeFilters": [],
-#           "constraints": [],
-#           "evVarLabels": {},
-#           "obVarLabels": {}
-#         },
-#         []
-#       ]
-#     }
-#   ],
-#   "edgeNames": []
-# }
-# ```
-
 # In[2]:
+
+
+train_with_rewrites = False
+
+# In[3]:
 
 
 patterns = [
@@ -136,7 +42,7 @@ patterns = [
     "After the EVENT_A event occurs for a given OBJECT_A, the EVENT_B event should happen at least once."
 ]
 
-# In[3]:
+# In[4]:
 
 
 domains = {
@@ -212,29 +118,52 @@ domains = {
     }
 }
 
-# In[ ]:
+# In[5]:
 
 
-from transformers import pipeline
+from transformers import pipeline, BitsAndBytesConfig
+
 import torch
 
-# Initialize the local pipeline for Llama 3 8B Instruct
-model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
+import os
+import re
 
-pipe = pipeline(
-    "text-generation",
-    model=model_id,
-    model_kwargs={"torch_dtype": torch.bfloat16},
-    device_map="auto",
-)
-
-# In[ ]:
+# In[6]:
 
 
-def rewrite_sentence_variations(sentence):
-    prompt = f"""
-You are a rewriting assistant.
+if train_with_rewrites:
+    # Create 4-bit config to compress the ~15GB model to ~5-6GB
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True
+    )
 
+    # Initialize the local pipeline with 4-bit quantization
+    model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
+
+    pipe = pipeline(
+        "text-generation",
+        model=model_id,
+        model_kwargs={"quantization_config": bnb_config},
+        device_map="auto",
+        token=os.getenv("HF_TOKEN")
+    )
+
+# In[7]:
+
+
+def rewrite_sentences_batch(sentences, batch_size=4):
+    # Determine padding token if needed for processing batches
+    if pipe.tokenizer.pad_token_id is None:
+        pipe.tokenizer.pad_token_id = pipe.tokenizer.eos_token_id
+        
+    # CRITICAL FIX: Causal LMs require left-padding for batched generation!
+    pipe.tokenizer.padding_side = "left"
+
+    messages_batch = []
+    for sentence in sentences:
+        prompt = f"""
 Rewrite the following sentence to make it sound natural and grammatically correct.
 Provide TWO variations:
 1. "nl_clean_1": A slightly more formal, straight-forward rewrite.
@@ -245,33 +174,45 @@ Rules:
 - Do not add or remove information.
 - Keep technical terms unchanged.
 - Output ONLY valid JSON containing the keys "nl_clean_1" and "nl_clean_2".
+- Do not include any explanations, greetings, or backticks.
 
 Sentence:
 "{sentence}"
-JSON:
 """
-    messages = [{"role": "user", "content": prompt}]
+        messages_batch.append([
+            {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, with no markdown formatting, no backticks, and no conversational text."},
+            {"role": "user", "content": prompt}
+        ])
     
+    # Run the pipeline in batches (Processes `batch_size` sentences concurrently)
     outputs = pipe(
-        messages,
-        max_new_tokens=150,
+        messages_batch,
+        max_new_tokens=500,
         temperature=0.5,
         do_sample=True,
+        batch_size=batch_size
     )
     
-    content = outputs[0]["generated_text"][-1]["content"]
+    results = []
+    for i, out in enumerate(outputs):
+        content = out[0]["generated_text"][-1]["content"]
+        try:
+            match = re.search(r'\{.*\}', content, re.DOTALL)
+            clean_content = match.group(0) if match else content.strip()
+            
+            # Auto-heal: If the generation randomly cut off just the closing bracket, fix it
+            if not clean_content.endswith("}"):
+                clean_content += "\n}"
+                
+            data = json.loads(clean_content)
+            results.append(data)
+        except Exception as e:
+            print(f"Failed to parse JSON for sample {i}:\nRaw Output: {content}")
+            results.append({"nl_clean_1": sentences[i], "nl_clean_2": sentences[i]})
+            
+    return results
 
-    try:
-        # Llama-3 might add markdown quotes like ```json, so we strip them
-        content = content.replace("```json", "").replace("```", "").strip()
-        data = json.loads(content)
-        return data
-    except Exception as e:
-        print(f"Failed to parse JSON: {e}")
-        # fallback to the original sentence just in case
-        return {"nl_clean_1": sentence, "nl_clean_2": sentence}
-
-# In[6]:
+# In[8]:
 
 
 def generate_example():
@@ -366,7 +307,7 @@ def generate_example():
                     ]
                 }
             ],
-            "edgeNames": ["A"]
+            "edgeNames": [[[0, 1], "A"]]
         }
         return {"nl": text, "query": ocpq_tree}
         
@@ -407,7 +348,7 @@ def generate_example():
                     ]
                 }
             ],
-            "edgeNames": ["A"]
+            "edgeNames": [[[0, 1], "A"]]
         }
         return {"nl": text, "query": ocpq_tree}
         
@@ -463,11 +404,11 @@ def generate_example():
                     ]
                 }
             ],
-            "edgeNames": ["A", "B"] # Ordered hierarchical edges
+            "edgeNames": [[[0, 1], "A"], [[1, 2], "B"]] # Ordered hierarchical edges
         }
         return {"nl": text, "query": ocpq_tree}
 
-    elif "constraint modeling" in pattern:
+    elif "completed within" in pattern:
         # Parent-child structure using the SAT constraint
         ocpq_tree = {
             "nodes": [
@@ -510,7 +451,7 @@ def generate_example():
                     ]
                 }
             ],
-            "edgeNames": ["A"]
+            "edgeNames": [[[0, 1], "A"]]
         }
         return {"nl": text, "query": ocpq_tree}
         
@@ -568,7 +509,7 @@ def generate_example():
                     ]
                 }
             ],
-            "edgeNames": ["A", "B"]
+            "edgeNames": [[[0, 1], "A"], [[0, 2], "B"]]
         }
         return {"nl": text, "query": ocpq_tree}
     
@@ -609,7 +550,7 @@ def generate_example():
                     ]
                 }
             ],
-            "edgeNames": ["A"]
+            "edgeNames": [[[0, 1], "A"]]
         }
         return {"nl": text, "query": ocpq_tree}
 
@@ -660,47 +601,61 @@ def generate_example():
 
     return {"nl": text, "query": ocpq_tree}
 
-# In[7]:
+# In[9]:
 
 
-def generate_dataset(num_samples=500, original_sentence=True, first_rewrite=True, second_rewrite=True, output_file="ocpq_dataset.json"):
+def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, first_rewrite=True, second_rewrite=True, output_file="ocpq_dataset.json"):
     dataset = []
     seen = set()
 
-    while len(dataset) < num_samples:
-        example = generate_example()
-        # Use the natural language text to check for uniqueness
-        if example["nl"] not in seen:
-            seen.add(example["nl"])
-            updated_example = {}
-            
-            if original_sentence:
-                updated_example["nl"] = example["nl"]
-                
-            if first_rewrite or second_rewrite:
-                # Get both variations in a single LLM request
-                rewrites = rewrite_sentence_variations(example["nl"])
-                
-                if first_rewrite:
-                    updated_example["nl_clean_1"] = rewrites.get("nl_clean_1", example["nl"])
-                if second_rewrite:
-                    updated_example["nl_clean_2"] = rewrites.get("nl_clean_2", example["nl"])
-            
-            updated_example["query"] = example["query"]
-            
-            dataset.append(updated_example)
+    # 1. First, instantly generate all unique logical sentences locally
+    print("Generating pure logical combinations...")
+    raw_examples = []
+    while len(raw_examples) < num_samples:
+        ex = generate_example()
+        if ex["nl"] not in seen:
+            seen.add(ex["nl"])
+            raw_examples.append(ex)
 
-    with open(output_file,"w") as f:
-        json.dump(dataset,f,indent=2)
+    # 2. Process the LLM rewrites in parallel batches
+    print(f"Batch processing text inference on GPU (batch_size={batch_size})...")
+    for i in range(0, len(raw_examples), batch_size):
+        batch = raw_examples[i:i+batch_size]
+        sentences = [ex["nl"] for ex in batch]
+        
+        if first_rewrite or second_rewrite:
+            # Send 'batch_size' queries to the GPU at once instead of 1
+            rewrites_batch = rewrite_sentences_batch(sentences, batch_size=batch_size)
+        else:
+            rewrites_batch = [{} for _ in sentences]
+            
+        for j, ex in enumerate(batch):
+            updated_example = {}
+            if original_sentence:
+                updated_example["nl"] = ex["nl"]
+                
+            if first_rewrite:
+                updated_example["nl_clean_1"] = rewrites_batch[j].get("nl_clean_1", ex["nl"])
+            if second_rewrite:
+                updated_example["nl_clean_2"] = rewrites_batch[j].get("nl_clean_2", ex["nl"])
+            
+            updated_example["query"] = ex["query"]
+            dataset.append(updated_example)
+            
+        print(f"Processed {len(dataset)} / {num_samples} examples", end="\r")
+
+    with open(output_file, "w") as f:
+        json.dump(dataset, f, indent=2)
     
+    print("\nDataset generation completed!")
     return dataset
 
-# In[8]:
+# In[10]:
 
 
-dataset = generate_dataset()
+dataset = generate_dataset(num_samples=500, first_rewrite=False, second_rewrite=False)
 
-# In[15]:
+# In[11]:
 
 
 dataset[:5]
