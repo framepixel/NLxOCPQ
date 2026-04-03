@@ -71,7 +71,7 @@ retrieve_examples("For any person, the diagnosis must be completed within 3 days
 
 from LogEvents import events_and_objects_from_ocel
 
-event_names, object_names = events_and_objects_from_ocel("../Logs/hospital_log_high.json")
+event_names, object_names = events_and_objects_from_ocel("../hospital_log_high.json")
 
 # In[6]:
 
@@ -115,13 +115,13 @@ Given a natural language query, identify:
 
 Return ONLY JSON in this format:
 
-{
+{{
   "events": [...],
   "objects": [...],
   "relations": [...],
   "constraints": [...],
   "requires_nesting": true/false
-}
+}}
 
 Query:
 {user_query}
@@ -156,19 +156,19 @@ Decide:
 
 Return ONLY JSON:
 
-{
+{{
   "nodes": [
-    {
+    {{
       "id": 0,
       "description": "...",
       "events": [...],
       "objects": [...]
-    }
+    }}
   ],
   "edges": [
-    {"from": 0, "to": 1, "label": "A"}
+    {{"from": 0, "to": 1, "label": "A"}}
   ]
-}
+}}
 """
     # Upgrading to a more powerful model for better schema adherence
     response = hf_client.chat_completion(
@@ -205,26 +205,22 @@ def nl_to_ocpq_rag(query, dataset, embeddings, json_tree, query_types=None):
     prompt = f"""
 You are generating OCPQ JSON.
 
-Follow STRICT rules:
+CRITICAL SCHEMA REQUIREMENT:
+Output ONLY valid JSON matching the exact schema shown in the examples.
+The root object should minimally contain an array of "nodes".
+Each node in the "nodes" array MUST be an object with a single key "Box" (and optionally "[", "]" keys depending on the syntax).
+The "Box" value MUST always be an array with exactly TWO elements:
+1. The node data dictionary (containing newEventVars, newObjectVars, filters, sizeFilters, constraints, evVarLabels, obVarLabels).
+2. An array of child node indices (e.g., [], [1]).
 
-- "Box" must be [node_data, children_array]
-- Always include:
-  - newEventVars
-  - newObjectVars
-  - filters
-  - sizeFilters
-  - constraints
-
-Use this structure:
-
+Here is the logical plan (query tree) for the query.
+LOGICAL PLAN (DO NOT USE THIS AS THE OUTPUT SCHEMA, JUST USE IT TO UNDERSTAND THE LOGIC AND HIERARCHY):
 {json_tree}
 
-Use these examples for guidance:
-
+Use these examples for the EXACT output schema:
 {few_shot_string}
 
 Now generate the final OCPQ JSON.
-
 ONLY output valid JSON.
 """
 
@@ -242,16 +238,27 @@ ONLY output valid JSON.
     content = response.choices[0].message.content
     return parse_llm_json(content)
 
+def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json"):
+    structure = structure_extraction(query)
+    print("Extracted Structure:", json.dumps(structure, indent=2))
+    json_tree = query_tree_generation(structure)
+    print("Generated Query Tree:", json.dumps(json_tree, indent=2))
+    ocpq_json = nl_to_ocpq_rag(query, dataset, embeddings, json_tree)
+    print("Final OCPQ JSON:", json.dumps(ocpq_json, indent=2))
+    with open(output_file, "w") as f:
+        json.dump(ocpq_json, f, indent=2)
+    return ocpq_json
+
 # In[8]:
 
 
-result = nl_to_ocpq_rag("For any person, the diagnosis must be completed within 3 days after the registration at ER.", dataset, embeddings)
-print(json.dumps(result, indent=2))
+result = nl_to_ocpq_pipeline("For any person, the diagnosis must be completed within 3 days after the registration at ER.", dataset, embeddings)
+# print(json.dumps(result, indent=2))
 
 # In[9]:
 
 
-d
+exit()
 
 # In[ ]:
 
