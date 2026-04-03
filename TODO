@@ -1,0 +1,5 @@
+- Diversify the dataset to avoid scenarios where OCPQ queries causing huge computations are generated.
+- Let the LLM learn the structure of OCPQ instead of performing huge jumps from prompt to query
+- Add ability to run the generated OCPQ for a given event log.
+- Add a Streamlit interface to interact with the LLM
+- Add query examples that use CEL
