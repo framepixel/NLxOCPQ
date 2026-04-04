@@ -4,3 +4,4 @@
 - Add a Streamlit interface to interact with the LLM.
 - Give the event and object names to the LLM in the first prompt and see whether there is any performance improvement.
 - Add query examples that use CEL
+- Use Unsloth or similar to train the model on a dataset.
