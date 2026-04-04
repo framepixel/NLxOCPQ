@@ -4,11 +4,10 @@
 # In[1]:
 
 
-import openai
-
 import json
 import numpy as np
 import os
+import time
 
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -18,22 +17,29 @@ from huggingface_hub import InferenceClient
 
 # In[2]:
 
+def load_resources():
+    # Load the dataset
+    with open('ocpq_dataset.json', 'r') as f:
+        dataset = json.load(f)
 
-# Load the dataset
-with open('ocpq_dataset.json', 'r') as f:
-    dataset = json.load(f)
+    # Load the generated embeddings
+    embeddings = np.load('embeddings.npy')
 
-# Load the generated embeddings
-embeddings = np.load('embeddings.npy')
+    # Load the local embedding model so we can embed user queries on the fly
+    model = SentenceTransformer('./local-all-MiniLM-L6-v2') 
+    
+    return dataset, embeddings, model
 
-# Load the local embedding model so we can embed user queries on the fly
-model = SentenceTransformer('./local-all-MiniLM-L6-v2') 
+dataset, embeddings, model = load_resources()
 
 def get_embedding(text):
     return model.encode(text)
 
-# Initialize Hugging Face Inference Client for generation
-hf_client = InferenceClient(api_key=os.getenv("HF_TOKEN"))
+hf_client = None
+
+def set_hf_client(token):
+    global hf_client
+    hf_client = InferenceClient(api_key=token)
 
 # In[3]:
 
@@ -63,15 +69,13 @@ def retrieve_examples(query, dataset, embeddings, top_k=3):
 
 # In[4]:
 
-
-retrieve_examples("For any person, the diagnosis must be completed within 3 days after the registration at ER.", dataset, embeddings)
+# Commented out the stray retrieval call that automatically executes on import
+# retrieve_examples("For any person, the diagnosis must be completed within 3 days after the registration at ER.", dataset, embeddings)
 
 # In[5]:
 
-
-from LogEvents import events_and_objects_from_ocel
-
-event_names, object_names = events_and_objects_from_ocel("../hospital_log_high.json")
+# from LogEvents import events_and_objects_from_ocel
+# event_names, object_names = events_and_objects_from_ocel("../hospital_log_high.json")
 
 # In[6]:
 
@@ -101,6 +105,26 @@ def parse_llm_json(content):
 
 # In[7]:
 
+def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            return hf_client.chat_completion(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                response_format=response_format
+            )
+        except Exception as e:
+            if "429" in str(e):
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 5
+                    print(f"Rate limited (429). Retrying in {wait_time} seconds (Attempt {attempt+1}/{max_retries})...")
+                    time.sleep(wait_time)
+                else:
+                    raise e
+            else:
+                raise e
+
 def structure_extraction(user_query: str):
     prompt = f"""
 You are extracting the structure of a process query.
@@ -127,8 +151,8 @@ Query:
 {user_query}
 """
     # Upgrading to a more powerful model for better schema adherence
-    response = hf_client.chat_completion(
-        model="meta-llama/Meta-Llama-3-70B-Instruct", 
+    response = call_hf_with_retry(
+        model="meta-llama/Meta-Llama-3-8B-Instruct", 
         messages=[
             {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
             {"role": "user", "content": prompt}
@@ -171,8 +195,8 @@ Return ONLY JSON:
 }}
 """
     # Upgrading to a more powerful model for better schema adherence
-    response = hf_client.chat_completion(
-        model="meta-llama/Meta-Llama-3-70B-Instruct", 
+    response = call_hf_with_retry(
+        model="meta-llama/Meta-Llama-3-8B-Instruct", 
         messages=[
             {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
             {"role": "user", "content": prompt}
@@ -213,6 +237,11 @@ The "Box" value MUST always be an array with exactly TWO elements:
 1. The node data dictionary (containing newEventVars, newObjectVars, filters, sizeFilters, constraints, evVarLabels, obVarLabels).
 2. An array of child node indices (e.g., [], [1]).
 
+CONSTRAINT SCHEMA: 
+The constraints in your JSON MUST ONLY use the following variants:
+"O2E", "O2O", "TimeBetweenEvents", "NotEqual", "EventAttributeValueFilter", "ObjectAttributeValueFilter", "BasicFilterCEL".
+Do NOT use variants like "TimeAfterEvent" or anything else not in this list.
+
 Here is the logical plan (query tree) for the query.
 LOGICAL PLAN (DO NOT USE THIS AS THE OUTPUT SCHEMA, JUST USE IT TO UNDERSTAND THE LOGIC AND HIERARCHY):
 {json_tree}
@@ -225,8 +254,8 @@ ONLY output valid JSON.
 """
 
     # Upgrading to a more powerful model for better schema adherence
-    response = hf_client.chat_completion(
-        model="meta-llama/Meta-Llama-3-70B-Instruct", 
+    response = call_hf_with_retry(
+        model="meta-llama/Meta-Llama-3-8B-Instruct", 
         messages=[
             {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
             {"role": "user", "content": prompt}
@@ -239,74 +268,26 @@ ONLY output valid JSON.
     return parse_llm_json(content)
 
 def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json"):
+    print("Starting NL to OCPQ pipeline...")
     structure = structure_extraction(query)
-    print("Extracted Structure:", json.dumps(structure, indent=2))
+    print("Structure extraction completed.")
+    print("Tree generation in progress...")
+    time.sleep(3)
     json_tree = query_tree_generation(structure)
-    print("Generated Query Tree:", json.dumps(json_tree, indent=2))
+    print("Tree generation completed.")
+    print("Generating final OCPQ JSON...")
+    time.sleep(3)
     ocpq_json = nl_to_ocpq_rag(query, dataset, embeddings, json_tree)
-    print("Final OCPQ JSON:", json.dumps(ocpq_json, indent=2))
+    print("OCPQ JSON generation completed.")
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
         
+    query_result = None
     try:
         from QueryExecutor import run_ocpq_query
-        run_ocpq_query(ocel_path, output_file)
+        query_result = run_ocpq_query(ocel_path, output_file)
     except Exception as e:
-        print(f"Error running query automatically: {e}")
+        query_result = f"Error running query automatically: {e}"
+        print(query_result)
         
-    return ocpq_json
-
-# In[8]:
-
-
-result = nl_to_ocpq_pipeline("For any person, the diagnosis must be completed within 3 days after the registration at ER.", dataset, embeddings)
-# print(json.dumps(result, indent=2))
-
-# In[9]:
-
-
-exit()
-
-# In[ ]:
-
-
-result = nl_to_ocpq_rag("write me a poem about shipping order", dataset, embeddings)
-print(json.dumps(result, indent=2))
-
-# In[ ]:
-
-
-result = nl_to_ocpq_rag("no payment reminder should be sent out after payment has been made", dataset, embeddings)
-print(json.dumps(result, indent=2))
-
-# In[ ]:
-
-
-def nl_to_ocpq(query):
-
-    prompt = f"""
-Translate natural language process queries into OCPQ JSON.
-Output ONLY valid JSON. You MUST use double quotes for all keys and strings.
-
-CRITICAL SCHEMA REQUIREMENT:
-The "Box" key MUST always contain an array with exactly TWO elements:
-1. The node data dictionary (containing newEventVars, newObjectVars, filters, etc.)
-2. An array of child node indices (e.g., [], [1], or [1, 2])
-Example: "Box": [ {{ "newEventVars":... }}, [] ]
-
-Question: {query}
-JSON:
-"""
-
-    response = hf_client.chat_completion(
-        model="meta-llama/Meta-Llama-3-70B-Instruct",
-        messages=[
-            {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=800,
-        response_format={"type": "json_object"} 
-    )
-
-    content = response.choices[0].message.content
-    return parse_llm_json(content)
+    return structure, json_tree, ocpq_json, query_result
