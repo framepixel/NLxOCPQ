@@ -9,4 +9,4 @@ nbconvert
 jupyter
 accelerate
 bitsandbytes
-jsonformer
+streamlit

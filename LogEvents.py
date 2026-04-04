@@ -58,7 +58,7 @@ def events_and_objects_from_ocel(ocel_path):
         for e in ocel.get("events", []) 
         if (e.get("name") or e.get("type") or e.get("activity") or e.get("ocel:activity")) is not None
     })
-    print("Event names:", event_names)
+    # print("Event names:", event_names)
 
 
     # Get object names: OCEL distinguishes object types and object IDs.
@@ -84,7 +84,7 @@ def events_and_objects_from_ocel(ocel_path):
         object_names.add((obj_type, obj_id))
 
     object_names = sorted(object_names)
-    print("Object types:", sorted(list(unique_objects)))
+    # print("Object types:", sorted(list(unique_objects)))
 
     return event_names, sorted(list(unique_objects))
 
