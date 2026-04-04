@@ -20,13 +20,23 @@ def main():
 
     st.sidebar.header("Configuration")
     
-    # Simple relative path globbing matching original script assumptions
-    json_files = glob.glob("../*.json")
-    if not json_files:
-        st.warning("No JSON log files found in the parent directory.")
-        selected_file = None
+    st.sidebar.subheader("Event Log Selection")
+    uploaded_file = st.sidebar.file_uploader("Upload custom OCEL JSON Log", type=["json"])
+    
+    if uploaded_file is not None:
+        os.makedirs("uploaded_logs", exist_ok=True)
+        selected_file = os.path.join("uploaded_logs", uploaded_file.name).replace("\\", "/")
+        with open(selected_file, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        st.sidebar.success(f"Using uploaded log: {uploaded_file.name}")
     else:
-        selected_file = st.sidebar.selectbox("Select OCEL Event Log", json_files)
+        # Simple relative path globbing matching original script assumptions
+        json_files = glob.glob("../*.json")
+        if not json_files:
+            st.sidebar.warning("No JSON log files found in the parent directory.")
+            selected_file = None
+        else:
+            selected_file = st.sidebar.selectbox("Or select existing OCEL Event Log", json_files)
 
     with st.form("query_form"):
         user_query = st.text_area(
