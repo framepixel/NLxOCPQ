@@ -1,6 +1,7 @@
 import os
 import subprocess
 import shutil
+import glob
 
 def run_ocpq_query(ocel_path, query_result_file):
     """
@@ -47,7 +48,12 @@ def run_ocpq_query(ocel_path, query_result_file):
         print("--- Query Execution Result ---")
         print(res.stdout.strip())
         print("-----------------------------\n")
-        return res.stdout
+        
+        # Find the latest exported JSON file in the cli directory
+        export_files = glob.glob(os.path.join(cli_dir, "ocpq-res-export-*.json"))
+        latest_file = max(export_files, key=os.path.getmtime) if export_files else None
+        
+        return res.stdout, latest_file
     except subprocess.CalledProcessError as e:
         print("--- Query Execution Failed ---")
         if e.stdout.strip():
@@ -55,4 +61,4 @@ def run_ocpq_query(ocel_path, query_result_file):
         if e.stderr.strip():
             print("Stderr Dump:\n", e.stderr.strip())
         print("-----------------------------\n")
-        return None
+        return None, None

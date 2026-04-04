@@ -53,24 +53,27 @@ def main():
             
         with st.spinner("Generating and executing query (this may take a moment)..."):
             try:
-                structure, json_tree, ocpq_json, query_result = nl_to_ocpq_pipeline(
+                structure, json_tree, ocpq_json, query_result, query_result_file_path = nl_to_ocpq_pipeline(
                     user_query, dataset, embeddings, "test_query.json", selected_file
                 )
                 
-                col1, col2 = st.columns(2)
+                # Create tabs for structured outputs instead of a giant vertical scrolling log
+                tab1, tab2, tab3 = st.tabs(["Generation Pipeline", "CLI Output", "Data Preview"])
                 
-                with col1:
-                    st.subheader("1. Extracted Structure")
-                    if structure:
-                        st.json(structure)
-                    else:
-                        st.warning("Failed to parse structure json.")
-                    
-                    st.subheader("2. Generated Query Tree")
-                    if json_tree:
-                        st.json(json_tree)
-                    else:
-                        st.warning("Failed to parse query tree json.")
+                with tab1:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.subheader("1. Extracted Structure")
+                        if structure:
+                            st.json(structure)
+                        else:
+                            st.warning("Failed to parse structure json.")
+                    with col2:
+                        st.subheader("2. Generated Query Tree")
+                        if json_tree:
+                            st.json(json_tree)
+                        else:
+                            st.warning("Failed to parse query tree json.")
                     
                     st.subheader("3. Final OCPQ JSON")
                     if ocpq_json:
@@ -78,12 +81,42 @@ def main():
                     else:
                         st.warning("Failed to parse Final OCPQ json.")
                     
-                with col2:
-                    st.subheader("4. Execution Result")
+                with tab2:
+                    st.subheader("Query Execution Logs")
                     if query_result:
                         st.code(query_result, language="text")
                     else:
                         st.warning("No result returned from Query Executor. Check CLI logs.")
+
+                with tab3:
+                    st.subheader("Resulting Execution Output")
+                    if query_result_file_path and os.path.exists(query_result_file_path):
+                        st.success(f"Results exported successfully to `{query_result_file_path}`!")
+                        try:
+                            import json
+                            with open(query_result_file_path, "r", encoding="utf-8") as res_file:
+                                result_data = json.load(res_file)
+                                
+                            if "Ok" in result_data:
+                                eval_data = result_data["Ok"].get("evaluationResults", [])
+                                if isinstance(eval_data, list) and len(eval_data) > 0:
+                                    st.write(f"Evaluated Items: **{len(eval_data)}**")
+                                    # We flatten or just use st.json for now to preview complex nested records
+                                    st.json(eval_data)
+                                else:
+                                    st.write("Query ran successfully, but no situations matched.")
+                                    st.json(result_data)
+                            elif "Err" in result_data:
+                                st.error("The backend returned an error in the JSON structure.")
+                                st.json(result_data["Err"])
+                            else:
+                                st.json(result_data)
+                                
+                        except Exception as parse_e:
+                            st.warning(f"Could not parse the result file as JSON: {parse_e}")
+                    else:
+                        st.info("No formatted data output file was captured during this run.")
+
             except Exception as e:
                 st.error(f"An error occurred during API execution: {str(e)}")
 

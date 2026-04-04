@@ -283,11 +283,12 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
         json.dump(ocpq_json, f, indent=2)
         
     query_result = None
+    query_result_file_path = None
     try:
         from QueryExecutor import run_ocpq_query
-        query_result = run_ocpq_query(ocel_path, output_file)
+        query_result, query_result_file_path = run_ocpq_query(ocel_path, output_file)
     except Exception as e:
         query_result = f"Error running query automatically: {e}"
         print(query_result)
         
-    return structure, json_tree, ocpq_json, query_result
+    return structure, json_tree, ocpq_json, query_result, query_result_file_path
