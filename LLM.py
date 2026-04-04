@@ -15,6 +15,8 @@ from sentence_transformers import SentenceTransformer
 
 from huggingface_hub import InferenceClient
 
+from LogEvents import events_and_objects_from_ocel
+
 # In[2]:
 
 def load_resources():
@@ -125,7 +127,10 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
             else:
                 raise e
 
-def structure_extraction(user_query: str):
+def structure_extraction(user_query: str, log_file):
+    # Extract event and object names from the OCEL log to provide as context for the LLM
+    event_names, object_names = events_and_objects_from_ocel(log_file)
+
     prompt = f"""
 You are extracting the structure of a process query.
 
@@ -136,6 +141,10 @@ Given a natural language query, identify:
 3. Relationships between events (before, after, etc.)
 4. Cardinality constraints (e.g., exactly once, at least once)
 5. Whether nesting is needed (yes/no)
+
+The events and objects must be chosen from the following lists extracted from the log:
+Events: {event_names}
+Objects: {object_names}
 
 Return ONLY JSON in this format:
 
@@ -269,7 +278,7 @@ ONLY output valid JSON.
 
 def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json"):
     print("Starting NL to OCPQ pipeline...")
-    structure = structure_extraction(query)
+    structure = structure_extraction(query, ocel_path)
     print("Structure extraction completed.")
     print("Tree generation in progress...")
     time.sleep(3)
