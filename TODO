@@ -1,7 +1,5 @@
-- Diversify the dataset to avoid scenarios where OCPQ queries causing huge computations are generated.
-- Let the LLM learn the structure of OCPQ instead of performing huge jumps from prompt to query
-- Add ability to run the generated OCPQ for a given event log.
-- Add a Streamlit interface to interact with the LLM.
-- Give the event and object names to the LLM in the first prompt and see whether there is any performance improvement.
 - Add query examples that use CEL
 - Use Unsloth or similar to train the model on a dataset.
+- Check whether a different method of embedding would change something.
+- Understand what the end result after running a query means.
+- Put some performance criteria to compare LLMs and different methods.
