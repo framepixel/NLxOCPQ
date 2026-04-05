@@ -161,7 +161,7 @@ Query:
 """
     # Upgrading to a more powerful model for better schema adherence
     response = call_hf_with_retry(
-        model="meta-llama/Meta-Llama-3-8B-Instruct", 
+        model="meta-llama/Meta-Llama-3-70B", 
         messages=[
             {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
             {"role": "user", "content": prompt}
@@ -205,7 +205,7 @@ Return ONLY JSON:
 """
     # Upgrading to a more powerful model for better schema adherence
     response = call_hf_with_retry(
-        model="meta-llama/Meta-Llama-3-8B-Instruct", 
+        model="meta-llama/Meta-Llama-3-70B", 
         messages=[
             {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
             {"role": "user", "content": prompt}
@@ -264,7 +264,7 @@ ONLY output valid JSON.
 
     # Upgrading to a more powerful model for better schema adherence
     response = call_hf_with_retry(
-        model="meta-llama/Meta-Llama-3-8B-Instruct", 
+        model="meta-llama/Meta-Llama-3-70B", 
         messages=[
             {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
             {"role": "user", "content": prompt}
