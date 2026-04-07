@@ -252,7 +252,7 @@ Return ONLY JSON:
     return parse_llm_json(content)
 
 
-def nl_to_ocpq_rag(query, dataset, embeddings, json_tree, query_types=None, model_name=None):
+def nl_to_ocpq_rag(query, dataset, embeddings, json_tree, structure, query_types=None, model_name=None):
     if query_types is None:
         query_types = ["nl"]
         
@@ -291,10 +291,15 @@ Here is the logical plan (query tree) for the query.
 LOGICAL PLAN (DO NOT USE THIS AS THE OUTPUT SCHEMA, JUST USE IT TO UNDERSTAND THE LOGIC AND HIERARCHY):
 {json_tree}
 
+EXTRACTED STRUCTURE (USE THESE EXACT EVENTS AND OBJECTS):
+{json.dumps(structure, indent=2)}
+
+WARNING: The examples below are from different domains. DO NOT copy their events (like "submit application") or objects (like "candidates"). You MUST map the logic from the examples to the events and objects in the EXTRACTED STRUCTURE above!
+
 Use these examples for the EXACT output schema:
 {few_shot_string}
 
-Now generate the final OCPQ JSON.
+Now generate the final OCPQ JSON for the exact user query: '{query}'
 ONLY output valid JSON.
 """
 
@@ -324,7 +329,7 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     print("Tree generation completed.")
     print("Generating final OCPQ JSON...")
     time.sleep(3)
-    ocpq_json = nl_to_ocpq_rag(query, dataset, embeddings, json_tree, model_name=selected_model)
+    ocpq_json = nl_to_ocpq_rag(query, dataset, embeddings, json_tree, structure, model_name=selected_model)
     print("OCPQ JSON generation completed.")
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
@@ -348,15 +353,15 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     query_result = None
     query_result_file_path = None
     
-    if not is_safe_query(ocpq_json):
-        query_result = "Error: Blocked unsafe query lacking O2E structural filters (prevents OOM crash)."
+    # if not is_safe_query(ocpq_json):
+    #     query_result = "Error: Blocked unsafe query lacking O2E structural filters (prevents OOM crash)."
+    #     print(query_result)
+    # else:
+    try:
+        from QueryExecutor import run_ocpq_query
+        query_result, query_result_file_path = run_ocpq_query(ocel_path, output_file)
+    except Exception as e:
+        query_result = f"Error running query automatically: {e}"
         print(query_result)
-    else:
-        try:
-            from QueryExecutor import run_ocpq_query
-            query_result, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-        except Exception as e:
-            query_result = f"Error running query automatically: {e}"
-            print(query_result)
         
     return structure, json_tree, ocpq_json, query_result, query_result_file_path
