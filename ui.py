@@ -1,7 +1,19 @@
-import streamlit as st
 import os
 import glob
 import time
+import warnings
+import logging
+
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+logging.getLogger("transformers").setLevel(logging.ERROR)
+
+import streamlit as st
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"Accessing `__path__` from .*Returning `__path__` instead\. Behavior may be different and this alias will be removed in future versions\.",
+)
+
 from LLM import set_hf_client, nl_to_ocpq_pipeline, dataset, embeddings
 
 def main():

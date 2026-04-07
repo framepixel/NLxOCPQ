@@ -38,10 +38,24 @@ def get_embedding(text):
     return model.encode(text)
 
 hf_client = None
+hf_model = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
+hf_provider = os.getenv("HF_PROVIDER")
 
-def set_hf_client(token):
+def set_hf_client(token, provider=None):
     global hf_client
-    hf_client = InferenceClient(api_key=token)
+    selected_provider = provider or hf_provider
+    if selected_provider:
+        hf_client = InferenceClient(api_key=token, provider=selected_provider)
+    else:
+        hf_client = InferenceClient(api_key=token)
+
+def set_hf_model(model_name):
+    global hf_model
+    hf_model = model_name
+
+def set_hf_provider(provider_name):
+    global hf_provider
+    hf_provider = provider_name
 
 # In[3]:
 
@@ -108,6 +122,11 @@ def parse_llm_json(content):
 # In[7]:
 
 def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries=5):
+    if hf_client is None:
+        raise RuntimeError(
+            "HF client is not initialized. Call set_hf_client(token, provider=...) first."
+        )
+
     for attempt in range(max_retries):
         try:
             return hf_client.chat_completion(
@@ -117,6 +136,21 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
                 response_format=response_format
             )
         except Exception as e:
+            err_text = str(e)
+            unsupported_model = (
+                "model_not_supported" in err_text
+                or "not supported by any provider" in err_text
+                or "not a chat model" in err_text
+            )
+
+            if unsupported_model:
+                raise RuntimeError(
+                    "Selected model/provider is not usable for chat_completion. "
+                    f"model='{model}', provider='{hf_provider or 'auto'}'. "
+                    "Pick a chat-capable model that is available for your enabled provider, "
+                    "or set a different provider in set_hf_client(token, provider=...) / HF_PROVIDER."
+                ) from e
+
             if "429" in str(e):
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 5
@@ -127,7 +161,7 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
             else:
                 raise e
 
-def structure_extraction(user_query: str, log_file):
+def structure_extraction(user_query: str, log_file, model_name=None):
     # Extract event and object names from the OCEL log to provide as context for the LLM
     event_names, object_names = events_and_objects_from_ocel(log_file)
 
@@ -159,9 +193,9 @@ Return ONLY JSON in this format:
 Query:
 {user_query}
 """
-    # Upgrading to a more powerful model for better schema adherence
+    selected_model = model_name or hf_model
     response = call_hf_with_retry(
-        model="meta-llama/Meta-Llama-3-70B", 
+        model=selected_model,
         messages=[
             {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
             {"role": "user", "content": prompt}
@@ -173,7 +207,7 @@ Query:
     content = response.choices[0].message.content
     return parse_llm_json(content)
 
-def query_tree_generation(structure):
+def query_tree_generation(structure, model_name=None):
     prompt = f"""
 You are designing an OCPQ query tree.
 
@@ -203,9 +237,9 @@ Return ONLY JSON:
   ]
 }}
 """
-    # Upgrading to a more powerful model for better schema adherence
+    selected_model = model_name or hf_model
     response = call_hf_with_retry(
-        model="meta-llama/Meta-Llama-3-70B", 
+        model=selected_model,
         messages=[
             {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
             {"role": "user", "content": prompt}
@@ -218,7 +252,7 @@ Return ONLY JSON:
     return parse_llm_json(content)
 
 
-def nl_to_ocpq_rag(query, dataset, embeddings, json_tree, query_types=None):
+def nl_to_ocpq_rag(query, dataset, embeddings, json_tree, query_types=None, model_name=None):
     if query_types is None:
         query_types = ["nl"]
         
@@ -247,9 +281,11 @@ The "Box" value MUST always be an array with exactly TWO elements:
 2. An array of child node indices (e.g., [], [1]).
 
 CONSTRAINT SCHEMA: 
-The constraints in your JSON MUST ONLY use the following variants:
-"O2E", "O2O", "TimeBetweenEvents", "NotEqual", "EventAttributeValueFilter", "ObjectAttributeValueFilter", "BasicFilterCEL".
-Do NOT use variants like "TimeAfterEvent" or anything else not in this list.
+The constraints in your JSON MUST ONLY use the following top-level variants:
+"Filter", "SizeFilter", "SAT", "ANY", "NOT", "OR", "AND".
+Basic filter logic like "TimeBetweenEvents", "NotEqual", "EventAttributeValueFilter", "ObjectAttributeValueFilter", "BasicFilterCEL" must be wrapped inside a {{ "type": "Filter", "filter": {{ ... }} }} constraint.
+Do NOT place "O2E" or "O2O" directly in constraints. They belong in the "filters" array of the node.
+If you use "NumChilds" or other size filters in the "sizeFilters" array, place them directly (e.g., {{ "type": "NumChilds", ... }}). Do NOT wrap them in a "SizeFilter" object unless you are placing them inside the "constraints" array.
 
 Here is the logical plan (query tree) for the query.
 LOGICAL PLAN (DO NOT USE THIS AS THE OUTPUT SCHEMA, JUST USE IT TO UNDERSTAND THE LOGIC AND HIERARCHY):
@@ -262,9 +298,9 @@ Now generate the final OCPQ JSON.
 ONLY output valid JSON.
 """
 
-    # Upgrading to a more powerful model for better schema adherence
+    selected_model = model_name or hf_model
     response = call_hf_with_retry(
-        model="meta-llama/Meta-Llama-3-70B", 
+        model=selected_model,
         messages=[
             {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
             {"role": "user", "content": prompt}
@@ -276,28 +312,51 @@ ONLY output valid JSON.
     content = response.choices[0].message.content
     return parse_llm_json(content)
 
-def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json"):
+def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
     print("Starting NL to OCPQ pipeline...")
-    structure = structure_extraction(query, ocel_path)
+    selected_model = model_name or hf_model
+    print(f"Using model: {selected_model}")
+    structure = structure_extraction(query, ocel_path, model_name=selected_model)
     print("Structure extraction completed.")
     print("Tree generation in progress...")
     time.sleep(3)
-    json_tree = query_tree_generation(structure)
+    json_tree = query_tree_generation(structure, model_name=selected_model)
     print("Tree generation completed.")
     print("Generating final OCPQ JSON...")
     time.sleep(3)
-    ocpq_json = nl_to_ocpq_rag(query, dataset, embeddings, json_tree)
+    ocpq_json = nl_to_ocpq_rag(query, dataset, embeddings, json_tree, model_name=selected_model)
     print("OCPQ JSON generation completed.")
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
         
+    # Heuristic constraint check to prevent OOM combinations
+    def is_safe_query(q_json):
+        if not q_json or "nodes" not in q_json: 
+            return True
+        for node in q_json.get("nodes", []):
+            box_data = node.get("Box", [{}])[0]
+            if isinstance(box_data, dict):
+                has_events = bool(box_data.get("newEventVars"))
+                has_objects = bool(box_data.get("newObjectVars"))
+                # If a box has both events and objects, it MUST have O2E link filters to prevent Cartesian product explosion
+                if has_events and has_objects:
+                    has_o2e = any(f.get("type") == "O2E" for f in box_data.get("filters", []))
+                    if not has_o2e:
+                        return False
+        return True
+
     query_result = None
     query_result_file_path = None
-    try:
-        from QueryExecutor import run_ocpq_query
-        query_result, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-    except Exception as e:
-        query_result = f"Error running query automatically: {e}"
+    
+    if not is_safe_query(ocpq_json):
+        query_result = "Error: Blocked unsafe query lacking O2E structural filters (prevents OOM crash)."
         print(query_result)
+    else:
+        try:
+            from QueryExecutor import run_ocpq_query
+            query_result, query_result_file_path = run_ocpq_query(ocel_path, output_file)
+        except Exception as e:
+            query_result = f"Error running query automatically: {e}"
+            print(query_result)
         
     return structure, json_tree, ocpq_json, query_result, query_result_file_path
