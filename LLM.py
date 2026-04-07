@@ -59,6 +59,16 @@ def set_hf_provider(provider_name):
 
 # In[3]:
 
+def validate_query(q):
+    try:
+        assert "nodes" in q
+        for node in q["nodes"]:
+            box = node["Box"]
+            assert isinstance(box, list) and len(box) == 2
+            assert "newEventVars" in box[0]
+        return True
+    except:
+        return False
 
 def retrieve_examples(query, dataset, embeddings, top_k=3):
     """
@@ -161,6 +171,7 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
             else:
                 raise e
 
+# Step 1: Extract structure from NL query
 def structure_extraction(user_query: str, log_file, model_name=None):
     # Extract event and object names from the OCEL log to provide as context for the LLM
     event_names, object_names = events_and_objects_from_ocel(log_file)
@@ -207,6 +218,56 @@ Query:
     content = response.choices[0].message.content
     return parse_llm_json(content)
 
+# Step 1.5: Formalize the extracted structure into a more precise logical representation 
+# that can be used for tree generation and final OCPQ JSON generation. 
+# This is an optional intermediate step that can help improve the quality 
+# of the final output by providing a clearer representation of the query logic.
+def structure_formalization(structure, model_name=None):
+    prompt = f"""
+You are formalizing a process query.
+
+Given this extracted structure:
+
+{structure}
+
+Convert it into a precise logical representation using simple rules:
+
+- Use variables like e1, e2 for events
+- Use variables like o1 for objects
+- Express relations explicitly:
+  - before(e1, e2)
+  - exists(e1)
+  - count(e1) = 1
+- Link events to objects:
+  - relates(e1, o1)
+
+Return ONLY JSON:
+
+{{
+  "variables": {{
+    "events": {{...}},
+    "objects": {{...}}
+  }},
+  "logic": [
+    ...
+  ]
+}}
+"""
+    selected_model = model_name or hf_model
+    response = call_hf_with_retry(
+        model=selected_model,
+        messages=[
+            {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=2000,
+        response_format={"type": "json_object"}
+    )
+
+    content = response.choices[0].message.content
+    return parse_llm_json(content)
+
+# Step 2: Generate a query tree (logical plan) based on the extracted structure
 def query_tree_generation(structure, model_name=None):
     prompt = f"""
 You are designing an OCPQ query tree.
@@ -251,7 +312,7 @@ Return ONLY JSON:
     content = response.choices[0].message.content
     return parse_llm_json(content)
 
-
+# Step 3: Generate the final OCPQ JSON using RAG with retrieved examples for better grounding and adherence to schema
 def nl_to_ocpq_rag(query, dataset, embeddings, json_tree, structure, query_types=None, model_name=None):
     if query_types is None:
         query_types = ["nl"]
@@ -317,6 +378,76 @@ ONLY output valid JSON.
     content = response.choices[0].message.content
     return parse_llm_json(content)
 
+# Step 4: Verify the generated OCPQ JSON and ask the LLM to fix it if it's invalid or doesn't follow the schema. 
+# This is a safety net to improve the quality of the output before executing the query.
+def verify_ocpq_json(ocpq_json):
+    is_valid = validate_query(ocpq_json)
+    if not is_valid:
+        print("Generated OCPQ JSON is invalid. Asking LLM to fix it...")
+        prompt = f"""
+The following JSON is invalid or incomplete.
+
+Fix it so that:
+- It follows OCPQ schema
+- It correctly represents the query
+
+Return ONLY fixed JSON.
+
+JSON:
+{ocpq_json}
+"""
+        response = call_hf_with_retry(
+            model=hf_model,
+            messages=[
+                {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=2000,
+            response_format={"type": "json_object"}
+        )
+        content = response.choices[0].message.content
+        return parse_llm_json(content)
+    else:
+        print("Generated OCPQ JSON is valid.")
+        return ocpq_json
+
+# Step 5: (Optional) Perform semantic validation of the generated OCPQ JSON against the original query to ensure it captures the intent correctly.
+# This can be done by asking the LLM to explain the generated JSON and how it maps to the original query, and to identify any discrepancies or missing elements.
+def semantic_validation(ocpq_json, query):
+    prompt = f"""
+You are verifying an OCPQ query.
+
+User query:
+{query}
+
+Generated OCPQ JSON:
+{ocpq_json}
+
+Explain whether the query correctly captures the intent.
+
+If NOT:
+- explain the mistake
+- output a corrected JSON
+
+Return JSON:
+{{
+  "is_correct": true/false,
+  "issues": [...],
+  "fixed_query": {{...}}
+}}
+"""
+    response = call_hf_with_retry(
+        model=hf_model,
+        messages=[
+            {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=2000,
+        response_format={"type": "json_object"}
+    )
+    content = response.choices[0].message.content
+    return parse_llm_json(content)
+
 def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
     print("Starting NL to OCPQ pipeline...")
     selected_model = model_name or hf_model
@@ -330,6 +461,18 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     print("Generating final OCPQ JSON...")
     time.sleep(3)
     ocpq_json = nl_to_ocpq_rag(query, dataset, embeddings, json_tree, structure, model_name=selected_model)
+    time.sleep(3)
+    print("Final OCPQ JSON generation completed. Verifying JSON...")
+    ocpq_json = verify_ocpq_json(ocpq_json)
+    print("JSON verification completed.")
+    time.sleep(3)
+    final_validation = semantic_validation(ocpq_json, query)
+    if not final_validation.get("is_correct", False):
+        print("Semantic validation failed. Issues found:")
+        for issue in final_validation.get("issues", []):
+            print(f"- {issue}")
+        ocpq_json = final_validation.get("fixed_query", ocpq_json)
+        print("Applied semantic fixes to OCPQ JSON.")
     print("OCPQ JSON generation completed.")
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
