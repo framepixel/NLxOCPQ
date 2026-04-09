@@ -56,15 +56,23 @@ def run_ocpq_query(ocel_path, query_result_file):
         export_files = glob.glob(os.path.join(cli_dir, "ocpq-res-export-*.json"))
         latest_file = max(export_files, key=os.path.getmtime) if export_files else None
         
-        return res.stdout, latest_file
+        return res.stdout, res.stderr, latest_file
     except subprocess.CalledProcessError as e:
         print("--- Query Execution Failed ---")
-        if e.stdout.strip():
-            print("Stdout Dump:\n", e.stdout.strip())
-        if e.stderr.strip():
-            print("Stderr Dump:\n", e.stderr.strip())
+        
+        stdout_dump = e.stdout.strip()
+        stderr_dump = e.stderr.strip()
+        
+        # Filter stderr to only include the panic message if it exists
+        if "thread 'main'" in stderr_dump:
+            stderr_dump = stderr_dump[stderr_dump.find("thread 'main'"):]
+            
+        if stdout_dump:
+            print("Stdout Dump:\n", stdout_dump)
+        if stderr_dump:
+            print("Stderr Dump:\n", stderr_dump)
         print("-----------------------------\n")
-        return None, None
+        return stdout_dump, stderr_dump, None
 
 
 def _http_post_json(url, payload):

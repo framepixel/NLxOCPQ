@@ -448,6 +448,32 @@ Return JSON:
     content = response.choices[0].message.content
     return parse_llm_json(content)
 
+# Step 6: (Optional) If the query execution fails due to errors in the OCPQ JSON, ask the LLM to fix the JSON based on the error message and try executing again. 
+# This creates a feedback loop that can help refine the query iteratively until it works correctly.
+def fix_query(ocpq_json, error_message):
+    prompt = f"""
+The following OCPQ JSON query caused an error when executed:
+{ocpq_json}
+
+The error message was:
+{error_message}
+
+Please fix the query so that it is valid and can be executed without errors.
+
+Return ONLY the fixed JSON.
+"""
+    response = call_hf_with_retry(
+        model=hf_model,
+        messages=[
+            {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=2000,
+        response_format={"type": "json_object"}
+    )
+    content = response.choices[0].message.content
+    return parse_llm_json(content)
+
 def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
     print("Starting NL to OCPQ pipeline...")
     selected_model = model_name or hf_model
@@ -478,22 +504,23 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
         json.dump(ocpq_json, f, indent=2)
         
     # Heuristic constraint check to prevent OOM combinations
-    def is_safe_query(q_json):
-        if not q_json or "nodes" not in q_json: 
-            return True
-        for node in q_json.get("nodes", []):
-            box_data = node.get("Box", [{}])[0]
-            if isinstance(box_data, dict):
-                has_events = bool(box_data.get("newEventVars"))
-                has_objects = bool(box_data.get("newObjectVars"))
-                # If a box has both events and objects, it MUST have O2E link filters to prevent Cartesian product explosion
-                if has_events and has_objects:
-                    has_o2e = any(f.get("type") == "O2E" for f in box_data.get("filters", []))
-                    if not has_o2e:
-                        return False
-        return True
+    # def is_safe_query(q_json):
+    #     if not q_json or "nodes" not in q_json: 
+    #         return True
+    #     for node in q_json.get("nodes", []):
+    #         box_data = node.get("Box", [{}])[0]
+    #         if isinstance(box_data, dict):
+    #             has_events = bool(box_data.get("newEventVars"))
+    #             has_objects = bool(box_data.get("newObjectVars"))
+    #             # If a box has both events and objects, it MUST have O2E link filters to prevent Cartesian product explosion
+    #             if has_events and has_objects:
+    #                 has_o2e = any(f.get("type") == "O2E" for f in box_data.get("filters", []))
+    #                 if not has_o2e:
+    #                     return False
+    #     return True
 
     query_result = None
+    query_stderr = None
     query_result_file_path = None
     
     # if not is_safe_query(ocpq_json):
@@ -502,9 +529,28 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     # else:
     try:
         from QueryExecutor import run_ocpq_query
-        query_result, query_result_file_path = run_ocpq_query(ocel_path, output_file)
+        query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
     except Exception as e:
         query_result = f"Error running query automatically: {e}"
         print(query_result)
+    
+    # check for errors in query execution and attempt to fix the OCPQ JSON if there are errors, then re-run the query
+    # This can help catch issues that the initial validation missed and improve the robustness of the pipeline by allowing the LLM to 
+    # learn from execution errors and refine the query iteratively.
+    if query_stderr:
+        print("Query execution error output:\n", query_stderr)
+        fixed_json = fix_query(ocpq_json, query_stderr)
+        if fixed_json != ocpq_json:
+            print("Attempting to re-run fixed query...")
+            with open(output_file, "w") as f:
+                json.dump(fixed_json, f, indent=2)
+            try:
+                query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
+            except Exception as e:
+                query_result = f"Error running fixed query automatically: {e}"
+                print(query_result)
+            ocpq_json = fixed_json  # Update to the fixed version for return value
+        else:
+            print("LLM did not provide a different fixed query. Not re-running.")
         
     return structure, json_tree, ocpq_json, query_result, query_result_file_path
