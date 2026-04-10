@@ -4,6 +4,7 @@ import shutil
 import glob
 import json
 import time
+import signal
 from urllib import request, error
 
 def run_ocpq_query(ocel_path, query_result_file):
@@ -46,10 +47,29 @@ def run_ocpq_query(ocel_path, query_result_file):
     ]
     
     print(f"\nExecuting OCPQ CLI query locally...")
+    
+    process = None
     try:
-        res = subprocess.run(cmd, cwd=cli_dir, capture_output=True, text=True, check=True)
+        # start_new_session=True creates a new process group so we can cleanly kill BOTH cargo and the spawned Rust executable if Streamlit stops
+        process = subprocess.Popen(
+            cmd, 
+            cwd=cli_dir, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            text=True,
+            start_new_session=True
+        )
+        
+        # Wait for the process to finish
+        stdout, stderr = process.communicate()
+        
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(
+                process.returncode, cmd, output=stdout, stderr=stderr
+            )
+            
         print("--- Query Execution Result ---")
-        print(res.stdout.strip())
+        print(stdout.strip())
         print("-----------------------------\n")
         
         # Find the latest exported JSON file in the cli directory
@@ -57,23 +77,39 @@ def run_ocpq_query(ocel_path, query_result_file):
         latest_file = max(export_files, key=os.path.getmtime) if export_files else None
         
         # On successful execution (exit code 0), we ignore `res.stderr` (e.g. rust/cargo warnings)
-        return res.stdout, None, latest_file
-    except subprocess.CalledProcessError as e:
-        print("--- Query Execution Failed ---")
+        return stdout, None, latest_file
         
-        stdout_dump = e.stdout.strip()
-        stderr_dump = e.stderr.strip()
-        
-        # Filter stderr to only include the panic message if it exists
-        if "thread 'main'" in stderr_dump:
-            stderr_dump = stderr_dump[stderr_dump.find("thread 'main'"):]
+    except BaseException as e:
+        # If the user presses "Stop" in Streamlit, it raises a custom ScriptRunner exception.
+        # This BaseException catch perfectly hooks into that flow so we can kill the underlying process.
+        if process and process.poll() is None:
+            print("\nExecution interrupted (e.g. Streamlit Stop)! Force-killing the sub-processes...")
+            try:
+                # Kill the entire process group so `cargo` and its spawned `ocpq_cli` binary both die instantly
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            except Exception as kill_err:
+                print(f"Failed to kill process: {kill_err}")
+                
+        # If it was a standard Cargo failure (e.g., syntax crash), parse it out as normal
+        if isinstance(e, subprocess.CalledProcessError):
+            print("--- Query Execution Failed ---")
             
-        if stdout_dump:
-            print("Stdout Dump:\n", stdout_dump)
-        if stderr_dump:
-            print("Stderr Dump:\n", stderr_dump)
-        print("-----------------------------\n")
-        return stdout_dump, stderr_dump, None
+            stdout_dump = e.stdout.strip() if e.stdout else ""
+            stderr_dump = e.stderr.strip() if e.stderr else ""
+            
+            # Filter stderr to only include the panic message if it exists
+            if "thread 'main'" in stderr_dump:
+                stderr_dump = stderr_dump[stderr_dump.find("thread 'main'"):]
+                
+            if stdout_dump:
+                print("Stdout Dump:\n", stdout_dump)
+            if stderr_dump:
+                print("Stderr Dump:\n", stderr_dump)
+            print("-----------------------------\n")
+            return stdout_dump, stderr_dump, None
+        else:
+            # Re-raise Streamlit's StopException / KeyboardInterrupt so the UI actually stops
+            raise e
 
 
 def _http_post_json(url, payload):
