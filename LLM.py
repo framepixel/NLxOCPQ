@@ -12,8 +12,9 @@ import time
 from sklearn.metrics.pairwise import cosine_similarity
 
 from sentence_transformers import SentenceTransformer
-
 from huggingface_hub import InferenceClient
+
+from ocpq_schema import OCPQ_JSON_SCHEMA
 
 from LogEvents import events_and_objects_from_ocel
 
@@ -524,11 +525,19 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
             )
     few_shot_string = "\n\n".join(example_prompts)
 
-    prompt_3 = f"Now, based on your previous reasoning, output the final OCPQ JSON matching the Exact Schema.\n\nUse these examples as references for the output syntax. DO NOT copy their logic unless it applies to this specific user query:\n{few_shot_string}\n\nOutput ONLY valid JSON wrapped in a markdown code block:\n```json\n...\n```"
+    prompt_3 = f"Now, based on your previous reasoning, output the final OCPQ JSON matching the Exact Schema.\n\nUse these examples as references for the output syntax. DO NOT copy their logic unless it applies to this specific user query:\n{few_shot_string}\n\nOutput strictly and ONLY valid JSON matching the exact schema."
     messages.append({"role": "user", "content": prompt_3})
-    messages[0] = {"role": "system", "content": "You are a JSON-only API. Output valid JSON formatted tightly in markdown blocks when requested."} # Update system to mandate JSON for final step
+    messages[0] = {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema."} 
     
-    response_3 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=2000, response_format=None)
+    response_3 = call_hf_with_retry(
+        model=selected_model, 
+        messages=messages, 
+        max_tokens=2000, 
+        response_format={
+            "type": "json_schema", 
+            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True}
+        }
+    )
     content = response_3.choices[0].message.content
     ocpq_json = parse_llm_json(content)
     messages.append({"role": "assistant", "content": content})
@@ -553,7 +562,8 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
         print(query_result)
     
     # Auto-fix using the chat history context block
-    if query_stderr:
+    # Only try to fix if an actual execution error (stderr from a crash/panic) occurred
+    if query_stderr and not query_stderr.strip().startswith("warning:"):
         print("Query execution error output:\n", query_stderr)
         
         prompt_4 = f"The generated JSON query caused this execution error:\n{query_stderr}\n\nPlease fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."

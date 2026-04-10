@@ -10,3 +10,4 @@ jupyter
 accelerate
 bitsandbytes
 streamlit
+pydantic
