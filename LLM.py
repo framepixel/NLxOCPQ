@@ -110,9 +110,12 @@ import re
 import ast
 
 def parse_llm_json(content):
-    # Extract json chunk
-    match = re.search(r'\{.*\}', content, re.DOTALL)
-    clean_content = match.group(0) if match else content.strip()
+    # Target json code blocks specifically
+    match = re.search(r'```(?:json)?\n(.*?)\n```', content, re.DOTALL)
+    if not match:
+        match = re.search(r'\{.*\}', content, re.DOTALL)
+        
+    clean_content = match.group(1) if match.lastindex else (match.group(0) if match else content.strip())
     
     # Auto-heal truncated JSON
     if not clean_content.endswith("}"):
@@ -474,59 +477,74 @@ Return ONLY the fixed JSON.
     content = response.choices[0].message.content
     return parse_llm_json(content)
 
+# Step 1: Use a single continuous chat context with Least-to-Most Prompting
 def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
-    print("Starting NL to OCPQ pipeline...")
+    print("Starting Least-to-Most NL to OCPQ pipeline...")
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
-    structure = structure_extraction(query, ocel_path, model_name=selected_model)
-    print("Structure extraction completed.")
-    print("Tree generation in progress...")
+    
+    # Extract event and object names from the OCEL log
+    event_names, object_names = events_and_objects_from_ocel(ocel_path)
+
+    # Initialize the chat messages for context
+    messages = [
+        {"role": "system", "content": "You are a process mining expert that converts natural language into Object-Centric Process Queries (OCPQ). You must think step by step and respond concisely according to the prompts."}
+    ]
+
+    # Sub-problem 1: Extract entities mapping
+    prompt_1 = f"Given the user query, map the terms to the exact events and objects involved.\n\nCRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly to the EXACT valid names provided below. DO NOT use names that aren't in these lists.\n\nValid events: {event_names}\nValid objects: {object_names}\n\nQuery: {query}\n\nOutput a clear mapping of the elements found in the query to the valid events and objects. Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once'). Do not output JSON."
+    messages.append({"role": "user", "content": prompt_1})
+    
+    response_1 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    structure_text = response_1.choices[0].message.content
+    messages.append({"role": "assistant", "content": structure_text})
+    print("Sub-problem 1 completed: Entities extracted.")
     time.sleep(3)
-    json_tree = query_tree_generation(structure, model_name=selected_model)
-    print("Tree generation completed.")
-    print("Generating final OCPQ JSON...")
+
+    # Sub-problem 2: Plan tree topology
+    prompt_2 = "Based on the mapped elements, plan the logical tree structure for the OCPQ query.\n\nOCPQ PATTERN CHEAT SHEET:\n- 'completed within TIME': Requires 2 nodes. Parent node has Event A, Object A, and a constraint specifying 'SAT' on the child path. Child node has Event B and a 'TimeBetweenEvents' filter (max_seconds).\n- 'exactly once': Single node with Event A, Object A, and a SizeFilter on the child path (min:1, max:1).\n- 'at least once': Parent node with Event A, child node with Event B.\n- 'must not occur': Single node with a 'NOT' constraint on a child path.\n\nDescribe the exact tree structure (number of nodes, what goes in them, parent-child relationships, and exact filters/constraints) in plain text. Do not output JSON."
+    messages.append({"role": "user", "content": prompt_2})
+    
+    response_2 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    tree_text = response_2.choices[0].message.content
+    messages.append({"role": "assistant", "content": tree_text})
+    print("Sub-problem 2 completed: Tree structured planned.")
     time.sleep(3)
-    ocpq_json = nl_to_ocpq_rag(query, dataset, embeddings, json_tree, structure, model_name=selected_model)
+
+    # Sub-problem 3: Generate Final JSON
+    # Retrieve relevant examples that have reasoning
+    examples = retrieve_examples(query, dataset, embeddings)
+    example_prompts = []
+    for ex in examples:
+        qt = "nl"
+        if qt in ex:
+            reasoning = ex.get('reasoning', 'Step 1: Identify elements. Step 2: Establish logic. Step 3: Implement JSON.')
+            example_prompts.append(
+                f"Question: {ex[qt]}\nReasoning: {reasoning}\nJSON:\n{json.dumps(ex['query'], indent=2)}"
+            )
+    few_shot_string = "\n\n".join(example_prompts)
+
+    prompt_3 = f"Now, based on your previous reasoning, output the final OCPQ JSON matching the Exact Schema.\n\nUse these examples as references for the output syntax. DO NOT copy their logic unless it applies to this specific user query:\n{few_shot_string}\n\nOutput ONLY valid JSON wrapped in a markdown code block:\n```json\n...\n```"
+    messages.append({"role": "user", "content": prompt_3})
+    messages[0] = {"role": "system", "content": "You are a JSON-only API. Output valid JSON formatted tightly in markdown blocks when requested."} # Update system to mandate JSON for final step
+    
+    response_3 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=2000, response_format=None)
+    content = response_3.choices[0].message.content
+    ocpq_json = parse_llm_json(content)
+    messages.append({"role": "assistant", "content": content})
+    print("Sub-problem 3 completed: OCPQ JSON generated.")
     time.sleep(3)
-    print("Final OCPQ JSON generation completed. Verifying JSON...")
+
     ocpq_json = verify_ocpq_json(ocpq_json)
-    print("JSON verification completed.")
-    time.sleep(3)
-    final_validation = semantic_validation(ocpq_json, query)
-    if not final_validation.get("is_correct", False):
-        print("Semantic validation failed. Issues found:")
-        for issue in final_validation.get("issues", []):
-            print(f"- {issue}")
-        ocpq_json = final_validation.get("fixed_query", ocpq_json)
-        print("Applied semantic fixes to OCPQ JSON.")
-    print("OCPQ JSON generation completed.")
+    
+    # Execution validation unchanged
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
-        
-    # Heuristic constraint check to prevent OOM combinations
-    # def is_safe_query(q_json):
-    #     if not q_json or "nodes" not in q_json: 
-    #         return True
-    #     for node in q_json.get("nodes", []):
-    #         box_data = node.get("Box", [{}])[0]
-    #         if isinstance(box_data, dict):
-    #             has_events = bool(box_data.get("newEventVars"))
-    #             has_objects = bool(box_data.get("newObjectVars"))
-    #             # If a box has both events and objects, it MUST have O2E link filters to prevent Cartesian product explosion
-    #             if has_events and has_objects:
-    #                 has_o2e = any(f.get("type") == "O2E" for f in box_data.get("filters", []))
-    #                 if not has_o2e:
-    #                     return False
-    #     return True
 
     query_result = None
     query_stderr = None
     query_result_file_path = None
     
-    # if not is_safe_query(ocpq_json):
-    #     query_result = "Error: Blocked unsafe query lacking O2E structural filters (prevents OOM crash)."
-    #     print(query_result)
-    # else:
     try:
         from QueryExecutor import run_ocpq_query
         query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
@@ -534,12 +552,17 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
         query_result = f"Error running query automatically: {e}"
         print(query_result)
     
-    # check for errors in query execution and attempt to fix the OCPQ JSON if there are errors, then re-run the query
-    # This can help catch issues that the initial validation missed and improve the robustness of the pipeline by allowing the LLM to 
-    # learn from execution errors and refine the query iteratively.
+    # Auto-fix using the chat history context block
     if query_stderr:
         print("Query execution error output:\n", query_stderr)
-        fixed_json = fix_query(ocpq_json, query_stderr)
+        
+        prompt_4 = f"The generated JSON query caused this execution error:\n{query_stderr}\n\nPlease fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
+        messages.append({"role": "user", "content": prompt_4})
+        
+        fix_response = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=2000, response_format=None)
+        fixed_content = fix_response.choices[0].message.content
+        fixed_json = parse_llm_json(fixed_content)
+
         if fixed_json != ocpq_json:
             print("Attempting to re-run fixed query...")
             with open(output_file, "w") as f:
@@ -549,8 +572,6 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
             except Exception as e:
                 query_result = f"Error running fixed query automatically: {e}"
                 print(query_result)
-            ocpq_json = fixed_json  # Update to the fixed version for return value
-        else:
-            print("LLM did not provide a different fixed query. Not re-running.")
-        
-    return structure, json_tree, ocpq_json, query_result, query_result_file_path
+            ocpq_json = fixed_json
+
+    return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
