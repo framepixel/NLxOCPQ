@@ -1,7 +1,61 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Union, Literal, Any
+from typing import List, Dict, Optional, Union, Literal, Any, Annotated
 
-# --- OCPQ JSON SCHEMA DEFINITIONS ---
+# --- TYPES AND VARIABLES ---
+
+class VariableEvent(BaseModel):
+    Event: int
+
+class VariableObject(BaseModel):
+    Object: int
+
+QueryVariable = Union[VariableEvent, VariableObject]
+
+# --- VALUE FILTERS ---
+
+class ValueFilterFloat(BaseModel):
+    type: Literal["Float"]
+    min: Optional[float] = None
+    max: Optional[float] = None
+
+class ValueFilterInteger(BaseModel):
+    type: Literal["Integer"]
+    min: Optional[int] = None
+    max: Optional[int] = None
+
+class ValueFilterBoolean(BaseModel):
+    type: Literal["Boolean"]
+    is_true: bool
+
+class ValueFilterString(BaseModel):
+    type: Literal["String"]
+    is_in: List[str]
+
+class ValueFilterTime(BaseModel):
+    type: Literal["Time"]
+    from_: Optional[str] = Field(None, alias="from")
+    to: Optional[str] = None
+
+QueryValueFilter = Annotated[Union[
+    ValueFilterFloat, ValueFilterInteger, ValueFilterBoolean, 
+    ValueFilterString, ValueFilterTime
+], Field(discriminator="type")]
+
+class TimepointAlways(BaseModel):
+    type: Literal["Always"]
+
+class TimepointSometime(BaseModel):
+    type: Literal["Sometime"]
+
+class TimepointAtEvent(BaseModel):
+    type: Literal["AtEvent"]
+    event: int
+
+QueryObjectValueFilterTimepoint = Annotated[Union[
+    TimepointAlways, TimepointSometime, TimepointAtEvent
+], Field(discriminator="type")]
+
+# --- OCPQ FILTERS ---
 
 class FilterO2E(BaseModel):
     type: Literal["O2E"]
@@ -26,30 +80,32 @@ class FilterTimeBetweenEvents(BaseModel):
 
 class FilterNotEqual(BaseModel):
     type: Literal["NotEqual"]
-    var_1: Any
-    var_2: Any
+    var_1: QueryVariable
+    var_2: QueryVariable
 
 class FilterEventAttributeValueFilter(BaseModel):
     type: Literal["EventAttributeValueFilter"]
     event: int
     attribute_name: str
-    value_filter: Any
+    value_filter: QueryValueFilter
 
 class FilterObjectAttributeValueFilter(BaseModel):
     type: Literal["ObjectAttributeValueFilter"]
     object: int
     attribute_name: str
-    at_time: Any
-    value_filter: Any
+    at_time: QueryObjectValueFilterTimepoint
+    value_filter: QueryValueFilter
 
 class FilterBasicFilterCEL(BaseModel):
     type: Literal["BasicFilterCEL"]
     cel: str
 
-QueryFilter = Union[
+QueryFilter = Annotated[Union[
     FilterO2E, FilterO2O, FilterTimeBetweenEvents, FilterNotEqual, 
     FilterEventAttributeValueFilter, FilterObjectAttributeValueFilter, FilterBasicFilterCEL
-]
+], Field(discriminator="type")]
+
+# --- OCPQ SIZE FILTERS ---
 
 class SizeFilterNumChilds(BaseModel):
     type: Literal["NumChilds"]
@@ -57,15 +113,17 @@ class SizeFilterNumChilds(BaseModel):
     min: Optional[int] = None
     max: Optional[int] = None
 
-QuerySizeFilter = Union[SizeFilterNumChilds]
+QuerySizeFilter = Annotated[Union[SizeFilterNumChilds], Field(discriminator="type")]
+
+# --- OCPQ CONSTRAINTS ---
 
 class ConstraintFilterWrap(BaseModel):
     type: Literal["Filter"]
-    filter: QueryFilter = Field(discriminator="type")
+    filter: QueryFilter
 
 class ConstraintSizeFilterWrap(BaseModel):
     type: Literal["SizeFilter"]
-    filter: QuerySizeFilter = Field(discriminator="type")
+    filter: QuerySizeFilter
 
 class ConstraintSAT(BaseModel):
     type: Literal["SAT"]
@@ -87,10 +145,12 @@ class ConstraintAND(BaseModel):
     type: Literal["AND"]
     child_names: List[str]
 
-QueryConstraint = Union[
+QueryConstraint = Annotated[Union[
     ConstraintFilterWrap, ConstraintSizeFilterWrap, ConstraintSAT, 
     ConstraintANY, ConstraintNOT, ConstraintOR, ConstraintAND
-]
+], Field(discriminator="type")]
+
+# --- TREE NODES ---
 
 class BindingBoxData(BaseModel):
     newEventVars: Dict[str, List[str]]
@@ -98,8 +158,8 @@ class BindingBoxData(BaseModel):
     filters: List[QueryFilter]
     sizeFilters: List[QuerySizeFilter]
     constraints: List[QueryConstraint]
-    evVarLabels: Dict[str, str] = Field(default_factory=dict)
-    obVarLabels: Dict[str, str] = Field(default_factory=dict)
+    evVarLabels: Dict[str, str]
+    obVarLabels: Dict[str, str]
 
 class BindingBoxTreeNodeBox(BaseModel):
     Box: tuple[BindingBoxData, List[int]]
