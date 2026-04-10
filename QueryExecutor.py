@@ -56,7 +56,8 @@ def run_ocpq_query(ocel_path, query_result_file):
         export_files = glob.glob(os.path.join(cli_dir, "ocpq-res-export-*.json"))
         latest_file = max(export_files, key=os.path.getmtime) if export_files else None
         
-        return res.stdout, res.stderr, latest_file
+        # On successful execution (exit code 0), we ignore `res.stderr` (e.g. rust/cargo warnings)
+        return res.stdout, None, latest_file
     except subprocess.CalledProcessError as e:
         print("--- Query Execution Failed ---")
         
