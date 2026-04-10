@@ -223,7 +223,30 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     ]
 
     # Sub-problem 1: Extract entities mapping
-    prompt_1 = f"Given the user query, map the terms to the exact events and objects involved.\n\nCRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly to the EXACT valid names provided below. DO NOT use names that aren't in these lists.\n\nValid events: {event_names}\nValid objects: {object_names}\n\nQuery: {query}\n\nOutput a clear mapping of the elements found in the query to the valid events and objects. Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once'). Do not output JSON."
+    prompt_1 = f"""
+You are extracting the structure of a process query.
+
+Given a natural language query, identify:
+
+1. Events involved
+2. Objects involved
+3. Relationships between events (before, after, etc.)
+4. Cardinality constraints (e.g., exactly once, at least once)
+5. Whether nesting is needed (yes/no)
+
+Return ONLY JSON in this format:
+
+{{
+  "events": [...],
+  "objects": [...],
+  "relations": [...],
+  "constraints": [...],
+  "requires_nesting": true/false
+}}
+
+Query:
+{query}
+"""
     messages.append({"role": "user", "content": prompt_1})
     
     response_1 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
@@ -233,7 +256,35 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     time.sleep(3)
 
     # Sub-problem 2: Plan tree topology
-    prompt_2 = "Based on the mapped elements, plan the logical tree structure for the OCPQ query.\n\nOCPQ PATTERN CHEAT SHEET:\n- 'completed within TIME': Requires 2 nodes. Parent node has Event A, Object A, and a constraint specifying 'SAT' on the child path. Child node has Event B and a 'TimeBetweenEvents' filter (max_seconds).\n- 'exactly once': Single node with Event A, Object A, and a SizeFilter on the child path (min:1, max:1).\n- 'at least once': Parent node with Event A, child node with Event B.\n- 'must not occur': Single node with a 'NOT' constraint on a child path.\n\nDescribe the exact tree structure (number of nodes, what goes in them, parent-child relationships, and exact filters/constraints) in plain text. Do not output JSON."
+    prompt_2 = f"""
+You are designing an OCPQ query tree.
+
+Given this extracted structure:
+
+{structure_text}
+
+Decide:
+
+- Number of nodes
+- What each node represents
+- Parent-child relationships
+
+Return ONLY JSON:
+
+{{
+  "nodes": [
+    {{
+      "id": 0,
+      "description": "...",
+      "events": [...],
+      "objects": [...]
+    }}
+  ],
+  "edges": [
+    {{"from": 0, "to": 1, "label": "A"}}
+  ]
+}}
+"""
     messages.append({"role": "user", "content": prompt_2})
     
     response_2 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
@@ -255,7 +306,27 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
             )
     few_shot_string = "\n\n".join(example_prompts)
 
-    prompt_3 = f"Now, based on your previous reasoning, output the final OCPQ JSON matching the Exact Schema.\n\nUse these examples as references for the output syntax. DO NOT copy their logic unless it applies to this specific user query:\n{few_shot_string}\n\nOutput strictly and ONLY valid JSON matching the exact schema."
+    prompt_3 = f"""
+You are generating OCPQ JSON.
+
+CRITICAL SCHEMA REQUIREMENT:
+Output ONLY valid JSON matching the exact schema shown in the examples.
+The root object should minimally contain an array of "nodes".
+Each node in the "nodes" array MUST be an object with a single key "Box" (and optionally "[", "]" keys depending on the syntax).
+The "Box" value MUST always be an array with exactly TWO elements:
+1. The node data dictionary (containing newEventVars, newObjectVars, filters, sizeFilters, constraints, evVarLabels, obVarLabels).
+2. An array of child node indices (e.g., [], [1]).
+
+Here is the logical plan (query tree) for the query.
+LOGICAL PLAN (DO NOT USE THIS AS THE OUTPUT SCHEMA, JUST USE IT TO UNDERSTAND THE LOGIC AND HIERARCHY):
+{tree_text}
+
+Use these examples for the EXACT output schema:
+{few_shot_string}
+
+Now generate the final OCPQ JSON.
+ONLY output valid JSON.
+"""
     messages.append({"role": "user", "content": prompt_3})
     messages[0] = {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema."} 
     
