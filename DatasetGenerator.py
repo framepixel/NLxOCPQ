@@ -271,6 +271,41 @@ def generate_example():
                   .replace("NUM2", str(num2))\
                   .replace("NUM", str(num))
 
+    # Generate reasoning for Least-to-Most prompting
+    reasoning = f"Step 1: The query involves events '{A}' and '{B}', and objects '{obj_a}' and '{obj_b}' (if applicable). "
+    if "exactly once" in pattern:
+        reasoning += f"Step 2: The constraint specifies that '{A}' must occur exactly once for '{obj_a}'. "
+        reasoning += f"Step 3: This translates to a single node containing both events and objects, and a size filter of exactly 1 for the related child edge representing '{A}'."
+    elif "at least once" in pattern:
+        reasoning += f"Step 2: The constraint specifies that after '{A}' occurs for '{obj_a}', '{B}' must also occur at least once. "
+        reasoning += f"Step 3: This translates to a parent node for '{obj_a}' and '{A}', with an edge mapping to a child node for '{B}'."
+    elif "at least NUM2" in pattern:
+        reasoning += f"Step 2: The constraint expects '{obj_a}' to have at least {num} '{obj_b}' where '{B}' occurs at least {num2} times after '{A}'. "
+        reasoning += f"Step 3: This requires a 3-node structure: '{obj_a}' connected to '{obj_b}'+'{A}', which connects to '{B}'."
+    elif "completed within" in pattern:
+        reasoning += f"Step 2: '{B}' must be completed within {t} {time_unit} after '{A}' for any '{obj_a}'. "
+        reasoning += f"Step 3: This requires a SAT constraint for '{A}' and a child node linking to '{B}' with a TimeBetweenEvents filter of {t_sec} seconds."
+    elif "at most NUM" in pattern:
+        reasoning += f"Step 2: For any '{obj_a}' with at most {num} '{obj_b}', '{B}' must occur within {t} {time_unit} after '{A}'. "
+        reasoning += f"Step 3: This requires a root node for '{A}' and '{obj_a}' with branching edges to '{obj_b}' (capped by a SizeFilter of max {num}) and '{B}' (filtered by a TimeBetweenEvents of {t_sec} seconds)."
+    elif "for which the EVENT_A" in pattern:
+        reasoning += f"Step 2: Each '{obj_a}' must have at least {num} associated '{obj_b}' where '{A}' occurs. "
+        reasoning += f"Step 3: This is a parent node for '{obj_a}' with a SizeFilter ensuring at least {num} child nodes containing '{A}' and '{obj_b}'."
+    elif "before" in pattern or "eventually" in pattern:
+        reasoning += f"Step 2: '{A}' occurs before or eventually leads to '{B}'. "
+        reasoning += f"Step 3: A single node with a TimeBetweenEvents filter from '{A}' to '{B}' with no maximum time."
+    elif "within TIME" in pattern:
+        reasoning += f"Step 2: '{B}' happens within {t} {time_unit} after '{A}'. "
+        reasoning += f"Step 3: A single node with a TimeBetweenEvents filter from '{A}' to '{B}' up to {t_sec} seconds."
+    elif "must not occur" in pattern:
+        reasoning += f"Step 2: '{B}' must not occur after '{A}'. "
+        reasoning += f"Step 3: A single node referencing a child edge inside a NOT constraint."
+    elif "refer to the same" in pattern:
+        reasoning += f"Step 2: '{A}' and '{B}' must refer to the same '{obj_a}'. "
+        reasoning += f"Step 3: A single node containing '{A}', '{B}', and '{obj_a}' with O2E link filters."
+    else:
+        reasoning += "Step 2: Relate the identified elements. Step 3: Map to generic OCPQ single node."
+
     # Pattern handling: multi-node vs single-node trees
     if "exactly once" in pattern:
         # Two-node exactly once mapping (min: 1, max: 1)
@@ -309,7 +344,7 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"]]
         }
-        return {"nl": text, "query": ocpq_tree}
+        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
         
     elif "at least once" in pattern:
         ocpq_tree = {
@@ -350,7 +385,7 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"]]
         }
-        return {"nl": text, "query": ocpq_tree}
+        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
         
     elif "at least NUM2" in pattern:
         # Deep nested tree structure (A -> B -> C)
@@ -406,7 +441,7 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"], [[1, 2], "B"]] # Ordered hierarchical edges
         }
-        return {"nl": text, "query": ocpq_tree}
+        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
 
     elif "completed within" in pattern:
         # Parent-child structure using the SAT constraint
@@ -453,7 +488,7 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"]]
         }
-        return {"nl": text, "query": ocpq_tree}
+        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
         
     elif "at most NUM" in pattern:
         # Multi-node structure with two distinct child branches
@@ -511,7 +546,7 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"], [[0, 2], "B"]]
         }
-        return {"nl": text, "query": ocpq_tree}
+        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
     
     elif "for which the EVENT_A" in pattern:
         # Construct the OCPQ tree representing the parent-child node logic 
@@ -552,7 +587,7 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"]]
         }
-        return {"nl": text, "query": ocpq_tree}
+        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
 
     # Dynamically inject constraints based on single-node patterns
     constraints = []
@@ -599,7 +634,7 @@ def generate_example():
             "edgeNames": []
     }
 
-    return {"nl": text, "query": ocpq_tree}
+    return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
 
 # In[9]:
 
@@ -640,6 +675,7 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
                 updated_example["nl_clean_2"] = rewrites_batch[j].get("nl_clean_2", ex["nl"])
             
             updated_example["query"] = ex["query"]
+            updated_example["reasoning"] = ex["reasoning"]
             dataset.append(updated_example)
             
         print(f"Processed {len(dataset)} / {num_samples} examples", end="\r")
