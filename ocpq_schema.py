@@ -55,6 +55,8 @@ QueryObjectValueFilterTimepoint = Annotated[Union[
     TimepointAlways, TimepointSometime, TimepointAtEvent
 ], Field(discriminator="type")]
 
+FilterLabel = Literal["IGNORED", "INCLUDED", "EXCLUDED"]
+
 # --- OCPQ FILTERS ---
 
 class FilterO2E(BaseModel):
@@ -62,14 +64,14 @@ class FilterO2E(BaseModel):
     object: int
     event: int
     qualifier: Optional[str] = None
-    filter_label: Optional[str] = None
+    filter_label: Optional[FilterLabel] = Field(None, alias="filterLabel")
 
 class FilterO2O(BaseModel):
     type: Literal["O2O"]
     object: int
     other_object: int
     qualifier: Optional[str] = None
-    filter_label: Optional[str] = None
+    filter_label: Optional[FilterLabel] = Field(None, alias="filterLabel")
 
 class FilterTimeBetweenEvents(BaseModel):
     type: Literal["TimeBetweenEvents"]
@@ -158,8 +160,8 @@ class BindingBoxData(BaseModel):
     filters: List[QueryFilter]
     sizeFilters: List[QuerySizeFilter]
     constraints: List[QueryConstraint]
-    evVarLabels: Dict[str, str]
-    obVarLabels: Dict[str, str]
+    evVarLabels: Dict[str, FilterLabel]
+    obVarLabels: Dict[str, FilterLabel]
 
 class BindingBoxTreeNodeBox(BaseModel):
     Box: tuple[BindingBoxData, List[int]]
