@@ -13,8 +13,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from sentence_transformers import SentenceTransformer
 from huggingface_hub import InferenceClient
+from pydantic import ValidationError
 
-from ocpq_schema import OCPQ_JSON_SCHEMA
+from ocpq_schema import OCPQ_JSON_SCHEMA, BindingBoxTree
 
 from LogEvents import events_and_objects_from_ocel
 
@@ -175,11 +176,44 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
             else:
                 raise e
 
+def validate_and_normalize_ocpq_json(ocpq_json):
+    """
+    Strictly validate against the Pydantic BindingBoxTree model.
+    Returns a normalized JSON dict (aliases applied) when valid.
+    """
+    try:
+        validated = BindingBoxTree.model_validate(ocpq_json)
+        return validated.model_dump(by_alias=True)
+    except ValidationError as e:
+        print(f"Pydantic validation failed:\n{e}")
+        return None
+
+
+def schema_fix_with_llm(model_name, messages, prompt, max_tokens=2000):
+    """
+    Run a schema-constrained repair pass so the output must match OCPQ schema.
+    """
+    fix_messages = list(messages)
+    fix_messages.append({"role": "user", "content": prompt})
+    fix_response = call_hf_with_retry(
+        model=model_name,
+        messages=fix_messages,
+        max_tokens=max_tokens,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True},
+        },
+    )
+    fixed_content = fix_response.choices[0].message.content or ""
+    fixed_json = parse_llm_json(fixed_content)
+    fixed_json = validate_and_normalize_ocpq_json(fixed_json)
+    return fixed_json, fixed_content
+
 # Verify the generated OCPQ JSON and ask the LLM to fix it if it's invalid or doesn't follow the schema. 
 # This is a safety net to improve the quality of the output before executing the query.
-def verify_ocpq_json(ocpq_json):
-    is_valid = validate_query(ocpq_json)
-    if not is_valid:
+def verify_ocpq_json(ocpq_json, model_name, messages):
+    normalized = validate_and_normalize_ocpq_json(ocpq_json)
+    if normalized is None:
         print("Generated OCPQ JSON is invalid. Asking LLM to fix it...")
         prompt = f"""
 The following JSON is invalid or incomplete.
@@ -193,20 +227,15 @@ Return ONLY fixed JSON.
 JSON:
 {ocpq_json}
 """
-        response = call_hf_with_retry(
-            model=hf_model,
-            messages=[
-                {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=2000,
-            response_format={"type": "json_object"}
+        fixed_json, _fixed_content = schema_fix_with_llm(
+            model_name=model_name,
+            messages=messages,
+            prompt=prompt,
         )
-        content = response.choices[0].message.content
-        return parse_llm_json(content)
+        return fixed_json
     else:
         print("Generated OCPQ JSON is valid.")
-        return ocpq_json
+        return normalized
 
 # Use a single continuous chat context with Least-to-Most Prompting
 def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
@@ -274,9 +303,15 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     print("Sub-problem 3 completed: OCPQ JSON generated.")
     time.sleep(3)
 
-    ocpq_json = verify_ocpq_json(ocpq_json)
+    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages)
+    if ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
     
-    # Execution validation unchanged
+    # Full schema gate before writing/running the query.
+    ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+    if ocpq_json is None:
+        raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
 
@@ -297,13 +332,13 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
         print("Query execution error output:\n", query_stderr)
         
         prompt_4 = f"The generated JSON query caused this execution error:\n{query_stderr}\n\nPlease fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
-        messages.append({"role": "user", "content": prompt_4})
-        
-        fix_response = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=2000, response_format=None)
-        fixed_content = fix_response.choices[0].message.content
-        fixed_json = parse_llm_json(fixed_content)
+        fixed_json, fixed_content = schema_fix_with_llm(
+            model_name=selected_model,
+            messages=messages,
+            prompt=prompt_4,
+        )
 
-        if fixed_json != ocpq_json:
+        if fixed_json is not None and fixed_json != ocpq_json:
             print("Attempting to re-run fixed query...")
             with open(output_file, "w") as f:
                 json.dump(fixed_json, f, indent=2)
@@ -313,5 +348,6 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
                 query_result = f"Error running fixed query automatically: {e}"
                 print(query_result)
             ocpq_json = fixed_json
+            messages.append({"role": "assistant", "content": fixed_content})
 
     return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
