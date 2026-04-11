@@ -181,6 +181,9 @@ def validate_and_normalize_ocpq_json(ocpq_json):
     Strictly validate against the Pydantic BindingBoxTree model.
     Returns a normalized JSON dict (aliases applied) when valid.
     """
+    if ocpq_json is None:
+        print("Parsed OCPQ JSON is None before Pydantic validation.")
+        return None
     try:
         validated = BindingBoxTree.model_validate(ocpq_json)
         return validated.model_dump(by_alias=True)
@@ -206,6 +209,9 @@ def schema_fix_with_llm(model_name, messages, prompt, max_tokens=2000):
     )
     fixed_content = fix_response.choices[0].message.content or ""
     fixed_json = parse_llm_json(fixed_content)
+    if fixed_json is None:
+        print(f"Failed to parse fixed JSON returned by the model:\n{fixed_content}")
+        return None, fixed_content
     fixed_json = validate_and_normalize_ocpq_json(fixed_json)
     return fixed_json, fixed_content
 
@@ -252,7 +258,34 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     ]
 
     # Sub-problem 1: Extract entities mapping
-    prompt_1 = f"Given the user query, map the terms to the exact events and objects involved.\n\nCRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly to the EXACT valid names provided below. DO NOT use names that aren't in these lists.\n\nValid events: {event_names}\nValid objects: {object_names}\n\nQuery: {query}\n\nOutput a clear mapping of the elements found in the query to the valid events and objects. Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once'). Do not output JSON."
+    prompt_1 = f"""
+You are extracting the structure of a process query.
+
+Given a natural language query, identify:
+
+1. Events involved
+2. Objects involved
+3. Relationships between events (before, after, etc.)
+4. Cardinality constraints (e.g., exactly once, at least once)
+5. Whether nesting is needed (yes/no)
+
+The events and objects must be chosen from the following lists extracted from the log:
+Events: {event_names}
+Objects: {object_names}
+
+Return ONLY JSON in this format:
+
+{{
+  "events": [...],
+  "objects": [...],
+  "relations": [...],
+  "constraints": [...],
+  "requires_nesting": true/false
+}}
+
+Query:
+{query}
+"""
     messages.append({"role": "user", "content": prompt_1})
     
     response_1 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
@@ -262,16 +295,84 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     time.sleep(3)
 
     # Sub-problem 2: Plan tree topology
-    prompt_2 = "Based on the mapped elements, plan the logical tree structure for the OCPQ query.\n\nOCPQ PATTERN CHEAT SHEET:\n- 'completed within TIME': Requires 2 nodes. Parent node has Event A, Object A, and a constraint specifying 'SAT' on the child path. Child node has Event B and a 'TimeBetweenEvents' filter (max_seconds).\n- 'exactly once': Single node with Event A, Object A, and a SizeFilter on the child path (min:1, max:1).\n- 'at least once': Parent node with Event A, child node with Event B.\n- 'must not occur': Single node with a 'NOT' constraint on a child path.\n\nDescribe the exact tree structure (number of nodes, what goes in them, parent-child relationships, and exact filters/constraints) in plain text. Do not output JSON."
+    prompt_2 = f"""
+You are formalizing a process query.
+
+Given this extracted structure:
+
+{structure_text}
+
+Convert it into a precise logical representation using simple rules:
+
+- Use variables like e1, e2 for events
+- Use variables like o1 for objects
+- Express relations explicitly:
+  - before(e1, e2)
+  - exists(e1)
+  - count(e1) = 1
+- Link events to objects:
+  - relates(e1, o1)
+
+Return ONLY JSON:
+
+{{
+  "variables": {{
+    "events": {{...}},
+    "objects": {{...}}
+  }},
+  "logic": [
+    ...
+  ]
+}}
+"""
     messages.append({"role": "user", "content": prompt_2})
     
     response_2 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
-    tree_text = response_2.choices[0].message.content
-    messages.append({"role": "assistant", "content": tree_text})
+    formal_tree = response_2.choices[0].message.content
+    messages.append({"role": "assistant", "content": formal_tree})
     print("Sub-problem 2 completed: Tree structured planned.")
     time.sleep(3)
 
-    # Sub-problem 3: Generate Final JSON
+    # Sub-problem 2: Plan tree topology
+    prompt_3 = f"""
+You are designing an OCPQ query tree.
+
+Given this extracted structure:
+
+{formal_tree}
+
+Decide:
+
+- Number of nodes
+- What each node represents
+- Parent-child relationships
+
+Return ONLY JSON:
+
+{{
+  "nodes": [
+    {{
+      "id": 0,
+      "description": "...",
+      "events": [...],
+      "objects": [...]
+    }}
+  ],
+  "edges": [
+    {{"from": 0, "to": 1, "label": "A"}}
+  ]
+}}
+"""
+    messages.append({"role": "user", "content": prompt_3})
+    
+    response_3 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    tree_text = response_3.choices[0].message.content
+    messages.append({"role": "assistant", "content": tree_text})
+    print("Sub-problem 3 completed: Query tree designed.")
+    time.sleep(3)
+
+
+    # Sub-problem 4: Generate Final JSON
     # Retrieve relevant examples that have reasoning
     examples = retrieve_examples(query, dataset, embeddings)
     example_prompts = []
@@ -284,11 +385,43 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
             )
     few_shot_string = "\n\n".join(example_prompts)
 
-    prompt_3 = f"Now, based on your previous reasoning, output the final OCPQ JSON matching the Exact Schema.\n\nUse these examples as references for the output syntax. DO NOT copy their logic unless it applies to this specific user query:\n{few_shot_string}\n\nOutput strictly and ONLY valid JSON matching the exact schema."
-    messages.append({"role": "user", "content": prompt_3})
+    prompt_4 = f"""
+You are generating OCPQ JSON.
+
+CRITICAL SCHEMA REQUIREMENT:
+Output ONLY valid JSON matching the exact schema shown in the examples.
+The root object should minimally contain an array of "nodes".
+Each node in the "nodes" array MUST be an object with a single key "Box" (and optionally "[", "]" keys depending on the syntax).
+The "Box" value MUST always be an array with exactly TWO elements:
+1. The node data dictionary (containing newEventVars, newObjectVars, filters, sizeFilters, constraints, evVarLabels, obVarLabels).
+2. An array of child node indices (e.g., [], [1]).
+
+CONSTRAINT SCHEMA: 
+The constraints in your JSON MUST ONLY use the following top-level variants:
+"Filter", "SizeFilter", "SAT", "ANY", "NOT", "OR", "AND".
+Basic filter logic like "TimeBetweenEvents", "NotEqual", "EventAttributeValueFilter", "ObjectAttributeValueFilter", "BasicFilterCEL" must be wrapped inside a {{ "type": "Filter", "filter": {{ ... }} }} constraint.
+Do NOT place "O2E" or "O2O" directly in constraints. They belong in the "filters" array of the node.
+If you use "NumChilds" or other size filters in the "sizeFilters" array, place them directly (e.g., {{ "type": "NumChilds", ... }}). Do NOT wrap them in a "SizeFilter" object unless you are placing them inside the "constraints" array.
+
+Here is the logical plan (query tree) for the query.
+LOGICAL PLAN (DO NOT USE THIS AS THE OUTPUT SCHEMA, JUST USE IT TO UNDERSTAND THE LOGIC AND HIERARCHY):
+{tree_text}
+
+EXTRACTED STRUCTURE (USE THESE EXACT EVENTS AND OBJECTS):
+{json.dumps(structure_text, indent=2)}
+
+WARNING: The examples below are from different domains. DO NOT copy their events (like "submit application") or objects (like "candidates"). You MUST map the logic from the examples to the events and objects in the EXTRACTED STRUCTURE above!
+
+Use these examples for the EXACT output schema:
+{few_shot_string}
+
+Now generate the final OCPQ JSON for the exact user query: '{query}'
+ONLY output valid JSON.
+"""
+    messages.append({"role": "user", "content": prompt_4})
     messages[0] = {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema."} 
     
-    response_3 = call_hf_with_retry(
+    response_4 = call_hf_with_retry(
         model=selected_model, 
         messages=messages, 
         max_tokens=2000, 
@@ -297,10 +430,10 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
             "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True}
         }
     )
-    content = response_3.choices[0].message.content
+    content = response_4.choices[0].message.content
     ocpq_json = parse_llm_json(content)
     messages.append({"role": "assistant", "content": content})
-    print("Sub-problem 3 completed: OCPQ JSON generated.")
+    print("Sub-problem 4 completed: OCPQ JSON generated.")
     time.sleep(3)
 
     ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages)
@@ -311,9 +444,50 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
     if ocpq_json is None:
         raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+    
+    # Sub-problem 5: Verify query tree
+    prompt_5 = f"""
+You are verifying an OCPQ query.
 
-    with open(output_file, "w") as f:
-        json.dump(ocpq_json, f, indent=2)
+User query:
+{query}
+
+Generated OCPQ JSON:
+{ocpq_json}
+
+Explain whether the query correctly captures the intent.
+
+If NOT:
+- explain the mistake
+- output a corrected JSON
+
+Return JSON:
+{{
+  "is_correct": true/false,
+  "issues": [...],
+  "fixed_query": {{...}}
+}}
+"""
+    messages.append({"role": "user", "content": prompt_5})
+    
+    response_5 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    verification_text = response_5.choices[0].message.content or ""
+    messages.append({"role": "assistant", "content": verification_text})
+    print("Sub-problem 5 completed: Query tree verified.")
+    time.sleep(3)
+
+    verification_json = parse_llm_json(verification_text)
+    if not isinstance(verification_json, dict):
+        print("Verification response was not valid JSON; defaulting to generated query.")
+        verification_json = {"is_correct": True, "issues": ["Invalid verifier output"], "fixed_query": ocpq_json}
+
+    if verification_json.get("is_correct", False):
+        with open(output_file, "w") as f:
+            json.dump(ocpq_json, f, indent=2)
+    else:
+        print("LLM indicated the query might be incorrect. Check the verification response for details:\n", verification_json)
+        with open(output_file, "w") as f:
+            json.dump(verification_json.get("fixed_query", ocpq_json), f, indent=2)
 
     query_result = None
     query_stderr = None
@@ -331,11 +505,11 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     if query_stderr and not query_stderr.strip().startswith("warning:"):
         print("Query execution error output:\n", query_stderr)
         
-        prompt_4 = f"The generated JSON query caused this execution error:\n{query_stderr}\n\nPlease fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
+        prompt_6 = f"The generated JSON query caused this execution error:\n{query_stderr}\n\nPlease fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
         fixed_json, fixed_content = schema_fix_with_llm(
             model_name=selected_model,
             messages=messages,
-            prompt=prompt_4,
+            prompt=prompt_6,
         )
 
         if fixed_json is not None and fixed_json != ocpq_json:
@@ -350,4 +524,4 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
             ocpq_json = fixed_json
             messages.append({"role": "assistant", "content": fixed_content})
 
-    return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
+    return structure_text, verification_json, ocpq_json, query_result, query_result_file_path
