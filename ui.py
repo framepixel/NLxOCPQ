@@ -15,7 +15,18 @@ warnings.filterwarnings(
     message=r"Accessing `__path__` from .*Returning `__path__` instead\. Behavior may be different and this alias will be removed in future versions\.",
 )
 
-from LLM import set_hf_client, nl_to_ocpq_pipeline, dataset, embeddings
+from LLM import (
+    set_hf_client,
+    nl_to_ocpq_pipeline,
+    dataset,
+    embeddings,
+    PROMPT_STRATEGIES,
+    DEFAULT_PROMPT_STRATEGY,
+)
+
+
+RAW_JSON_RENDER_LIMIT_BYTES = 5 * 1024 * 1024
+RESULT_FILE_LARGE_MODE_BYTES = 50 * 1024 * 1024
 
 
 def _format_violation(violation):
@@ -67,15 +78,22 @@ def _readable_rows_for_node(node_data, object_ids, event_ids, max_rows=200):
     return rows, len(situations)
 
 
-def render_human_readable_result(result_data):
+def render_human_readable_result(result_data, allow_raw_json=False):
     if "Err" in result_data:
         st.error("The backend returned an error in the JSON structure.")
-        st.json(result_data["Err"])
+        err_data = result_data["Err"]
+        if allow_raw_json:
+            st.json(err_data)
+        else:
+            st.code(str(err_data), language="text")
         return
 
     if "Ok" not in result_data:
         st.warning("Unexpected result shape. Showing raw JSON.")
-        st.json(result_data)
+        if allow_raw_json:
+            st.json(result_data)
+        else:
+            st.code(str(result_data), language="text")
         return
 
     ok_data = result_data.get("Ok", {})
@@ -136,10 +154,18 @@ def render_human_readable_result(result_data):
         st.dataframe(rows, width="stretch")
     else:
         st.info("No readable rows were generated for this node. Showing raw node JSON.")
-        st.json(eval_data[selected_node])
+        if allow_raw_json:
+            st.json(eval_data[selected_node])
+        else:
+            st.code(str(eval_data[selected_node]), language="text")
 
-    with st.expander("Raw result JSON"):
-        st.json(result_data)
+    if allow_raw_json:
+        with st.expander("Raw result JSON"):
+            st.json(result_data)
+    else:
+        st.caption(
+            "Raw JSON preview disabled for large result files to avoid Streamlit websocket size errors."
+        )
 
 def main():
     st.set_page_config(page_title="NL to OCPQ Generator", layout="wide")
@@ -161,6 +187,13 @@ def main():
     set_hf_client(hf_token)
 
     st.sidebar.header("Configuration")
+    selected_strategy = st.sidebar.selectbox(
+        "Prompting Strategy",
+        options=PROMPT_STRATEGIES,
+        index=PROMPT_STRATEGIES.index(DEFAULT_PROMPT_STRATEGY)
+        if DEFAULT_PROMPT_STRATEGY in PROMPT_STRATEGIES
+        else 0,
+    )
     
     st.sidebar.subheader("Event Log Selection")
     uploaded_file = st.sidebar.file_uploader("Upload custom OCEL JSON Log", type=["json"])
@@ -196,7 +229,12 @@ def main():
         with st.spinner("Generating and executing query (this may take a moment)..."):
             try:
                 structure, json_tree, ocpq_json, query_result, query_result_file_path = nl_to_ocpq_pipeline(
-                    user_query, dataset, embeddings, "test_query.json", selected_file
+                    user_query,
+                    dataset,
+                    embeddings,
+                    "test_query.json",
+                    selected_file,
+                    prompt_strategy=selected_strategy,
                 )
                 st.session_state["last_pipeline_output"] = {
                     "structure": structure,
@@ -252,9 +290,22 @@ def main():
             if query_result_file_path and os.path.exists(query_result_file_path):
                 st.success(f"Results exported successfully to `{query_result_file_path}`!")
                 try:
+                    result_file_size = os.path.getsize(query_result_file_path)
+                    large_result_mode = result_file_size > RESULT_FILE_LARGE_MODE_BYTES
+
+                    st.caption(
+                        f"Result file size: {result_file_size / (1024 * 1024):.1f} MB"
+                    )
+                    if large_result_mode:
+                        st.warning(
+                            "Large result mode is enabled. Raw JSON views are disabled to avoid websocket message size overflows."
+                        )
+
                     with open(query_result_file_path, "r", encoding="utf-8") as res_file:
                         result_data = json.load(res_file)
-                    render_human_readable_result(result_data)
+
+                    allow_raw_json = result_file_size <= RAW_JSON_RENDER_LIMIT_BYTES
+                    render_human_readable_result(result_data, allow_raw_json=allow_raw_json)
                 except Exception as parse_e:
                     st.warning(f"Could not parse the result file as JSON: {parse_e}")
             else:
