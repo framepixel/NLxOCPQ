@@ -237,6 +237,107 @@ JSON:
         print("Generated OCPQ JSON is valid.")
         return normalized
 
+
+def run_subproblem_1_extract_entities(query, event_names, object_names, messages, model_name):
+    prompt_1 = (
+        "Given the user query, map the terms to the exact events and objects involved.\n\n"
+        "CRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly "
+        "to the EXACT valid names provided below. DO NOT use names that aren't in these lists.\n\n"
+        f"Valid events: {event_names}\n"
+        f"Valid objects: {object_names}\n\n"
+        f"Query: {query}\n\n"
+        "Output a clear mapping of the elements found in the query to the valid events and objects. "
+        "Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once'). "
+        "Do not output JSON."
+    )
+    messages.append({"role": "user", "content": prompt_1})
+
+    response_1 = call_hf_with_retry(
+        model=model_name,
+        messages=messages,
+        max_tokens=1000,
+        response_format=None,
+    )
+    structure_text = response_1.choices[0].message.content
+    messages.append({"role": "assistant", "content": structure_text})
+    print("Sub-problem 1 completed: Entities extracted.")
+    time.sleep(3)
+    return structure_text
+
+
+def run_subproblem_2_plan_tree(messages, model_name):
+    prompt_2 = (
+        "Based on the mapped elements, plan the logical tree structure for the OCPQ query.\n\n"
+        "OCPQ PATTERN CHEAT SHEET:\n"
+        "- 'completed within TIME': Requires 2 nodes. Parent node has Event A, Object A, and a constraint "
+        "specifying 'SAT' on the child path. Child node has Event B and a 'TimeBetweenEvents' filter (max_seconds).\n"
+        "- 'exactly once': Single node with Event A, Object A, and a SizeFilter on the child path (min:1, max:1).\n"
+        "- 'at least once': Parent node with Event A, child node with Event B.\n"
+        "- 'must not occur': Single node with a 'NOT' constraint on a child path.\n\n"
+        "Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, "
+        "and exact filters/constraints) in plain text. Do not output JSON."
+    )
+    messages.append({"role": "user", "content": prompt_2})
+
+    response_2 = call_hf_with_retry(
+        model=model_name,
+        messages=messages,
+        max_tokens=1000,
+        response_format=None,
+    )
+    tree_text = response_2.choices[0].message.content
+    messages.append({"role": "assistant", "content": tree_text})
+    print("Sub-problem 2 completed: Tree structured planned.")
+    time.sleep(3)
+    return tree_text
+
+
+def build_few_shot_examples(query, dataset, embeddings):
+    examples = retrieve_examples(query, dataset, embeddings)
+    example_prompts = []
+    for ex in examples:
+        qt = "nl"
+        if qt in ex:
+            reasoning = ex.get(
+                "reasoning",
+                "Step 1: Identify elements. Step 2: Establish logic. Step 3: Implement JSON.",
+            )
+            example_prompts.append(
+                f"Question: {ex[qt]}\nReasoning: {reasoning}\nJSON:\n{json.dumps(ex['query'], indent=2)}"
+            )
+    return "\n\n".join(example_prompts)
+
+
+def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_name):
+    few_shot_string = build_few_shot_examples(query, dataset, embeddings)
+    prompt_3 = (
+        "Now, based on your previous reasoning, output the final OCPQ JSON matching the Exact Schema.\n\n"
+        "Use these examples as references for the output syntax. DO NOT copy their logic unless it applies "
+        f"to this specific user query:\n{few_shot_string}\n\n"
+        "Output strictly and ONLY valid JSON matching the exact schema."
+    )
+    messages.append({"role": "user", "content": prompt_3})
+    messages[0] = {
+        "role": "system",
+        "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema.",
+    }
+
+    response_3 = call_hf_with_retry(
+        model=model_name,
+        messages=messages,
+        max_tokens=2000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True},
+        },
+    )
+    content = response_3.choices[0].message.content
+    ocpq_json = parse_llm_json(content)
+    messages.append({"role": "assistant", "content": content})
+    print("Sub-problem 3 completed: OCPQ JSON generated.")
+    time.sleep(3)
+    return ocpq_json
+
 # Use a single continuous chat context with Least-to-Most Prompting
 def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
     print("Starting Least-to-Most NL to OCPQ pipeline...")
@@ -252,56 +353,25 @@ def nl_to_ocpq_pipeline(query, dataset, embeddings, output_file="test_query.json
     ]
 
     # Sub-problem 1: Extract entities mapping
-    prompt_1 = f"Given the user query, map the terms to the exact events and objects involved.\n\nCRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly to the EXACT valid names provided below. DO NOT use names that aren't in these lists.\n\nValid events: {event_names}\nValid objects: {object_names}\n\nQuery: {query}\n\nOutput a clear mapping of the elements found in the query to the valid events and objects. Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once'). Do not output JSON."
-    messages.append({"role": "user", "content": prompt_1})
-    
-    response_1 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
-    structure_text = response_1.choices[0].message.content
-    messages.append({"role": "assistant", "content": structure_text})
-    print("Sub-problem 1 completed: Entities extracted.")
-    time.sleep(3)
+    structure_text = run_subproblem_1_extract_entities(
+        query=query,
+        event_names=event_names,
+        object_names=object_names,
+        messages=messages,
+        model_name=selected_model,
+    )
 
     # Sub-problem 2: Plan tree topology
-    prompt_2 = "Based on the mapped elements, plan the logical tree structure for the OCPQ query.\n\nOCPQ PATTERN CHEAT SHEET:\n- 'completed within TIME': Requires 2 nodes. Parent node has Event A, Object A, and a constraint specifying 'SAT' on the child path. Child node has Event B and a 'TimeBetweenEvents' filter (max_seconds).\n- 'exactly once': Single node with Event A, Object A, and a SizeFilter on the child path (min:1, max:1).\n- 'at least once': Parent node with Event A, child node with Event B.\n- 'must not occur': Single node with a 'NOT' constraint on a child path.\n\nDescribe the exact tree structure (number of nodes, what goes in them, parent-child relationships, and exact filters/constraints) in plain text. Do not output JSON."
-    messages.append({"role": "user", "content": prompt_2})
-    
-    response_2 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
-    tree_text = response_2.choices[0].message.content
-    messages.append({"role": "assistant", "content": tree_text})
-    print("Sub-problem 2 completed: Tree structured planned.")
-    time.sleep(3)
+    tree_text = run_subproblem_2_plan_tree(messages=messages, model_name=selected_model)
 
-    # Sub-problem 3: Generate Final JSON
-    # Retrieve relevant examples that have reasoning
-    examples = retrieve_examples(query, dataset, embeddings)
-    example_prompts = []
-    for ex in examples:
-        qt = "nl"
-        if qt in ex:
-            reasoning = ex.get('reasoning', 'Step 1: Identify elements. Step 2: Establish logic. Step 3: Implement JSON.')
-            example_prompts.append(
-                f"Question: {ex[qt]}\nReasoning: {reasoning}\nJSON:\n{json.dumps(ex['query'], indent=2)}"
-            )
-    few_shot_string = "\n\n".join(example_prompts)
-
-    prompt_3 = f"Now, based on your previous reasoning, output the final OCPQ JSON matching the Exact Schema.\n\nUse these examples as references for the output syntax. DO NOT copy their logic unless it applies to this specific user query:\n{few_shot_string}\n\nOutput strictly and ONLY valid JSON matching the exact schema."
-    messages.append({"role": "user", "content": prompt_3})
-    messages[0] = {"role": "system", "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema."} 
-    
-    response_3 = call_hf_with_retry(
-        model=selected_model, 
-        messages=messages, 
-        max_tokens=2000, 
-        response_format={
-            "type": "json_schema", 
-            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True}
-        }
+    # Sub-problem 3: Generate final JSON
+    ocpq_json = run_subproblem_3_generate_json(
+        query=query,
+        dataset=dataset,
+        embeddings=embeddings,
+        messages=messages,
+        model_name=selected_model,
     )
-    content = response_3.choices[0].message.content
-    ocpq_json = parse_llm_json(content)
-    messages.append({"role": "assistant", "content": content})
-    print("Sub-problem 3 completed: OCPQ JSON generated.")
-    time.sleep(3)
 
     ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages)
     if ocpq_json is None:
