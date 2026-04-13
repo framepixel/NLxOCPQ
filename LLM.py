@@ -15,7 +15,7 @@ from sentence_transformers import SentenceTransformer
 from huggingface_hub import InferenceClient
 from pydantic import ValidationError
 
-from ocpq_schema import OCPQ_JSON_SCHEMA, BindingBoxTree, VERIFICATION_JSON_SCHEMA
+from ocpq_schema import OCPQ_JSON_SCHEMA, BindingBoxTree, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
 
 from LogEvents import events_and_objects_from_ocel
 
@@ -293,7 +293,7 @@ def run_subproblem_1_extract_entities(query, event_names, object_names, messages
         f"Query: {query}\n\n"
         "Output a clear mapping of the elements found in the query to the valid events and objects. "
         "Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once'). "
-        "Do not output JSON."
+        "Return ONLY JSON matching the schema."
     )
     messages.append({"role": "user", "content": prompt_1})
 
@@ -301,7 +301,10 @@ def run_subproblem_1_extract_entities(query, event_names, object_names, messages
         model=model_name,
         messages=messages,
         max_tokens=1000,
-        response_format=None,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "extracted_structure", "schema": EXTRACTED_STRUCTURE_SCHEMA, "strict": True},
+        }
     )
     structure_text = response_1.choices[0].message.content
     messages.append({"role": "assistant", "content": structure_text})
@@ -324,7 +327,7 @@ def run_subproblem_2_plan_tree(messages, model_name):
         "2. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` MUST be placed inside connected child nodes, not isolated in disconnected nodes.\n"
         "3. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.\n\n"
         "Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, "
-        "and exact filters/constraints) in plain text. Do not output JSON."
+        "and exact filters/constraints). Return ONLY JSON matching the schema."
     )
     messages.append({"role": "user", "content": prompt_2})
 
@@ -332,7 +335,10 @@ def run_subproblem_2_plan_tree(messages, model_name):
         model=model_name,
         messages=messages,
         max_tokens=1000,
-        response_format=None,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "query_tree", "schema": QUERY_TREE_SCHEMA, "strict": True},
+        }
     )
     tree_text = response_2.choices[0].message.content
     messages.append({"role": "assistant", "content": tree_text})

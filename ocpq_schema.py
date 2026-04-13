@@ -175,5 +175,29 @@ class QueryVerification(BaseModel):
     issues: List[str]
     fixed_query: BindingBoxTree
 
+class ExtractedStructure(BaseModel):
+    events: List[str]
+    objects: List[str]
+    relations: List[str]
+    constraints: List[str]
+    requires_nesting: bool
+
+class QueryTreeNode(BaseModel):
+    id: int
+    description: str
+    events: List[str]
+    objects: List[str]
+
+class QueryTreeEdge(BaseModel):
+    from_: int = Field(alias="from")
+    to: int
+    label: str
+
+class QueryTree(BaseModel):
+    nodes: List[QueryTreeNode]
+    edges: List[QueryTreeEdge]
+
 OCPQ_JSON_SCHEMA = BindingBoxTree.model_json_schema()
 VERIFICATION_JSON_SCHEMA = QueryVerification.model_json_schema()
+EXTRACTED_STRUCTURE_SCHEMA = ExtractedStructure.model_json_schema()
+QUERY_TREE_SCHEMA = QueryTree.model_json_schema()
