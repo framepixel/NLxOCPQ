@@ -15,7 +15,7 @@ from sentence_transformers import SentenceTransformer
 from huggingface_hub import InferenceClient
 from pydantic import ValidationError
 
-from ocpq_schema import OCPQ_JSON_SCHEMA, BindingBoxTree
+from ocpq_schema import OCPQ_JSON_SCHEMA, BindingBoxTree, VERIFICATION_JSON_SCHEMA
 
 from LogEvents import events_and_objects_from_ocel
 
@@ -115,9 +115,10 @@ def retrieve_examples(query, dataset, embeddings, top_k=3):
     for idx in top_indices:
         examples.append({
             "nl": dataset[idx]["nl"],
-            "nl_clean_1": dataset[idx]["nl_clean_1"] if "nl_clean_1" in dataset[idx] else None,
-            "nl_clean_2": dataset[idx]["nl_clean_2"] if "nl_clean_2" in dataset[idx] else None,
-            "query": dataset[idx]["query"]
+            "nl_clean_1": dataset[idx].get("nl_clean_1"),
+            "nl_clean_2": dataset[idx].get("nl_clean_2"),
+            "query": dataset[idx]["query"],
+            "reasoning": dataset[idx].get("reasoning")
         })
     
     return examples
@@ -240,14 +241,31 @@ def schema_fix_with_llm(model_name, messages, prompt, max_tokens=2000):
 # This is a safety net to improve the quality of the output before executing the query.
 def verify_ocpq_json(ocpq_json, model_name, messages):
     normalized = validate_and_normalize_ocpq_json(ocpq_json)
-    if normalized is None:
-        print("Generated OCPQ JSON is invalid. Asking LLM to fix it...")
+    
+    is_connected = True
+    if normalized and "nodes" in normalized:
+        num_nodes = len(normalized["nodes"])
+        if num_nodes > 1:
+            referenced_children = set()
+            for node in normalized["nodes"]:
+                box = node.get("Box", [])
+                if len(box) == 2 and isinstance(box[1], list):
+                    referenced_children.update(box[1])
+            for i in range(1, num_nodes):
+                if i not in referenced_children:
+                    is_connected = False
+                    break
+
+    if normalized is None or not is_connected:
+        print("Generated OCPQ JSON is invalid or has disconnected nodes. Asking LLM to fix it...")
         prompt = f"""
-The following JSON is invalid or incomplete.
+The following JSON is invalid, incomplete, or contains disconnected nodes.
 
 Fix it so that:
 - It follows OCPQ schema
 - It correctly represents the query
+- ALL nodes are properly connected in a single tree. Every node (except 0) must be referenced in the child indices array of a parent node.
+- Critical filters (O2E, TimeBetweenEvents) are placed in connected child nodes to prevent unbounded Cartesian searches.
 
 Return ONLY fixed JSON.
 
@@ -301,6 +319,10 @@ def run_subproblem_2_plan_tree(messages, model_name):
         "- 'exactly once': Single node with Event A, Object A, and a SizeFilter on the child path (min:1, max:1).\n"
         "- 'at least once': Parent node with Event A, child node with Event B.\n"
         "- 'must not occur': Single node with a 'NOT' constraint on a child path.\n\n"
+        "CRITICAL TO PREVENT SLOW QUERIES (OOM CRASHES):\n"
+        "1. DO NOT create orphaned/disconnected nodes. EVERY node must be linked as a child of another node via the child index arrays, except for the root node.\n"
+        "2. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` MUST be placed inside connected child nodes, not isolated in disconnected nodes.\n"
+        "3. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.\n\n"
         "Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, "
         "and exact filters/constraints) in plain text. Do not output JSON."
     )
@@ -314,7 +336,7 @@ def run_subproblem_2_plan_tree(messages, model_name):
     )
     tree_text = response_2.choices[0].message.content
     messages.append({"role": "assistant", "content": tree_text})
-    print("Sub-problem 2 completed: Tree structured planned.")
+    print("Sub-problem 2 completed: Tree structure planned.")
     time.sleep(3)
     return tree_text
 
@@ -663,7 +685,7 @@ Return ONLY JSON:
     response_2 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
     tree_text = response_2.choices[0].message.content
     messages.append({"role": "assistant", "content": tree_text})
-    print("Sub-problem 2 completed: Tree structured planned.")
+    print("Sub-problem 2 completed: Tree structure planned.")
     time.sleep(3)
 
     few_shot_string = build_few_shot_examples(query, dataset, embeddings)
@@ -852,7 +874,7 @@ Return ONLY JSON:
     response_2 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
     formal_tree = response_2.choices[0].message.content
     messages.append({"role": "assistant", "content": formal_tree})
-    print("Sub-problem 2 completed: Tree structured planned.")
+    print("Sub-problem 2 completed: Tree structure planned.")
     time.sleep(3)
 
     prompt_3 = f"""
@@ -955,7 +977,7 @@ ONLY output valid JSON.
         raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
 
     prompt_5 = f"""
-You are verifying an OCPQ query.
+You are verifying an OCPQ query for correctness and performance.
 
 User query:
 {query}
@@ -963,22 +985,38 @@ User query:
 Generated OCPQ JSON:
 {ocpq_json}
 
-Explain whether the query correctly captures the intent.
+Please refer to the reasoning steps in the following dataset examples to understand how query bounds and constraints are properly established:
+{few_shot_string}
 
-If NOT:
-- explain the mistake
+CRITICAL CHECKS TO PREVENT OOM (QUERY EXPLOSION):
+1. Are all events explicitly bound to objects using `O2E` filters in the `filters` array? (Unbound events cause Cartesian explosions).
+2. Are child paths properly bounded by `TimeBetweenEvents`, `SAT`, `ANY`, or size constraints to prevent infinite graph search?
+3. Does the structure match the logical reasoning patterns demonstrated in the examples?
+
+Explain whether the query correctly captures the intent AND safely limits the search space.
+
+If NOT or if it risks a query explosion:
+- explain the mistake in the issues list
 - output a corrected JSON
 
 Return JSON:
 {{
   "is_correct": true/false,
-  "issues": [...],
+  "issues": ["Issue 1...", "Issue 2..."],
   "fixed_query": {{...}}
 }}
 """
     messages.append({"role": "user", "content": prompt_5})
 
-    response_5 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    response_5 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "verification_schema", "schema": VERIFICATION_JSON_SCHEMA, "strict": True},
+        }
+    )
     verification_text = response_5.choices[0].message.content or ""
     messages.append({"role": "assistant", "content": verification_text})
     print("Sub-problem 5 completed: Query tree verified.")
