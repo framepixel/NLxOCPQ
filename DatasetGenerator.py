@@ -275,34 +275,34 @@ def generate_example():
     reasoning = f"Step 1: The query involves events '{A}' and '{B}', and objects '{obj_a}' and '{obj_b}' (if applicable). "
     if "exactly once" in pattern:
         reasoning += f"Step 2: The constraint specifies that '{A}' must occur exactly once for '{obj_a}'. "
-        reasoning += f"Step 3: This translates to a single node containing both events and objects, and a size filter of exactly 1 for the related child edge representing '{A}'."
+        reasoning += f"Step 3: To prevent unbounded Cartesian products, we connect the logic structurally. We place '{obj_a}' in the root node, and link to a connected child node containing '{A}'. We bind them with an explicit `O2E` filter in the child node, and enforce the exactly 1 constraint via a SizeFilter in the parent."
     elif "at least once" in pattern:
         reasoning += f"Step 2: The constraint specifies that after '{A}' occurs for '{obj_a}', '{B}' must also occur at least once. "
-        reasoning += f"Step 3: This translates to a parent node for '{obj_a}' and '{A}', with an edge mapping to a child node for '{B}'."
+        reasoning += f"Step 3: To prevent unbounded searches, we structure this as a connected tree. The parent node binds '{A}' and '{obj_a}' explicitly with an `O2E` filter, and links to a connected child node for '{B}'. We bind '{B}' back to the object using an `O2E` filter strictly inside this child node."
     elif "at least NUM2" in pattern:
         reasoning += f"Step 2: The constraint expects '{obj_a}' to have at least {num} '{obj_b}' where '{B}' occurs at least {num2} times after '{A}'. "
-        reasoning += f"Step 3: This requires a 3-node structure: '{obj_a}' connected to '{obj_b}'+'{A}', which connects to '{B}'."
+        reasoning += f"Step 3: To prevent slow queries, we construct a fully connected 3-node structure: '{obj_a}' links to '{obj_b}'+'{A}' (bound explicitly with `O2E`), which then connects to a child node for '{B}' (also bound with `O2E`). Filters are embedded directly inside these connected child nodes to safely bound the search."
     elif "completed within" in pattern:
         reasoning += f"Step 2: '{B}' must be completed within {t} {time_unit} after '{A}' for any '{obj_a}'. "
-        reasoning += f"Step 3: This requires a SAT constraint for '{A}' and a child node linking to '{B}' with a TimeBetweenEvents filter of {t_sec} seconds."
+        reasoning += f"Step 3: To ensure safe query bounds, we use a connected parent-child structure. The SAT constraint is placed in the parent for '{A}', linking to a connected child node for '{B}'. Inside the connected child node, we place the `O2E` bindings and the TimeBetweenEvents filter ({t_sec} seconds) so they safely constrain the search path."
     elif "at most NUM" in pattern:
         reasoning += f"Step 2: For any '{obj_a}' with at most {num} '{obj_b}', '{B}' must occur within {t} {time_unit} after '{A}'. "
-        reasoning += f"Step 3: This requires a root node for '{A}' and '{obj_a}' with branching edges to '{obj_b}' (capped by a SizeFilter of max {num}) and '{B}' (filtered by a TimeBetweenEvents of {t_sec} seconds)."
+        reasoning += f"Step 3: To avoid query explosions, we connect the nodes structurally. The root node for '{A}' and '{obj_a}' (bound via `O2E`) branches to two connected child nodes: one for '{obj_b}' (capped by SizeFilter max {num}) and one for '{B}'. Inside the '{B}' child node, we explicitly place the `O2E` and TimeBetweenEvents ({t_sec} secs) filters to constrain execution."
     elif "for which the EVENT_A" in pattern:
         reasoning += f"Step 2: Each '{obj_a}' must have at least {num} associated '{obj_b}' where '{A}' occurs. "
-        reasoning += f"Step 3: This is a parent node for '{obj_a}' with a SizeFilter ensuring at least {num} child nodes containing '{A}' and '{obj_b}'."
+        reasoning += f"Step 3: To prevent unbounded searches, we establish a connected hierarchy. A parent node for '{obj_a}' with a SizeFilter (at least {num}) links to a connected child node containing '{A}' and '{obj_b}'. We explicitly bind them using `O2O` and `O2E` filters strictly inside this child node."
     elif "before" in pattern or "eventually" in pattern:
         reasoning += f"Step 2: '{A}' occurs before or eventually leads to '{B}'. "
-        reasoning += f"Step 3: A single node with a TimeBetweenEvents filter from '{A}' to '{B}' with no maximum time."
+        reasoning += f"Step 3: To inherently prevent isolated events from forming a Cartesian product, we map them into a single connected node with a TimeBetweenEvents filter from '{A}' to '{B}' with no maximum time."
     elif "within TIME" in pattern:
         reasoning += f"Step 2: '{B}' happens within {t} {time_unit} after '{A}'. "
-        reasoning += f"Step 3: A single node with a TimeBetweenEvents filter from '{A}' to '{B}' up to {t_sec} seconds."
+        reasoning += f"Step 3: To inherently prevent isolated events from forming a Cartesian product, we map them into a single connected node with a TimeBetweenEvents filter from '{A}' to '{B}' up to {t_sec} seconds."
     elif "must not occur" in pattern:
         reasoning += f"Step 2: '{B}' must not occur after '{A}'. "
         reasoning += f"Step 3: A single node referencing a child edge inside a NOT constraint."
     elif "refer to the same" in pattern:
         reasoning += f"Step 2: '{A}' and '{B}' must refer to the same '{obj_a}'. "
-        reasoning += f"Step 3: A single node containing '{A}', '{B}', and '{obj_a}' with O2E link filters."
+        reasoning += f"Step 3: To explicitly correlate them and avoid unbounded Cartesian searches, we place '{A}', '{B}', and '{obj_a}' into a single node and add exact `O2E` link filters for both events."
     else:
         reasoning += "Step 2: Relate the identified elements. Step 3: Map to generic OCPQ single node."
 
@@ -450,11 +450,9 @@ def generate_example():
                 {
                     "Box": [
                         {
-                            "newEventVars": { "0": [A] },
+                            "newEventVars": {},
                             "newObjectVars": { "0": [obj_a] },
-                            "filters": [
-                                {"type": "O2E", "object": 0, "event": 0, "qualifier": None}
-                            ],
+                            "filters": [],
                             "sizeFilters": [],
                             "constraints": [{"type": "SAT", "child_names": ["A"]}],
                             "evVarLabels": {},
@@ -466,11 +464,11 @@ def generate_example():
                 {
                     "Box": [
                         {
-                            "newEventVars": { "1": [B] },
-                            "newObjectVars": { "1": [obj_b] },
+                            "newEventVars": { "0": [A], "1": [B] },
+                            "newObjectVars": {},
                             "filters": [
-                                {"type": "O2O", "object": 0, "other_object": 1, "qualifier": None},
-                                {"type": "O2E", "object": 1, "event": 1, "qualifier": None}
+                                {"type": "O2E", "object": 0, "event": 0, "qualifier": None},
+                                {"type": "O2E", "object": 0, "event": 1, "qualifier": None}
                             ],
                             "sizeFilters": [],
                             "constraints": [

@@ -170,4 +170,10 @@ class BindingBoxTree(BaseModel):
     nodes: List[BindingBoxTreeNodeBox]
     edgeNames: List[tuple[tuple[int, int], str]]
 
+class QueryVerification(BaseModel):
+    is_correct: bool
+    issues: List[str]
+    fixed_query: BindingBoxTree
+
 OCPQ_JSON_SCHEMA = BindingBoxTree.model_json_schema()
+VERIFICATION_JSON_SCHEMA = QueryVerification.model_json_schema()
