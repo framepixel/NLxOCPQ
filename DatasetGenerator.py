@@ -272,38 +272,50 @@ def generate_example():
                   .replace("NUM", str(num))
 
     # Generate reasoning for Least-to-Most prompting
-    reasoning = f"Step 1: The query involves events '{A}' and '{B}', and objects '{obj_a}' and '{obj_b}' (if applicable). "
+    is_single_event = "exactly once" in pattern or "at least once" in pattern and "the EVENT_B event should happen" not in pattern
+
     if "exactly once" in pattern:
+        reasoning = f"Step 1: The query involves the event '{A}' and the object '{obj_a}'. "
         reasoning += f"Step 2: The constraint specifies that '{A}' must occur exactly once for '{obj_a}'. "
         reasoning += f"Step 3: To prevent unbounded Cartesian products, we connect the logic structurally. We place '{obj_a}' in the root node, and link to a connected child node containing '{A}'. We bind them with an explicit `O2E` filter in the child node, and enforce the exactly 1 constraint via a SizeFilter in the parent."
     elif "at least once" in pattern:
+        reasoning = f"Step 1: The query involves events '{A}' and '{B}', and object '{obj_a}'. "
         reasoning += f"Step 2: The constraint specifies that after '{A}' occurs for '{obj_a}', '{B}' must also occur at least once. "
         reasoning += f"Step 3: To prevent unbounded searches, we structure this as a connected tree. The parent node binds '{A}' and '{obj_a}' explicitly with an `O2E` filter, and links to a connected child node for '{B}'. We bind '{B}' back to the object using an `O2E` filter strictly inside this child node."
     elif "at least NUM2" in pattern:
+        reasoning = f"Step 1: The query involves events '{A}' and '{B}', and objects '{obj_a}' and '{obj_b}'. "
         reasoning += f"Step 2: The constraint expects '{obj_a}' to have at least {num} '{obj_b}' where '{B}' occurs at least {num2} times after '{A}'. "
         reasoning += f"Step 3: To prevent slow queries, we construct a fully connected 3-node structure: '{obj_a}' links to '{obj_b}'+'{A}' (bound explicitly with `O2E`), which then connects to a child node for '{B}' (also bound with `O2E`). Filters are embedded directly inside these connected child nodes to safely bound the search."
     elif "completed within" in pattern:
+        reasoning = f"Step 1: The query involves events '{A}' and '{B}', and objects '{obj_a}' and '{obj_b}' (if applicable). "
         reasoning += f"Step 2: '{B}' must be completed within {t} {time_unit} after '{A}' for any '{obj_a}'. "
         reasoning += f"Step 3: To ensure safe query bounds, we use a connected parent-child structure. The SAT constraint is placed in the parent for '{A}', linking to a connected child node for '{B}'. Inside the connected child node, we place the `O2E` bindings and the TimeBetweenEvents filter ({t_sec} seconds) so they safely constrain the search path."
     elif "at most NUM" in pattern:
+        reasoning = f"Step 1: The query involves events '{A}' and '{B}', and objects '{obj_a}' and '{obj_b}'. "
         reasoning += f"Step 2: For any '{obj_a}' with at most {num} '{obj_b}', '{B}' must occur within {t} {time_unit} after '{A}'. "
         reasoning += f"Step 3: To avoid query explosions, we connect the nodes structurally. The root node for '{A}' and '{obj_a}' (bound via `O2E`) branches to two connected child nodes: one for '{obj_b}' (capped by SizeFilter max {num}) and one for '{B}'. Inside the '{B}' child node, we explicitly place the `O2E` and TimeBetweenEvents ({t_sec} secs) filters to constrain execution."
     elif "for which the EVENT_A" in pattern:
+        reasoning = f"Step 1: The query involves event '{A}' and objects '{obj_a}' and '{obj_b}'. "
         reasoning += f"Step 2: Each '{obj_a}' must have at least {num} associated '{obj_b}' where '{A}' occurs. "
         reasoning += f"Step 3: To prevent unbounded searches, we establish a connected hierarchy. A parent node for '{obj_a}' with a SizeFilter (at least {num}) links to a connected child node containing '{A}' and '{obj_b}'. We explicitly bind them using `O2O` and `O2E` filters strictly inside this child node."
     elif "before" in pattern or "eventually" in pattern:
+        reasoning = f"Step 1: The query involves events '{A}' and '{B}'. "
         reasoning += f"Step 2: '{A}' occurs before or eventually leads to '{B}'. "
         reasoning += f"Step 3: To inherently prevent isolated events from forming a Cartesian product, we map them into a single connected node with a TimeBetweenEvents filter from '{A}' to '{B}' with no maximum time."
     elif "within TIME" in pattern:
+        reasoning = f"Step 1: The query involves events '{A}' and '{B}'. "
         reasoning += f"Step 2: '{B}' happens within {t} {time_unit} after '{A}'. "
         reasoning += f"Step 3: To inherently prevent isolated events from forming a Cartesian product, we map them into a single connected node with a TimeBetweenEvents filter from '{A}' to '{B}' up to {t_sec} seconds."
     elif "must not occur" in pattern:
+        reasoning = f"Step 1: The query involves events '{A}' and '{B}'. "
         reasoning += f"Step 2: '{B}' must not occur after '{A}'. "
         reasoning += f"Step 3: A single node referencing a child edge inside a NOT constraint."
     elif "refer to the same" in pattern:
+        reasoning = f"Step 1: The query involves events '{A}' and '{B}', and object '{obj_a}'. "
         reasoning += f"Step 2: '{A}' and '{B}' must refer to the same '{obj_a}'. "
         reasoning += f"Step 3: To explicitly correlate them and avoid unbounded Cartesian searches, we place '{A}', '{B}', and '{obj_a}' into a single node and add exact `O2E` link filters for both events."
     else:
+        reasoning = f"Step 1: The query involves events '{A}' and '{B}', and objects '{obj_a}' and '{obj_b}' (if applicable). "
         reasoning += "Step 2: Relate the identified elements. Step 3: Map to generic OCPQ single node."
 
     # Pattern handling: multi-node vs single-node trees
