@@ -243,6 +243,8 @@ def verify_ocpq_json(ocpq_json, model_name, messages):
     normalized = validate_and_normalize_ocpq_json(ocpq_json)
     
     is_connected = True
+    has_empty_nodes = False
+    
     if normalized and "nodes" in normalized:
         num_nodes = len(normalized["nodes"])
         if num_nodes > 1:
@@ -255,17 +257,31 @@ def verify_ocpq_json(ocpq_json, model_name, messages):
                 if i not in referenced_children:
                     is_connected = False
                     break
+        
+        # Check for empty nodes (no events and no objects)
+        for node in normalized["nodes"]:
+            box = node.get("Box", [])
+            if len(box) > 0 and isinstance(box[0], dict):
+                node_data = box[0]
+                new_events = node_data.get("newEventVars", [])
+                new_objects = node_data.get("newObjectVars", [])
+                constraints = node_data.get("constraints", [])
+                
+                if not new_events and not new_objects and not constraints:
+                     has_empty_nodes = True
+                     break
 
-    if normalized is None or not is_connected:
-        print("Generated OCPQ JSON is invalid or has disconnected nodes. Asking LLM to fix it...")
+    if normalized is None or not is_connected or has_empty_nodes:
+        print("Generated OCPQ JSON is invalid, has disconnected nodes, or has empty nodes. Asking LLM to fix it...")
         prompt = f"""
-The following JSON is invalid, incomplete, or contains disconnected nodes.
+The following JSON is invalid, incomplete, contains disconnected nodes, or contains completely empty nodes.
 
 Fix it so that:
 - It follows OCPQ schema
 - It correctly represents the query
 - ALL nodes are properly connected in a single tree. Every node (except 0) must be referenced in the child indices array of a parent node.
 - Critical filters (O2E, TimeBetweenEvents) are placed in connected child nodes to prevent unbounded Cartesian searches.
+- No nodes are empty. Every node must contain at least an event, an object, or a constraint. DO NOT create empty boxes!
 
 Return ONLY fixed JSON.
 
@@ -319,13 +335,14 @@ def run_subproblem_2_plan_tree(messages, model_name):
         "OCPQ PATTERN CHEAT SHEET:\n"
         "- 'completed within TIME': Requires 2 nodes. Parent node has Event A, Object A, and a constraint "
         "specifying 'SAT' on the child path. Child node has Event B and a 'TimeBetweenEvents' filter (max_seconds).\n"
-        "- 'exactly once': Requires 2 nodes. Root node declares Object A and enforces a `NumChilds` (min:1, max:1) filter via a `SizeFilter` constraint on the child path. Child node declares Event A and binds it to Object A via an `O2E` filter.\n"
-        "- 'at least once': Requires 2 nodes. Parent node declares Object A and Event A bound by `O2E`. Child node declares Event B bound back to Object A via `O2E`.\n"
+        "- 'exactly once': Requires 2 nodes. Root node has Object A and a 'SizeFilter' constraint on the child path (min:1, max:1). Connected child node has Event A and an 'O2E' filter linking Event A to Object A.\n"
+        "- 'at least once': Parent node with Event A, child node with Event B.\n"
         "- 'must not occur': Single node with a 'NOT' constraint on a child path.\n\n"
         "CRITICAL TO PREVENT SLOW QUERIES (OOM CRASHES):\n"
         "1. DO NOT create orphaned/disconnected nodes. EVERY node must be linked as a child of another node via the child index arrays, except for the root node.\n"
-        "2. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` MUST be placed inside connected child nodes, not isolated in disconnected nodes.\n"
-        "3. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.\n\n"
+        "2. DO NOT create EMPTY nodes that don't contain any events or objects. Every node should have a clear purpose in the query plan.\n"
+        "3. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` MUST be placed inside connected child nodes, not isolated in disconnected nodes.\n"
+        "4. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.\n\n"
         "Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, "
         "and exact filters/constraints). Return ONLY JSON matching the schema."
     )
