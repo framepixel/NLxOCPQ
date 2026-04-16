@@ -244,7 +244,22 @@ def verify_ocpq_json(ocpq_json, model_name, messages):
     
     is_connected = True
     has_empty_nodes = False
+    has_hallucinated_entities = False
     
+    # Extract allowed entities from SP1 if available
+    allowed_events = set()
+    allowed_objects = set()
+    if len(messages) > 2:
+        try:
+            sp1_content = messages[2].get("content", "{}")
+            extracted_structure = json.loads(sp1_content)
+            for e in extracted_structure.get("events", []):
+                allowed_events.add(e.get("event"))
+            for o in extracted_structure.get("objects", []):
+                allowed_objects.add(o.get("object"))
+        except:
+             pass
+
     if normalized and "nodes" in normalized:
         num_nodes = len(normalized["nodes"])
         if num_nodes > 1:
@@ -263,18 +278,29 @@ def verify_ocpq_json(ocpq_json, model_name, messages):
             box = node.get("Box", [])
             if len(box) > 0 and isinstance(box[0], dict):
                 node_data = box[0]
-                new_events = node_data.get("newEventVars", [])
-                new_objects = node_data.get("newObjectVars", [])
+                new_events = node_data.get("newEventVars", {})
+                new_objects = node_data.get("newObjectVars", {})
                 constraints = node_data.get("constraints", [])
                 
                 if not new_events and not new_objects and not constraints:
                      has_empty_nodes = True
-                     break
+                
+                # Check for hallucinated entities (if we have allowed sets)
+                if allowed_events:
+                    for ev_idx, ev_list in new_events.items():
+                        for ev in ev_list:
+                            if ev not in allowed_events:
+                                has_hallucinated_entities = True
+                if allowed_objects:
+                    for obj_idx, obj_list in new_objects.items():
+                        for ob in obj_list:
+                            if ob not in allowed_objects:
+                                has_hallucinated_entities = True
 
-    if normalized is None or not is_connected or has_empty_nodes:
-        print("Generated OCPQ JSON is invalid, has disconnected nodes, or has empty nodes. Asking LLM to fix it...")
+    if normalized is None or not is_connected or has_empty_nodes or has_hallucinated_entities:
+        print("Generated OCPQ JSON is invalid, has disconnected nodes, empty nodes, or hallucinated entities. Asking LLM to fix it...")
         prompt = f"""
-The following JSON is invalid, incomplete, contains disconnected nodes, or contains completely empty nodes.
+The following JSON is invalid, incomplete, contains disconnected nodes, contains completely empty nodes, or has hallucinated entities (events/objects not provided).
 
 Fix it so that:
 - It follows OCPQ schema
@@ -282,6 +308,10 @@ Fix it so that:
 - ALL nodes are properly connected in a single tree. Every node (except 0) must be referenced in the child indices array of a parent node.
 - Critical filters (O2E, TimeBetweenEvents) are placed in connected child nodes to prevent unbounded Cartesian searches.
 - No nodes are empty. Every node must contain at least an event, an object, or a constraint. DO NOT create empty boxes!
+- ONLY use the following allowed entities natively mapped from the query. DO NOT use hallucinated terms like Person or Diagnosis!
+
+Allowed Events: {allowed_events}
+Allowed Objects: {allowed_objects}
 
 Return ONLY fixed JSON.
 
@@ -330,6 +360,11 @@ def run_subproblem_1_extract_entities(query, event_names, object_names, messages
 
 
 def run_subproblem_2_plan_tree(messages, model_name):
+    # Re-inject extracted structure immediately before generating the tree
+    extracted_structure = "{}"
+    if len(messages) > 2:
+        extracted_structure = messages[2].get("content", "{}")
+
     prompt_2 = (
         "Based on the mapped elements, plan the logical tree structure for the OCPQ query.\n\n"
         "OCPQ PATTERN CHEAT SHEET:\n"
@@ -344,7 +379,10 @@ def run_subproblem_2_plan_tree(messages, model_name):
         "3. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` MUST be placed inside connected child nodes, not isolated in disconnected nodes.\n"
         "4. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.\n\n"
         "Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, "
-        "and exact filters/constraints). Return ONLY JSON matching the schema."
+        "and exact filters/constraints).\n\n"
+        "CRITICAL: ONLY use the events and objects mapped here. DO NOT INVENT NEW ONES!\n"
+        f"{extracted_structure}\n\n"
+        "Return ONLY JSON matching the schema."
     )
     messages.append({"role": "user", "content": prompt_2})
 
@@ -382,11 +420,27 @@ def build_few_shot_examples(query, dataset, embeddings):
 
 def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_name):
     few_shot_string = build_few_shot_examples(query, dataset, embeddings)
+    
+    # Re-inject extracted structure and logical tree right before the end
+    extracted_structure = "{}"
+    logical_tree = "{}"
+    
+    if len(messages) > 2:
+        extracted_structure = messages[2].get("content", "{}")
+    if len(messages) > 4:
+        logical_tree = messages[4].get("content", "{}")
+
     prompt_3 = (
         "Now, based on your previous reasoning, output the final OCPQ JSON matching the Exact Schema.\n\n"
-        "Use these examples as references for the output syntax. DO NOT copy their logic unless it applies "
-        f"to this specific user query:\n{few_shot_string}\n\n"
-        "Output strictly and ONLY valid JSON matching the exact schema."
+        "Use these examples as references for the output syntax.\n"
+        f"EXAMPLES:\n{few_shot_string}\n\n"
+        "CRITICAL FINAL CONSTRAINTS:\n"
+        "1. DO NOT copy events or objects from the examples above.\n"
+        "2. You MUST strictly use ONLY the allowed events and objects mapped in your first subproblem.\n"
+        f"ALLOWED ENTITIES: {extracted_structure}\n\n"
+        "3. You must follow the logical tree plan from your second subproblem.\n"
+        f"LOGICAL PLAN: {logical_tree}\n\n"
+        "Output strictly and ONLY valid JSON matching the exact schema based entirely on these allowed entities and plan."
     )
     messages.append({"role": "user", "content": prompt_3})
     messages[0] = {
