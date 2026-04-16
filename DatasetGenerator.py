@@ -630,7 +630,7 @@ def generate_example():
                     "Box": [
                         {
                             "newEventVars": { "0": [A], "1": [B] },
-                            "newObjectVars": { "0": [obj_a] },
+                            "newObjectVars": { "0": [obj_a] } if "refer to the same" in pattern else {},
                             "filters": filters,
                             "sizeFilters": [],
                             "constraints": constraints,
