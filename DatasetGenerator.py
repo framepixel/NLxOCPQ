@@ -699,7 +699,7 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
 # In[10]:
 
 
-dataset = generate_dataset(num_samples=500, first_rewrite=False, second_rewrite=False)
+dataset = generate_dataset(num_samples=1500, first_rewrite=False, second_rewrite=False)
 
 # In[11]:
 
