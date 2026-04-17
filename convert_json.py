@@ -81,8 +81,10 @@ def convert_to_ocpq(input_file, output_file):
         result = _convert_flow_to_ocpq(flow_json)
 
     with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(result[0], f, indent=2)
-        
+        try:
+            json.dump(result[0], f, indent=2)
+        except KeyError:
+            json.dump(result, f, indent=2)
     print(f"Successfully converted ReactFlow JSON to flattened OCPQ syntax tree -> {output_file}")
 
 if __name__ == '__main__':
