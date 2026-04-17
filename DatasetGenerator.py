@@ -39,7 +39,9 @@ patterns = [
     # "A constraint modeling that the EVENT_A event should occur exactly once for each OBJECT_A.",
     "EVENT_A must occur exactly once for each OBJECT_A.",
     # At least once pattern
-    "After the EVENT_A event occurs for a given OBJECT_A, the EVENT_B event should happen at least once."
+    "After the EVENT_A event occurs for a given OBJECT_A, the EVENT_B event should happen at least once.",
+    # CEL Aggregation pattern
+    "Find all OBJECT_A whose total ATT_LABEL is OP_TEXT NUM3, where the total is calculated by summing the ATT_NAME of every associated OBJECT_B that had an EVENT_A event."
 ]
 
 # In[4]:
@@ -261,6 +263,16 @@ def generate_example():
     num = random.choice([1, 2, 5, 10, 50, 100])
     num2 = random.choice([1, 2, 3, 4, 5])
 
+    # Generate random attributes for CEL scripts
+    att_label = random.choice(["order_volume", "total_amount", "total_price"])
+    att_name = random.choice(["price", "amount", "value"])
+    op_text = random.choice(["below", "above", "exactly", "at least"])
+    
+    # Map operator language to CEL math operators
+    op_map = {"below": "<", "above": ">", "exactly": "==", "at least": ">="}
+    op_num = op_map[op_text]
+    num3 = random.choice([500, 1000, 5000, 10000, 50000, 300000])
+
     # Replace placeholders in the pattern with the generated values
     text = pattern.replace("EVENT_A", A)\
                   .replace("EVENT_B", B)\
@@ -269,7 +281,11 @@ def generate_example():
                   .replace("TIME_UNIT", time_unit)\
                   .replace("TIME", str(t))\
                   .replace("NUM2", str(num2))\
-                  .replace("NUM", str(num))
+                  .replace("NUM3", str(num3))\
+                  .replace("NUM", str(num))\
+                  .replace("ATT_LABEL", att_label)\
+                  .replace("ATT_NAME", att_name)\
+                  .replace("OP_TEXT", op_text)
 
     # Generate reasoning for Least-to-Most prompting
     is_single_event = "exactly once" in pattern or "at least once" in pattern and "the EVENT_B event should happen" not in pattern
@@ -282,6 +298,10 @@ def generate_example():
         reasoning = f"Step 1: The query involves events '{A}' and '{B}', and object '{obj_a}'. "
         reasoning += f"Step 2: The constraint specifies that after '{A}' occurs for '{obj_a}', '{B}' must also occur at least once. "
         reasoning += f"Step 3: To prevent unbounded searches, we structure this as a connected tree. The parent node binds '{A}' and '{obj_a}' explicitly with an `O2E` filter, and links to a connected child node for '{B}'. We bind '{B}' back to the object using an `O2E` filter strictly inside this child node."
+    elif "total is calculated" in pattern:
+        reasoning = f"Step 1: The query involves event '{A}', objects '{obj_a}', '{obj_b}' and attributes '{att_label}', '{att_name}'. "
+        reasoning += f"Step 2: The constraint limits '{obj_a}' based on the sum of '{att_name}' for all its '{obj_b}' linked to '{A}'. The sum must be {op_text} {num3}. "
+        reasoning += f"Step 3: We establish a 3-node connected hierarchy. Node 0 is for '{obj_a}' with an AdvancedCEL SizeFilter mapping the sum to '{att_label}'. Node 1 is an object node for '{obj_b}' linking to Node 0. Node 2 is an event node for '{A}' connecting to Node 1 via O2E."
     elif "at least NUM2" in pattern:
         reasoning = f"Step 1: The query involves events '{A}' and '{B}', and objects '{obj_a}' and '{obj_b}'. "
         reasoning += f"Step 2: The constraint expects '{obj_a}' to have at least {num} '{obj_b}' where '{B}' occurs at least {num2} times after '{A}'. "
@@ -396,6 +416,74 @@ def generate_example():
                 }
             ],
             "edgeNames": [[[0, 1], "A"]]
+        }
+        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
+
+    elif "total is calculated" in pattern:
+        # AdvancedCEL 3-node structure
+        ocpq_tree = {
+            "nodes": [
+                {
+                    "Box": [
+                        {
+                            "newEventVars": {},
+                            "newObjectVars": { "0": [obj_a] },
+                            "filters": [],
+                            "sizeFilters": [
+                                {
+                                    "type": "AdvancedCEL",
+                                    "cel": f"childs.map(c, c.{att_label}).sum().int() {op_num} {num3}",
+                                    "child_name": "A",
+                                    "labels": [
+                                        {
+                                            "name": att_label,
+                                            "cel": f"childs.map(c, c.{att_name}).sum().int()",
+                                            "child_name": "B"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "constraints": [],
+                            "evVarLabels": {},
+                            "obVarLabels": {}
+                        },
+                        [1] # Contains child 1 (O2O)
+                    ]
+                },
+                {
+                    "Box": [
+                        {
+                            "newEventVars": {},
+                            "newObjectVars": { "1": [obj_b] },
+                            "filters": [
+                                {"type": "O2O", "object": 0, "other_object": 1, "qualifier": None}
+                            ],
+                            "sizeFilters": [],
+                            "constraints": [],
+                            "evVarLabels": {},
+                            "obVarLabels": {}
+                        },
+                        [2] # Contains child 2 (O2E)
+                    ]
+                },
+                {
+                    "Box": [
+                        {
+                            "newEventVars": { "0": [A] },
+                            "newObjectVars": {},
+                            "filters": [
+                                {"type": "O2E", "object": 1, "event": 0, "qualifier": None}
+                            ],
+                            "sizeFilters": [],
+                            "constraints": [],
+                            "evVarLabels": {},
+                            "obVarLabels": {}
+                        },
+                        [] # No children
+                    ]
+                }
+            ],
+            "edgeNames": [[[0, 1], "A"], [[1, 2], "B"]]
         }
         return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
         
