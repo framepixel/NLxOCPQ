@@ -411,26 +411,6 @@ def run_subproblem_2_plan_tree(messages, model_name):
     return tree_text
 
 
-def remove_empty_json(d):
-    target = {}
-    if isinstance(d, dict):
-        for k, v in d.items():
-            if isinstance(v, (dict, list)):
-                v = remove_empty_json(v)
-            if v != [] and v != {}:
-                target[k] = v
-        return target
-    elif isinstance(d, list):
-        target_list = []
-        for v in d:
-            if isinstance(v, (dict, list)):
-                v = remove_empty_json(v)
-            if v != [] and v != {}:
-                target_list.append(v)
-        return target_list
-    else:
-        return d
-
 def build_few_shot_examples(query, dataset, embeddings):
     examples = retrieve_examples(query, dataset, embeddings)
     example_prompts = []
@@ -441,9 +421,8 @@ def build_few_shot_examples(query, dataset, embeddings):
                 "reasoning",
                 "Step 1: Identify elements. Step 2: Establish logic. Step 3: Implement JSON.",
             )
-            clean_json = remove_empty_json(ex['query'])
             example_prompts.append(
-                f"Question: {ex[qt]}\nReasoning: {reasoning}\nJSON:\n{json.dumps(clean_json, indent=2)}"
+                f"Question: {ex[qt]}\nReasoning: {reasoning}\nJSON:\n{json.dumps(ex['query'], indent=2)}"
             )
     return "\n\n".join(example_prompts)
 
