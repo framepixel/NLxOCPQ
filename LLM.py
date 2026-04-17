@@ -245,6 +245,7 @@ def verify_ocpq_json(ocpq_json, model_name, messages):
     is_connected = True
     has_empty_nodes = False
     has_hallucinated_entities = False
+    missing_o2e = False
     
     # Extract allowed entities from SP1 if available
     allowed_events = set()
@@ -285,6 +286,13 @@ def verify_ocpq_json(ocpq_json, model_name, messages):
                 if not new_events and not new_objects and not constraints:
                      has_empty_nodes = True
                 
+                # Check for Cartesian product explosion (missing O2E)
+                if new_events and new_objects:
+                    filters = node_data.get("filters", [])
+                    has_o2e = any(f.get("type") == "O2E" for f in filters)
+                    if not has_o2e:
+                        missing_o2e = True
+
                 # Check for hallucinated entities (if we have allowed sets)
                 if allowed_events:
                     for ev_idx, ev_list in new_events.items():
@@ -297,10 +305,10 @@ def verify_ocpq_json(ocpq_json, model_name, messages):
                             if ob not in allowed_objects:
                                 has_hallucinated_entities = True
 
-    if normalized is None or not is_connected or has_empty_nodes or has_hallucinated_entities:
-        print("Generated OCPQ JSON is invalid, has disconnected nodes, empty nodes, or hallucinated entities. Asking LLM to fix it...")
+    if normalized is None or not is_connected or has_empty_nodes or has_hallucinated_entities or missing_o2e:
+        print("Generated OCPQ JSON is invalid, has disconnected nodes, empty nodes, missing O2E filters, or hallucinated entities. Asking LLM to fix it...")
         prompt = f"""
-The following JSON is invalid, incomplete, contains disconnected nodes, contains completely empty nodes, or has hallucinated entities (events/objects not provided).
+The following JSON is invalid, incomplete, contains disconnected nodes, contains completely empty nodes, misses O2E filters, or has hallucinated entities (events/objects not provided).
 
 Fix it so that:
 - It follows OCPQ schema
@@ -309,6 +317,7 @@ Fix it so that:
 - Critical filters (O2E, TimeBetweenEvents) are placed in connected child nodes to prevent unbounded Cartesian searches.
 - No nodes are empty. Every node must contain at least an event, an object, or a constraint. DO NOT create empty boxes!
 - ONLY use the following allowed entities natively mapped from the query. DO NOT use hallucinated terms like Person or Diagnosis!
+- If a node has BOTH events and objects, it MUST have an `O2E` filter connecting them. Otherwise, it will cause an infinite Cartesian explosion!
 
 Allowed Events: {allowed_events}
 Allowed Objects: {allowed_objects}
@@ -402,6 +411,26 @@ def run_subproblem_2_plan_tree(messages, model_name):
     return tree_text
 
 
+def remove_empty_json(d):
+    target = {}
+    if isinstance(d, dict):
+        for k, v in d.items():
+            if isinstance(v, (dict, list)):
+                v = remove_empty_json(v)
+            if v != [] and v != {}:
+                target[k] = v
+        return target
+    elif isinstance(d, list):
+        target_list = []
+        for v in d:
+            if isinstance(v, (dict, list)):
+                v = remove_empty_json(v)
+            if v != [] and v != {}:
+                target_list.append(v)
+        return target_list
+    else:
+        return d
+
 def build_few_shot_examples(query, dataset, embeddings):
     examples = retrieve_examples(query, dataset, embeddings)
     example_prompts = []
@@ -412,8 +441,9 @@ def build_few_shot_examples(query, dataset, embeddings):
                 "reasoning",
                 "Step 1: Identify elements. Step 2: Establish logic. Step 3: Implement JSON.",
             )
+            clean_json = remove_empty_json(ex['query'])
             example_prompts.append(
-                f"Question: {ex[qt]}\nReasoning: {reasoning}\nJSON:\n{json.dumps(ex['query'], indent=2)}"
+                f"Question: {ex[qt]}\nReasoning: {reasoning}\nJSON:\n{json.dumps(clean_json, indent=2)}"
             )
     return "\n\n".join(example_prompts)
 
@@ -442,15 +472,19 @@ def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_n
         f"LOGICAL PLAN: {logical_tree}\n\n"
         "Output strictly and ONLY valid JSON matching the exact schema based entirely on these allowed entities and plan."
     )
-    messages.append({"role": "user", "content": prompt_3})
-    messages[0] = {
-        "role": "system",
-        "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema.",
-    }
+    
+    # Heuristic Context Pruning: Sever the long chat flow. Inject ONLY the distilled outputs natively into SP3 prompt.
+    messages_sp3 = [
+        {
+            "role": "system",
+            "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema.",
+        },
+        {"role": "user", "content": prompt_3}
+    ]
 
     response_3 = call_hf_with_retry(
         model=model_name,
-        messages=messages,
+        messages=messages_sp3,
         max_tokens=2000,
         response_format={
             "type": "json_schema",
