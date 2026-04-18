@@ -1,20 +1,27 @@
 #!/usr/bin/env zsh
 #SBATCH --job-name=ocpq-lora
 #SBATCH --output=ocpq-lora-%J.out
+#SBATCH --partition=c25g
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
 #SBATCH --time=12:00:00
 
-# Load modules (adjust to RWTH specific Python/CUDA modules)
+set -euo pipefail
+
+WORKDIR="$HOME/jupyterlab/NLxOCPQ"
+cd "$WORKDIR"
+
+# Load the cluster Python/CUDA stack if these module names exist on the cluster.
+# If the module names differ, replace them with the RWTH-provided equivalents.
 module load python/3.11 cuda/12.1
 
-# Activate your environment
-source ~/miniconda3/bin/activate apm_env
+# Activate the project virtual environment.
+# Create it once on the cluster with: python3 -m venv .venv
+source .venv/bin/activate
 
-# Install Unsloth (if you haven't yet)
-pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"
-pip install --no-deps "trl<0.9.0" peft accelerate bitsandbytes
+# Make sure the environment already contains the training dependencies.
+# Install these once outside the job script, not on every submission.
 
 # Run script
-python train_unsloth.py
+python -u train_unsloth.py
