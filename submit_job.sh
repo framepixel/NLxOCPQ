@@ -15,11 +15,11 @@ cd "$SCRIPT_DIR"
 
 # Load the cluster Python/CUDA stack if these module names exist on the cluster.
 # If the module names differ, replace them with the RWTH-provided equivalents.
-module load python/3.11 cuda/12.1
+module load python/3.12 cuda/12.1
 
 # Activate the project virtual environment.
 # Create it once on the cluster with: python3 -m venv .venv
-source .venv/bin/activate
+conda activate apm_env
 
 # Make sure the environment already contains the training dependencies.
 # Install these once outside the job script, not on every submission.
