@@ -376,7 +376,11 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"]]
         }
-        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
+        return {"nl": text,
+                "events": domain_data["events"], 
+                "objects": domain_data["objects"], 
+                "query": ocpq_tree, 
+                "reasoning": reasoning}
         
     elif "at least once" in pattern:
         ocpq_tree = {
@@ -417,7 +421,11 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"]]
         }
-        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
+        return {"nl": text,
+                "events": domain_data["events"], 
+                "objects": domain_data["objects"], 
+                "query": ocpq_tree, 
+                "reasoning": reasoning}
 
     elif "total is calculated" in pattern:
         # AdvancedCEL 3-node structure
@@ -485,8 +493,12 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"], [[1, 2], "B"]]
         }
-        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
-        
+        return {"nl": text,
+                "events": domain_data["events"], 
+                "objects": domain_data["objects"], 
+                "query": ocpq_tree, 
+                "reasoning": reasoning}
+
     elif "at least NUM2" in pattern:
         # Deep nested tree structure (A -> B -> C)
         ocpq_tree = {
@@ -541,7 +553,11 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"], [[1, 2], "B"]] # Ordered hierarchical edges
         }
-        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
+        return {"nl": text,
+                "events": domain_data["events"], 
+                "objects": domain_data["objects"], 
+                "query": ocpq_tree, 
+                "reasoning": reasoning}
 
     elif "completed within" in pattern:
         # Parent-child structure using the SAT constraint
@@ -586,7 +602,11 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"]]
         }
-        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
+        return {"nl": text,
+                "events": domain_data["events"], 
+                "objects": domain_data["objects"], 
+                "query": ocpq_tree, 
+                "reasoning": reasoning}
         
     elif "at most NUM" in pattern:
         # Multi-node structure with two distinct child branches
@@ -644,7 +664,11 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"], [[0, 2], "B"]]
         }
-        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
+        return {"nl": text,
+                "events": domain_data["events"], 
+                "objects": domain_data["objects"], 
+                "query": ocpq_tree, 
+                "reasoning": reasoning}
     
     elif "for which the EVENT_A" in pattern:
         # Construct the OCPQ tree representing the parent-child node logic 
@@ -685,7 +709,11 @@ def generate_example():
             ],
             "edgeNames": [[[0, 1], "A"]]
         }
-        return {"nl": text, "query": ocpq_tree, "reasoning": reasoning}
+        return {"nl": text,
+                "events": domain_data["events"], 
+                "objects": domain_data["objects"], 
+                "query": ocpq_tree, 
+                "reasoning": reasoning}
 
     # Dynamically inject constraints based on single-node patterns
     constraints = []
@@ -776,6 +804,8 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
             if second_rewrite:
                 updated_example["nl_clean_2"] = rewrites_batch[j].get("nl_clean_2", ex["nl"])
             
+            updated_example["events"] = ex["events"]
+            updated_example["objects"] = ex["objects"]
             updated_example["query"] = ex["query"]
             updated_example["reasoning"] = ex["reasoning"]
             dataset.append(updated_example)

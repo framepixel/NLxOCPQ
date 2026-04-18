@@ -17,8 +17,8 @@ def convert_to_jsonl(input_file, output_file):
             query_nl = item["nl"]
             reasoning = item.get("reasoning", "")
             ocpq_json = item["query"]
-            mapped_events = list(ocpq_json.get("events", {}).keys())
-            mapped_objects = list(ocpq_json.get("objects", {}).keys())
+            mapped_events = item.get("events", [])
+            mapped_objects = item.get("objects", [])
 
             # Construct the conversational format matching the LLM.py prompts.
             # For a direct fine-tuning, you might just map NL -> JSON.
