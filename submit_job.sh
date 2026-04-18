@@ -9,8 +9,9 @@
 
 set -euo pipefail
 
-WORKDIR="$HOME/jupyterlab/NLxOCPQ"
-cd "$WORKDIR"
+# Always run from the folder where this script lives (repo-local, no username path).
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 
 # Load the cluster Python/CUDA stack if these module names exist on the cluster.
 # If the module names differ, replace them with the RWTH-provided equivalents.
