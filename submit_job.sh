@@ -13,10 +13,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Load the cluster Python/CUDA stack if these module names exist on the cluster.
-# If the module names differ, replace them with the RWTH-provided equivalents.
-module load CUDA/12.1
-
 # Activate the project virtual environment.
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate apm_env
