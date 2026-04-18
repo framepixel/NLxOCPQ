@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 #SBATCH --job-name=ocpq-lora
 #SBATCH --output=ocpq-lora-%J.out
-#SBATCH --partition=c25g
+#SBATCH --partition=c23g
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
@@ -15,14 +15,15 @@ cd "$SCRIPT_DIR"
 
 # Load the cluster Python/CUDA stack if these module names exist on the cluster.
 # If the module names differ, replace them with the RWTH-provided equivalents.
-module load python/3.12 cuda/12.1
+module load CUDA/12.1
 
 # Activate the project virtual environment.
-# Create it once on the cluster with: python3 -m venv .venv
+source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate apm_env
 
 # Make sure the environment already contains the training dependencies.
 # Install these once outside the job script, not on every submission.
 
 # Run script
+python --version
 python -u train_unsloth.py
