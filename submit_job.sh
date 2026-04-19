@@ -5,13 +5,13 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
-#SBATCH --time=00:05:00
+#SBATCH --time=00:01:00
 
 set -euo pipefail
 
 # Always run from the folder where this script lives (repo-local, no username path).
-SCRIPT_DIR="$(readlink -f "$(dirname "$0")")"
-cd "$SCRIPT_DIR"
+# Run from the directory where sbatch was invoked
+cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"
 
 # Activate the project virtual environment.
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
