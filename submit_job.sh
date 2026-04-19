@@ -5,12 +5,12 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
-#SBATCH --time=12:00:00
+#SBATCH --time=00:05:00
 
 set -euo pipefail
 
 # Always run from the folder where this script lives (repo-local, no username path).
-SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_DIR="$(readlink -f "$(dirname "$0")")"
 cd "$SCRIPT_DIR"
 
 # Activate the project virtual environment.
