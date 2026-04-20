@@ -1,0 +1,15 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
+
+# vLLM serving environment (separate from Unsloth training env)
+# This stack is for loading/serving your LoRA on cluster GPUs.
+torch==2.10.0+cu126
+torchvision==0.25.0+cu126
+torchaudio==2.10.0+cu126
+
+vllm==0.19.1
+transformers==4.57.1
+huggingface-hub==0.36.2
+protobuf>=5,<7
+sentencepiece==0.2.1
+safetensors==0.7.0
+requests==2.33.1
