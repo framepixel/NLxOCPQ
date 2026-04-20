@@ -11,7 +11,6 @@ import time
 
 from sklearn.metrics.pairwise import cosine_similarity
 
-from sentence_transformers import SentenceTransformer
 from huggingface_hub import InferenceClient
 from pydantic import ValidationError
 
@@ -29,27 +28,74 @@ def load_resources():
     # Load the generated embeddings
     embeddings = np.load('embeddings.npy')
 
-    # Load the local embedding model so we can embed user queries on the fly
-    model = SentenceTransformer('./local-all-MiniLM-L6-v2') 
-    
-    return dataset, embeddings, model
+    # Load the local embedding model so we can embed user queries on the fly.
+    # Import lazily so UI startup does not crash when transformer dependencies are temporarily mismatched.
+    embedding_error = None
+    model = None
+    try:
+        from sentence_transformers import SentenceTransformer
 
-dataset, embeddings, model = load_resources()
+        model = SentenceTransformer('./local-all-MiniLM-L6-v2')
+    except Exception as exc:
+        embedding_error = str(exc)
+        print(
+            "Warning: sentence-transformers could not be loaded. "
+            "Falling back to non-embedding example retrieval. "
+            f"Reason: {embedding_error}"
+        )
+    
+    return dataset, embeddings, model, embedding_error
+
+dataset, embeddings, model, embedding_load_error = load_resources()
 
 def get_embedding(text):
+    if model is None:
+        raise RuntimeError(
+            "Embedding model is unavailable. "
+            f"sentence-transformers load error: {embedding_load_error}"
+        )
     return model.encode(text)
 
 hf_client = None
 hf_model = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
 hf_provider = os.getenv("HF_PROVIDER")
+hf_base_url = os.getenv("HF_BASE_URL")
+hf_backend = os.getenv("HF_BACKEND", "huggingface")
 
-def set_hf_client(token, provider=None):
+def set_hf_client(token, provider=None, model_name=None, base_url=None):
     global hf_client
+    global hf_model
+    global hf_provider
+    global hf_base_url
+    global hf_backend
+
     selected_provider = provider or hf_provider
+    selected_model = model_name or hf_model
+    selected_base_url = base_url or hf_base_url
+
+    hf_model = selected_model
+    hf_provider = selected_provider
+    hf_base_url = selected_base_url
+
+    if selected_base_url:
+        hf_backend = "custom-endpoint"
+        hf_client = InferenceClient(api_key=token, base_url=selected_base_url)
+        return
+
     if selected_provider:
+        hf_backend = "hf-provider"
         hf_client = InferenceClient(api_key=token, provider=selected_provider)
     else:
+        hf_backend = "hf-default"
         hf_client = InferenceClient(api_key=token)
+
+
+def get_hf_backend_description():
+    if hf_backend == "custom-endpoint":
+        return f"Custom endpoint ({hf_base_url or 'unset'})"
+    if hf_backend == "hf-provider":
+        return f"HF provider ({hf_provider or 'auto'})"
+    return "HF default"
 
 def set_hf_model(model_name):
     global hf_model
@@ -103,13 +149,21 @@ def retrieve_examples(query, dataset, embeddings, top_k=3):
     """
     Retrieve the top-k most similar examples from the dataset based on cosine similarity of embeddings.
     """
-    query_emb = get_embedding(query)
-    
-    # Calculate cosine similarity between the query and all dataset questions
-    similarities = cosine_similarity([query_emb], embeddings)[0]
-    
-    # Get the indices of the top-k most similar questions
-    top_indices = np.argsort(similarities)[-top_k:][::-1]
+    top_indices = None
+    try:
+        query_emb = get_embedding(query)
+
+        # Calculate cosine similarity between the query and all dataset questions
+        similarities = cosine_similarity([query_emb], embeddings)[0]
+
+        # Get the indices of the top-k most similar questions
+        top_indices = np.argsort(similarities)[-top_k:][::-1]
+    except Exception as exc:
+        print(
+            "Warning: using deterministic fallback examples because embedding retrieval failed. "
+            f"Reason: {exc}"
+        )
+        top_indices = np.arange(min(top_k, len(dataset)))
     
     examples = []
     for idx in top_indices:

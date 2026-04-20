@@ -17,6 +17,7 @@ warnings.filterwarnings(
 
 from LLM import (
     set_hf_client,
+    get_hf_backend_description,
     nl_to_ocpq_pipeline,
     dataset,
     embeddings,
@@ -183,10 +184,56 @@ def main():
         if not hf_token:
             st.warning("Please provide a Hugging Face API Token (HF_TOKEN) in the sidebar or environment variables to proceed.")
             st.stop()
-    
-    set_hf_client(hf_token)
 
     st.sidebar.header("Configuration")
+    backend_default_index = 1 if os.getenv("HF_BACKEND") == "custom-endpoint" or os.getenv("HF_BASE_URL") else 0
+    backend_mode = st.sidebar.radio(
+        "Inference backend",
+        options=["HF Inference Providers", "Custom endpoint"],
+        index=backend_default_index,
+    )
+
+    hf_model = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
+    hf_provider = os.getenv("HF_PROVIDER", "")
+    hf_base_url = os.getenv("HF_BASE_URL", "")
+
+    if backend_mode == "Custom endpoint":
+        hf_base_url = st.sidebar.text_input(
+            "Endpoint base URL",
+            value=hf_base_url,
+            help="Use this for a dedicated inference endpoint or a small proxy that serves your fine-tuned model.",
+        )
+        hf_model = st.sidebar.text_input(
+            "Model name",
+            value=hf_model,
+            help="This is the model identifier sent with each chat completion request.",
+        )
+        hf_provider = None
+    else:
+        hf_provider = st.sidebar.text_input(
+            "HF provider (optional)",
+            value=hf_provider,
+            help="Leave blank to let Hugging Face choose automatically.",
+        )
+        hf_model = st.sidebar.text_input(
+            "HF model",
+            value=hf_model,
+            help="Set this to your deployed model or keep the default LLaMA 3 model.",
+        )
+        hf_base_url = None
+
+    if backend_mode == "Custom endpoint" and not hf_base_url:
+        st.sidebar.warning("Custom endpoint mode is selected, but no base URL was provided.")
+
+    set_hf_client(
+        hf_token,
+        provider=hf_provider or None,
+        model_name=hf_model or None,
+        base_url=hf_base_url or None,
+    )
+
+    st.sidebar.caption(f"Active backend: {get_hf_backend_description()}")
+
     selected_strategy = st.sidebar.selectbox(
         "Prompting Strategy",
         options=PROMPT_STRATEGIES,
