@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import time
+import traceback
 from typing import Any, Literal
 
 import torch
@@ -140,7 +141,20 @@ def _normalize_content(content: Any) -> str:
         return "\n".join(fragments)
     if content is None:
         return ""
+    if isinstance(content, dict):
+        text = content.get("text")
+        if text is not None:
+            return str(text)
+        return json.dumps(content, ensure_ascii=True)
     return str(content)
+
+
+def _normalize_role(role: str) -> str:
+    # Llama chat templates typically support system/user/assistant.
+    # Map unknown roles to user so tool messages do not crash generation.
+    if role in {"system", "user", "assistant"}:
+        return role
+    return "user"
 
 
 def _apply_response_format(messages: list[dict[str, str]], response_format: dict[str, Any] | None) -> list[dict[str, str]]:
@@ -186,68 +200,74 @@ def health() -> dict[str, str]:
 
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResponse:
-    if model is None or tokenizer is None:
-        raise HTTPException(status_code=503, detail="Model is not loaded yet.")
+    try:
+        if model is None or tokenizer is None:
+            raise HTTPException(status_code=503, detail="Model is not loaded yet.")
 
-    if request.stream:
-        raise HTTPException(status_code=400, detail="Streaming is not supported in this lightweight server.")
+        if request.stream:
+            raise HTTPException(status_code=400, detail="Streaming is not supported in this lightweight server.")
 
-    messages = [
-        {"role": message.role, "content": _normalize_content(message.content)}
-        for message in request.messages
-    ]
-    messages = _apply_response_format(messages, request.response_format)
+        messages = [
+            {"role": _normalize_role(message.role), "content": _normalize_content(message.content)}
+            for message in request.messages
+        ]
+        messages = _apply_response_format(messages, request.response_format)
 
-    max_new_tokens = request.max_tokens or 1024
-    temperature = 0.0 if request.temperature is None else request.temperature
-    top_p = 1.0 if request.top_p is None else request.top_p
-    do_sample = temperature > 0.0
+        max_new_tokens = request.max_tokens or 1024
+        temperature = 0.0 if request.temperature is None else request.temperature
+        top_p = 1.0 if request.top_p is None else request.top_p
+        do_sample = temperature > 0.0
 
-    chat_input_ids = tokenizer.apply_chat_template(
-        messages,
-        tokenize=True,
-        add_generation_prompt=True,
-        return_tensors="pt",
-    )
-    chat_input_ids = chat_input_ids.to(model.device)
-    input_length = chat_input_ids.shape[-1]
+        chat_input_ids = tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_tensors="pt",
+        )
+        chat_input_ids = chat_input_ids.to(model.device)
+        input_length = chat_input_ids.shape[-1]
 
-    generation_kwargs: dict[str, Any] = {
-        "max_new_tokens": max_new_tokens,
-        "do_sample": do_sample,
-        "temperature": temperature if do_sample else None,
-        "top_p": top_p if do_sample else None,
-        "pad_token_id": tokenizer.eos_token_id,
-        "eos_token_id": tokenizer.eos_token_id,
-    }
+        generation_kwargs: dict[str, Any] = {
+            "max_new_tokens": max_new_tokens,
+            "do_sample": do_sample,
+            "temperature": temperature if do_sample else None,
+            "top_p": top_p if do_sample else None,
+            "pad_token_id": tokenizer.eos_token_id,
+            "eos_token_id": tokenizer.eos_token_id,
+        }
 
-    with torch.inference_mode():
-        output_ids = model.generate(chat_input_ids, **{key: value for key, value in generation_kwargs.items() if value is not None})
+        with torch.inference_mode():
+            output_ids = model.generate(chat_input_ids, **{key: value for key, value in generation_kwargs.items() if value is not None})
 
-    generated_text = tokenizer.decode(output_ids[0][input_length:], skip_special_tokens=True).strip()
-    if request.stop:
-        stop_sequences = [request.stop] if isinstance(request.stop, str) else list(request.stop)
-        cutoff_positions = [generated_text.find(stop_sequence) for stop_sequence in stop_sequences if stop_sequence]
-        cutoff_positions = [position for position in cutoff_positions if position >= 0]
-        if cutoff_positions:
-            generated_text = generated_text[: min(cutoff_positions)].rstrip()
-    created_at = int(time.time())
+        generated_text = tokenizer.decode(output_ids[0][input_length:], skip_special_tokens=True).strip()
+        if request.stop:
+            stop_sequences = [request.stop] if isinstance(request.stop, str) else list(request.stop)
+            cutoff_positions = [generated_text.find(stop_sequence) for stop_sequence in stop_sequences if stop_sequence]
+            cutoff_positions = [position for position in cutoff_positions if position >= 0]
+            if cutoff_positions:
+                generated_text = generated_text[: min(cutoff_positions)].rstrip()
+        created_at = int(time.time())
 
-    prompt_tokens = int(input_length)
-    completion_tokens = int(output_ids.shape[-1] - input_length)
-    total_tokens = prompt_tokens + completion_tokens
+        prompt_tokens = int(input_length)
+        completion_tokens = int(output_ids.shape[-1] - input_length)
+        total_tokens = prompt_tokens + completion_tokens
 
-    return ChatCompletionResponse(
-        id=f"chatcmpl-{created_at}",
-        created=created_at,
-        model=request.model or model_name or DEFAULT_BASE_MODEL,
-        choices=[ChatCompletionChoice(message=ChatCompletionChoiceMessage(content=generated_text))],
-        usage={
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-        },
-    )
+        return ChatCompletionResponse(
+            id=f"chatcmpl-{created_at}",
+            created=created_at,
+            model=request.model or model_name or DEFAULT_BASE_MODEL,
+            choices=[ChatCompletionChoice(message=ChatCompletionChoiceMessage(content=generated_text))],
+            usage={
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal model server error: {type(exc).__name__}: {exc}") from exc
 
 
 def build_parser() -> argparse.ArgumentParser:
