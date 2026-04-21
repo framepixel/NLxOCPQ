@@ -62,7 +62,7 @@ hf_provider = os.getenv("HF_PROVIDER")
 hf_base_url = os.getenv("HF_BASE_URL")
 hf_backend = os.getenv("HF_BACKEND", "huggingface")
 
-def set_hf_client(token, provider=None, model_name=None, base_url=None):
+def set_hf_client(token=None, provider=None, model_name=None, base_url=None):
     global hf_client
     global hf_model
     global hf_provider
@@ -79,15 +79,15 @@ def set_hf_client(token, provider=None, model_name=None, base_url=None):
 
     if selected_base_url:
         hf_backend = "custom-endpoint"
-        hf_client = InferenceClient(api_key=token, base_url=selected_base_url)
+        hf_client = InferenceClient(api_key=token or None, base_url=selected_base_url)
         return
 
     if selected_provider:
         hf_backend = "hf-provider"
-        hf_client = InferenceClient(api_key=token, provider=selected_provider)
+        hf_client = InferenceClient(api_key=token or None, provider=selected_provider)
     else:
         hf_backend = "hf-default"
-        hf_client = InferenceClient(api_key=token)
+        hf_client = InferenceClient(api_key=token or None)
 
 
 def get_hf_backend_description():

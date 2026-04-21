@@ -177,14 +177,6 @@ def main():
     if "last_pipeline_error" not in st.session_state:
         st.session_state["last_pipeline_error"] = None
 
-    # Provide HF Token in UI or env
-    hf_token = os.getenv("HF_TOKEN")
-    if not hf_token:
-        hf_token = st.sidebar.text_input("Hugging Face API Token", type="password")
-        if not hf_token:
-            st.warning("Please provide a Hugging Face API Token (HF_TOKEN) in the sidebar or environment variables to proceed.")
-            st.stop()
-
     st.sidebar.header("Configuration")
     backend_default_index = 1 if os.getenv("HF_BACKEND") == "custom-endpoint" or os.getenv("HF_BASE_URL") else 0
     backend_mode = st.sidebar.radio(
@@ -209,6 +201,13 @@ def main():
             help="This is the model identifier sent with each chat completion request.",
         )
         hf_provider = None
+        hf_token = os.getenv("HF_TOKEN", "")
+        hf_token = st.sidebar.text_input(
+            "Endpoint auth token (optional)",
+            value=hf_token,
+            type="password",
+            help="Leave blank if your Colab endpoint does not require authentication.",
+        )
     else:
         hf_provider = st.sidebar.text_input(
             "HF provider (optional)",
@@ -221,6 +220,12 @@ def main():
             help="Set this to your deployed model or keep the default LLaMA 3 model.",
         )
         hf_base_url = None
+        hf_token = os.getenv("HF_TOKEN")
+        if not hf_token:
+            hf_token = st.sidebar.text_input("Hugging Face API Token", type="password")
+            if not hf_token:
+                st.warning("Please provide a Hugging Face API Token (HF_TOKEN) in the sidebar or environment variables to proceed.")
+                st.stop()
 
     if backend_mode == "Custom endpoint" and not hf_base_url:
         st.sidebar.warning("Custom endpoint mode is selected, but no base URL was provided.")
