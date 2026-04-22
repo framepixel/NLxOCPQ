@@ -225,19 +225,34 @@ def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResponse:
             return_tensors="pt",
         )
 
-        # transformers versions may return either a Tensor or a BatchEncoding.
-        if isinstance(chat_inputs, dict):
-            if "input_ids" not in chat_inputs:
+        # transformers versions may return Tensor, dict, or BatchEncoding.
+        # BatchEncoding is not always an actual dict instance.
+        chat_input_ids = None
+        attention_mask = None
+
+        if torch.is_tensor(chat_inputs):
+            chat_input_ids = chat_inputs.to(model.device)
+        else:
+            # Support dict-like and attribute-style access.
+            if hasattr(chat_inputs, "get"):
+                chat_input_ids = chat_inputs.get("input_ids")
+                attention_mask = chat_inputs.get("attention_mask")
+            if chat_input_ids is None and hasattr(chat_inputs, "input_ids"):
+                chat_input_ids = getattr(chat_inputs, "input_ids")
+            if attention_mask is None and hasattr(chat_inputs, "attention_mask"):
+                attention_mask = getattr(chat_inputs, "attention_mask")
+
+            if chat_input_ids is None:
                 raise HTTPException(status_code=500, detail="Tokenizer output missing input_ids.")
-            chat_input_ids = chat_inputs["input_ids"].to(model.device)
-            attention_mask = chat_inputs.get("attention_mask")
+
+            chat_input_ids = chat_input_ids.to(model.device)
             if attention_mask is not None:
                 attention_mask = attention_mask.to(model.device)
-        else:
-            chat_input_ids = chat_inputs.to(model.device)
-            attention_mask = None
 
-        input_length = int(chat_input_ids.shape[-1])
+        if not torch.is_tensor(chat_input_ids):
+            raise HTTPException(status_code=500, detail="Tokenizer input_ids are not a tensor.")
+
+        input_length = int(chat_input_ids.size(-1))
 
         generation_kwargs: dict[str, Any] = {
             "max_new_tokens": max_new_tokens,
