@@ -218,14 +218,26 @@ def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResponse:
         top_p = 1.0 if request.top_p is None else request.top_p
         do_sample = temperature > 0.0
 
-        chat_input_ids = tokenizer.apply_chat_template(
+        chat_inputs = tokenizer.apply_chat_template(
             messages,
             tokenize=True,
             add_generation_prompt=True,
             return_tensors="pt",
         )
-        chat_input_ids = chat_input_ids.to(model.device)
-        input_length = chat_input_ids.shape[-1]
+
+        # transformers versions may return either a Tensor or a BatchEncoding.
+        if isinstance(chat_inputs, dict):
+            if "input_ids" not in chat_inputs:
+                raise HTTPException(status_code=500, detail="Tokenizer output missing input_ids.")
+            chat_input_ids = chat_inputs["input_ids"].to(model.device)
+            attention_mask = chat_inputs.get("attention_mask")
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(model.device)
+        else:
+            chat_input_ids = chat_inputs.to(model.device)
+            attention_mask = None
+
+        input_length = int(chat_input_ids.shape[-1])
 
         generation_kwargs: dict[str, Any] = {
             "max_new_tokens": max_new_tokens,
@@ -236,8 +248,15 @@ def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResponse:
             "eos_token_id": tokenizer.eos_token_id,
         }
 
+        generate_inputs: dict[str, Any] = {
+            "input_ids": chat_input_ids,
+            **{key: value for key, value in generation_kwargs.items() if value is not None},
+        }
+        if attention_mask is not None:
+            generate_inputs["attention_mask"] = attention_mask
+
         with torch.inference_mode():
-            output_ids = model.generate(chat_input_ids, **{key: value for key, value in generation_kwargs.items() if value is not None})
+            output_ids = model.generate(**generate_inputs)
 
         generated_text = tokenizer.decode(output_ids[0][input_length:], skip_special_tokens=True).strip()
         if request.stop:
