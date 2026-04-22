@@ -273,6 +273,21 @@ SIZE_FILTER_TYPES = {
     "NumChilds",
 }
 
+TIME_UNIT_SECONDS = {
+    "day": 86400,
+    "days": 86400,
+    "hour": 3600,
+    "hours": 3600,
+    "minute": 60,
+    "minutes": 60,
+    "min": 60,
+    "mins": 60,
+    "second": 1,
+    "seconds": 1,
+    "sec": 1,
+    "secs": 1,
+}
+
 
 def _normalize_constraints_shape(ocpq_json):
     """
@@ -320,6 +335,97 @@ def _normalize_constraints_shape(ocpq_json):
 
     return ocpq_json
 
+
+def _extract_allowed_names(items, default_key):
+    names = set()
+    if not isinstance(items, list):
+        return names
+
+    for item in items:
+        if isinstance(item, str):
+            names.add(item)
+        elif isinstance(item, dict):
+            candidate = item.get(default_key)
+            if isinstance(candidate, str):
+                names.add(candidate)
+    return names
+
+
+def _extract_allowed_entities_from_messages(messages):
+    allowed_events = set()
+    allowed_objects = set()
+
+    if len(messages) <= 2:
+        return allowed_events, allowed_objects
+
+    try:
+        sp1_content = messages[2].get("content", "{}")
+        extracted_structure = json.loads(sp1_content)
+        allowed_events = _extract_allowed_names(extracted_structure.get("events", []), "event")
+        allowed_objects = _extract_allowed_names(extracted_structure.get("objects", []), "object")
+    except Exception:
+        pass
+
+    return allowed_events, allowed_objects
+
+
+def _within_seconds_from_query(query):
+    if not isinstance(query, str):
+        return None
+
+    match = re.search(
+        r"within\s+(\d+(?:\.\d+)?)\s*(day|days|hour|hours|minute|minutes|min|mins|second|seconds|sec|secs)\b",
+        query,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    value = float(match.group(1))
+    unit = match.group(2).lower()
+    multiplier = TIME_UNIT_SECONDS.get(unit)
+    if multiplier is None:
+        return None
+    return float(value * multiplier)
+
+
+def _normalize_time_between_events_seconds(ocpq_json, query):
+    target_max_seconds = _within_seconds_from_query(query)
+    if target_max_seconds is None or not isinstance(ocpq_json, dict):
+        return ocpq_json
+
+    nodes = ocpq_json.get("nodes")
+    if not isinstance(nodes, list):
+        return ocpq_json
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        box = node.get("Box")
+        if not isinstance(box, list) or len(box) != 2:
+            continue
+        node_data = box[0]
+        if not isinstance(node_data, dict):
+            continue
+
+        filters = node_data.get("filters", [])
+        if isinstance(filters, list):
+            for f in filters:
+                if isinstance(f, dict) and f.get("type") == "TimeBetweenEvents":
+                    f["max_seconds"] = target_max_seconds
+
+        constraints = node_data.get("constraints", [])
+        if isinstance(constraints, list):
+            for c in constraints:
+                if not isinstance(c, dict):
+                    continue
+                if c.get("type") == "Filter" and isinstance(c.get("filter"), dict):
+                    wrapped = c["filter"]
+                    if wrapped.get("type") == "TimeBetweenEvents":
+                        wrapped["max_seconds"] = target_max_seconds
+
+    return ocpq_json
+
 def validate_and_normalize_ocpq_json(ocpq_json):
     """
     Strictly validate against the Pydantic BindingBoxTree model.
@@ -356,7 +462,8 @@ def schema_fix_with_llm(model_name, messages, prompt, max_tokens=2000):
 
 # Verify the generated OCPQ JSON and ask the LLM to fix it if it's invalid or doesn't follow the schema. 
 # This is a safety net to improve the quality of the output before executing the query.
-def verify_ocpq_json(ocpq_json, model_name, messages):
+def verify_ocpq_json(ocpq_json, model_name, messages, query=None):
+    ocpq_json = _normalize_time_between_events_seconds(ocpq_json, query)
     normalized = validate_and_normalize_ocpq_json(ocpq_json)
     
     is_connected = True
@@ -365,18 +472,7 @@ def verify_ocpq_json(ocpq_json, model_name, messages):
     missing_o2e = False
     
     # Extract allowed entities from SP1 if available
-    allowed_events = set()
-    allowed_objects = set()
-    if len(messages) > 2:
-        try:
-            sp1_content = messages[2].get("content", "{}")
-            extracted_structure = json.loads(sp1_content)
-            for e in extracted_structure.get("events", []):
-                allowed_events.add(e.get("event"))
-            for o in extracted_structure.get("objects", []):
-                allowed_objects.add(o.get("object"))
-        except:
-             pass
+    allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
 
     if normalized and "nodes" in normalized:
         num_nodes = len(normalized["nodes"])
@@ -414,12 +510,12 @@ def verify_ocpq_json(ocpq_json, model_name, messages):
                 if allowed_events:
                     for ev_idx, ev_list in new_events.items():
                         for ev in ev_list:
-                            if ev not in allowed_events:
+                            if isinstance(ev, str) and ev not in allowed_events:
                                 has_hallucinated_entities = True
                 if allowed_objects:
                     for obj_idx, obj_list in new_objects.items():
                         for ob in obj_list:
-                            if ob not in allowed_objects:
+                            if isinstance(ob, str) and ob not in allowed_objects:
                                 has_hallucinated_entities = True
 
     if normalized is None or not is_connected or has_empty_nodes or has_hallucinated_entities or missing_o2e:
@@ -435,6 +531,7 @@ Fix it so that:
 - No nodes are empty. Every node must contain at least an event, an object, or a constraint. DO NOT create empty boxes!
 - ONLY use the following allowed entities natively mapped from the query. DO NOT use hallucinated terms like Person or Diagnosis!
 - If a node has BOTH events and objects, it MUST have an `O2E` filter connecting them. Otherwise, it will cause an infinite Cartesian explosion!
+- If the query says "within X days/hours/minutes", convert it to seconds for `max_seconds` (e.g. 3 days = 259200).
 
 Allowed Events: {allowed_events}
 Allowed Objects: {allowed_objects}
@@ -449,6 +546,8 @@ JSON:
             messages=messages,
             prompt=prompt,
         )
+        fixed_json = _normalize_time_between_events_seconds(fixed_json, query)
+        fixed_json = validate_and_normalize_ocpq_json(fixed_json)
         return fixed_json
     else:
         print("Generated OCPQ JSON is valid.")
@@ -629,7 +728,7 @@ def _run_pipeline_grammar_guided(query, dataset, embeddings, output_file="test_q
         model_name=selected_model,
     )
 
-    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages)
+    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages, query=query)
     if ocpq_json is None:
         raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
     
@@ -950,7 +1049,7 @@ ONLY output valid JSON.
     print("Sub-problem 3 completed: OCPQ JSON generated.")
     time.sleep(3)
 
-    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages)
+    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages, query=query)
     if ocpq_json is None:
         raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
 
@@ -1175,7 +1274,7 @@ ONLY output valid JSON.
     print("Sub-problem 4 completed: OCPQ JSON generated.")
     time.sleep(3)
 
-    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages)
+    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages, query=query)
     if ocpq_json is None:
         raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
 
