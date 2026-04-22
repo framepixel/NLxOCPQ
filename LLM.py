@@ -258,12 +258,75 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
             else:
                 raise e
 
+
+FILTER_TYPES = {
+    "O2E",
+    "O2O",
+    "TimeBetweenEvents",
+    "NotEqual",
+    "EventAttributeValueFilter",
+    "ObjectAttributeValueFilter",
+    "BasicFilterCEL",
+}
+
+SIZE_FILTER_TYPES = {
+    "NumChilds",
+}
+
+
+def _normalize_constraints_shape(ocpq_json):
+    """
+    Normalize common LLM shape mistakes before strict schema validation.
+
+    Common issue: filter objects are placed directly in `constraints` instead of
+    being wrapped as {"type": "Filter", "filter": {...}}.
+    """
+    if not isinstance(ocpq_json, dict):
+        return ocpq_json
+
+    nodes = ocpq_json.get("nodes")
+    if not isinstance(nodes, list):
+        return ocpq_json
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        box = node.get("Box")
+        if not isinstance(box, list) or len(box) != 2:
+            continue
+        node_data = box[0]
+        if not isinstance(node_data, dict):
+            continue
+
+        constraints = node_data.get("constraints")
+        if not isinstance(constraints, list):
+            continue
+
+        normalized_constraints = []
+        for c in constraints:
+            if not isinstance(c, dict):
+                normalized_constraints.append(c)
+                continue
+
+            ctype = c.get("type")
+            if ctype in FILTER_TYPES:
+                normalized_constraints.append({"type": "Filter", "filter": c})
+            elif ctype in SIZE_FILTER_TYPES:
+                normalized_constraints.append({"type": "SizeFilter", "filter": c})
+            else:
+                normalized_constraints.append(c)
+
+        node_data["constraints"] = normalized_constraints
+
+    return ocpq_json
+
 def validate_and_normalize_ocpq_json(ocpq_json):
     """
     Strictly validate against the Pydantic BindingBoxTree model.
     Returns a normalized JSON dict (aliases applied) when valid.
     """
     try:
+        ocpq_json = _normalize_constraints_shape(ocpq_json)
         validated = BindingBoxTree.model_validate(ocpq_json)
         return validated.model_dump(by_alias=True)
     except ValidationError as e:
