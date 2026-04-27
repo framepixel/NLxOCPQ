@@ -25,5 +25,5 @@ requests==2.33.1
 # Pinned release to avoid build-isolation failures on clusters
 unsloth[colab-new]==2026.4.6
 
-torch==2.6.0+cu121
-torchao==0.14.1
+torch==2.4.1+cu121
+torchao==0.12.0
