@@ -61,6 +61,7 @@ hf_model = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
 hf_provider = os.getenv("HF_PROVIDER")
 hf_base_url = os.getenv("HF_BASE_URL")
 hf_backend = os.getenv("HF_BACKEND", "huggingface")
+failure_log_path = os.getenv("OCPQ_FAILURE_LOG_PATH", "ocpq_failure_log.jsonl")
 
 def set_hf_client(token=None, provider=None, model_name=None, base_url=None):
     global hf_client
@@ -215,6 +216,49 @@ def parse_llm_json(content):
         except Exception as e:
             print(f"Failed to decode JSON. Error: {e}\nRaw output:\n{content}")
             return None
+
+
+def get_validation_error_text(ocpq_json):
+    try:
+        candidate = _normalize_constraints_shape(ocpq_json)
+        BindingBoxTree.model_validate(candidate)
+        return None
+    except ValidationError as e:
+        return str(e)
+    except Exception as e:
+        return str(e)
+
+
+def append_failure_log(
+    stage,
+    query,
+    messages,
+    raw_output,
+    parsed_json,
+    normalized_json,
+    allowed_events=None,
+    allowed_objects=None,
+    validation_error=None,
+    extra=None,
+):
+    payload = {
+        "stage": stage,
+        "query": query,
+        "prompt_messages": messages,
+        "raw_output": raw_output,
+        "parsed_json": parsed_json,
+        "normalized_json": normalized_json,
+        "allowed_events": sorted(allowed_events or []),
+        "allowed_objects": sorted(allowed_objects or []),
+        "validation_error": validation_error,
+        "extra": extra or {},
+    }
+
+    try:
+        with open(failure_log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        print(f"Warning: failed to write failure log to {failure_log_path}: {exc}")
 
 # In[7]:
 
@@ -518,7 +562,26 @@ def verify_ocpq_json(ocpq_json, model_name, messages, query=None):
                             if isinstance(ob, str) and ob not in allowed_objects:
                                 has_hallucinated_entities = True
 
+    validation_error = None if normalized is not None else get_validation_error_text(ocpq_json)
+
     if normalized is None or not is_connected or has_empty_nodes or has_hallucinated_entities or missing_o2e:
+        append_failure_log(
+            stage="verify_pre_fix",
+            query=query,
+            messages=messages,
+            raw_output=None,
+            parsed_json=ocpq_json,
+            normalized_json=normalized,
+            allowed_events=allowed_events,
+            allowed_objects=allowed_objects,
+            validation_error=validation_error,
+            extra={
+                "is_connected": is_connected,
+                "has_empty_nodes": has_empty_nodes,
+                "has_hallucinated_entities": has_hallucinated_entities,
+                "missing_o2e": missing_o2e,
+            },
+        )
         print("Generated OCPQ JSON is invalid, has disconnected nodes, empty nodes, missing O2E filters, or hallucinated entities. Asking LLM to fix it...")
         prompt = f"""
 The following JSON is invalid, incomplete, contains disconnected nodes, contains completely empty nodes, misses O2E filters, or has hallucinated entities (events/objects not provided).
@@ -548,6 +611,19 @@ JSON:
         )
         fixed_json = _normalize_time_between_events_seconds(fixed_json, query)
         fixed_json = validate_and_normalize_ocpq_json(fixed_json)
+        if fixed_json is None:
+            append_failure_log(
+                stage="verify_fix_failed",
+                query=query,
+                messages=messages,
+                raw_output=None,
+                parsed_json=ocpq_json,
+                normalized_json=fixed_json,
+                allowed_events=allowed_events,
+                allowed_objects=allowed_objects,
+                validation_error=get_validation_error_text(ocpq_json),
+                extra={"repair_prompt": prompt},
+            )
         return fixed_json
     else:
         print("Generated OCPQ JSON is valid.")
@@ -688,6 +764,19 @@ def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_n
     )
     content = response_3.choices[0].message.content
     ocpq_json = parse_llm_json(content)
+    if ocpq_json is None:
+        allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+        append_failure_log(
+            stage="grammar_guided_parse_failed",
+            query=query,
+            messages=messages_sp3,
+            raw_output=content,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=allowed_events,
+            allowed_objects=allowed_objects,
+            validation_error="Could not parse model output as JSON",
+        )
     messages.append({"role": "assistant", "content": content})
     print("Sub-problem 3 completed: OCPQ JSON generated.")
     time.sleep(3)
@@ -827,6 +916,18 @@ JSON:
     )
     content = response_3.choices[0].message.content
     ocpq_json = parse_llm_json(content)
+    if ocpq_json is None:
+        append_failure_log(
+            stage="few_shot_parse_failed",
+            query=query,
+            messages=messages,
+            raw_output=content,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=event_names,
+            allowed_objects=object_names,
+            validation_error="Could not parse model output as JSON",
+        )
     messages.append({"role": "assistant", "content": content})
     print("Sub-problem 3 completed: OCPQ JSON generated.")
     time.sleep(3)
@@ -1045,6 +1146,19 @@ ONLY output valid JSON.
     )
     content = response_3.choices[0].message.content
     ocpq_json = parse_llm_json(content)
+    if ocpq_json is None:
+        allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+        append_failure_log(
+            stage="chain_of_thought_parse_failed",
+            query=query,
+            messages=messages,
+            raw_output=content,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=allowed_events,
+            allowed_objects=allowed_objects,
+            validation_error="Could not parse model output as JSON",
+        )
     messages.append({"role": "assistant", "content": content})
     print("Sub-problem 3 completed: OCPQ JSON generated.")
     time.sleep(3)
@@ -1270,6 +1384,19 @@ ONLY output valid JSON.
     )
     content = response_4.choices[0].message.content
     ocpq_json = parse_llm_json(content)
+    if ocpq_json is None:
+        allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+        append_failure_log(
+            stage="least_to_most_parse_failed",
+            query=query,
+            messages=messages,
+            raw_output=content,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=allowed_events,
+            allowed_objects=allowed_objects,
+            validation_error="Could not parse model output as JSON",
+        )
     messages.append({"role": "assistant", "content": content})
     print("Sub-problem 4 completed: OCPQ JSON generated.")
     time.sleep(3)

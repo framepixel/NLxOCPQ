@@ -1,5 +1,10 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Union, Literal, Any, Annotated
+from typing import List, Dict, Optional, Union, Literal, Any, Tuple
+
+try:
+    from typing import Annotated
+except ImportError:
+    from typing_extensions import Annotated
 
 # --- TYPES AND VARIABLES ---
 
@@ -164,11 +169,11 @@ class BindingBoxData(BaseModel):
     obVarLabels: Dict[str, FilterLabel]
 
 class BindingBoxTreeNodeBox(BaseModel):
-    Box: tuple[BindingBoxData, List[int]]
+    Box: Tuple[BindingBoxData, List[int]]
 
 class BindingBoxTree(BaseModel):
     nodes: List[BindingBoxTreeNodeBox]
-    edgeNames: List[tuple[tuple[int, int], str]]
+    edgeNames: List[Tuple[Tuple[int, int], str]]
 
 class QueryVerification(BaseModel):
     is_correct: bool
