@@ -766,6 +766,127 @@ def generate_example():
             "query": ocpq_tree, 
             "reasoning": reasoning}
 
+
+def _build_targeted_curriculum_examples():
+    hospital_events = domains["hospital"]["events"]
+    hospital_objects = domains["hospital"]["objects"]
+
+    targeted_examples = [
+        {
+            "nl": "For any person, the diagnosis happens exactly once.",
+            "nl_clean_1": "For any person, the diagnosis must happen exactly once.",
+            "nl_clean_2": "Each person should receive the diagnosis exactly one time.",
+            "events": hospital_events,
+            "objects": hospital_objects,
+            "query": {
+                "nodes": [
+                    {
+                        "Box": [
+                            {
+                                "newEventVars": {},
+                                "newObjectVars": {"0": ["Patient"]},
+                                "filters": [],
+                                "sizeFilters": [],
+                                "constraints": [
+                                    {
+                                        "type": "SizeFilter",
+                                        "filter": {"type": "NumChilds", "child_name": "A", "min": 1, "max": 1},
+                                    }
+                                ],
+                                "evVarLabels": {},
+                                "obVarLabels": {},
+                            },
+                            [1],
+                        ]
+                    },
+                    {
+                        "Box": [
+                            {
+                                "newEventVars": {"0": ["Initial Evaluation"]},
+                                "newObjectVars": {},
+                                "filters": [{"type": "O2E", "object": 0, "event": 0, "qualifier": None}],
+                                "sizeFilters": [],
+                                "constraints": [],
+                                "evVarLabels": {},
+                                "obVarLabels": {},
+                            },
+                            [],
+                        ]
+                    },
+                ],
+                "edgeNames": [[[0, 1], "A"]],
+            },
+            "reasoning": (
+                "Step 1: Interpret the colloquial term 'person' as the allowed object 'Patient' and "
+                "'diagnosis' as the allowed event 'Initial Evaluation'. Step 2: The phrase 'exactly once' "
+                "must not introduce a custom filter type. Step 3: Represent it with a parent object node "
+                "and a SizeFilter min=1,max=1 on a child event node that is linked back with O2E."
+            ),
+        },
+        {
+            "nl": "For any person, the diagnosis must be completed within 3 days after the registration at ER.",
+            "nl_clean_1": "For any person, diagnosis must be completed within 3 days after ER registration.",
+            "nl_clean_2": "Each person should complete diagnosis within 3 days after registering at the ER.",
+            "events": hospital_events,
+            "objects": hospital_objects,
+            "query": {
+                "nodes": [
+                    {
+                        "Box": [
+                            {
+                                "newEventVars": {},
+                                "newObjectVars": {"0": ["Patient"]},
+                                "filters": [],
+                                "sizeFilters": [],
+                                "constraints": [{"type": "SAT", "child_names": ["A"]}],
+                                "evVarLabels": {},
+                                "obVarLabels": {},
+                            },
+                            [1],
+                        ]
+                    },
+                    {
+                        "Box": [
+                            {
+                                "newEventVars": {"0": ["Registration"], "1": ["Initial Evaluation"]},
+                                "newObjectVars": {},
+                                "filters": [
+                                    {"type": "O2E", "object": 0, "event": 0, "qualifier": None},
+                                    {"type": "O2E", "object": 0, "event": 1, "qualifier": None},
+                                ],
+                                "sizeFilters": [],
+                                "constraints": [
+                                    {
+                                        "type": "Filter",
+                                        "filter": {
+                                            "type": "TimeBetweenEvents",
+                                            "from_event": 0,
+                                            "to_event": 1,
+                                            "min_seconds": 0,
+                                            "max_seconds": 259200,
+                                        },
+                                    }
+                                ],
+                                "evVarLabels": {},
+                                "obVarLabels": {},
+                            },
+                            [],
+                        ]
+                    },
+                ],
+                "edgeNames": [[[0, 1], "A"]],
+            },
+            "reasoning": (
+                "Step 1: Interpret 'person' as 'Patient', 'registration at ER' as 'Registration', and "
+                "'diagnosis' as 'Initial Evaluation'. Step 2: The temporal constraint is 'within 3 days after', "
+                "so it must become a TimeBetweenEvents max_seconds of 259200. Step 3: Keep the tree connected "
+                "with a parent SAT node and child event node using O2E bindings for both events."
+            ),
+        },
+    ]
+
+    return targeted_examples
+
 # In[9]:
 
 
@@ -773,16 +894,22 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
     dataset = []
     seen = set()
 
-    # 1. First, instantly generate all unique logical sentences locally
-    print("Generating pure logical combinations...")
+    # 1. Seed the dataset with targeted curriculum examples for fragile semantics.
     raw_examples = []
+    for example in _build_targeted_curriculum_examples():
+        if example["nl"] not in seen:
+            seen.add(example["nl"])
+            raw_examples.append(example)
+
+    # 2. Instantly generate the remaining unique logical sentences locally.
+    print("Generating pure logical combinations...")
     while len(raw_examples) < num_samples:
         ex = generate_example()
         if ex["nl"] not in seen:
             seen.add(ex["nl"])
             raw_examples.append(ex)
 
-    # 2. Process the LLM rewrites in parallel batches
+    # 3. Process the LLM rewrites in parallel batches
     print(f"Batch processing text inference on GPU (batch_size={batch_size})...")
     for i in range(0, len(raw_examples), batch_size):
         batch = raw_examples[i:i+batch_size]
@@ -798,12 +925,17 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
             updated_example = {}
             if original_sentence:
                 updated_example["nl"] = ex["nl"]
-                
+
             if first_rewrite:
-                updated_example["nl_clean_1"] = rewrites_batch[j].get("nl_clean_1", ex["nl"])
+                updated_example["nl_clean_1"] = ex.get("nl_clean_1", rewrites_batch[j].get("nl_clean_1", ex["nl"]))
+            elif "nl_clean_1" in ex:
+                updated_example["nl_clean_1"] = ex["nl_clean_1"]
+
             if second_rewrite:
-                updated_example["nl_clean_2"] = rewrites_batch[j].get("nl_clean_2", ex["nl"])
-            
+                updated_example["nl_clean_2"] = ex.get("nl_clean_2", rewrites_batch[j].get("nl_clean_2", ex["nl"]))
+            elif "nl_clean_2" in ex:
+                updated_example["nl_clean_2"] = ex["nl_clean_2"]
+
             updated_example["events"] = ex["events"]
             updated_example["objects"] = ex["objects"]
             updated_example["query"] = ex["query"]
@@ -818,12 +950,6 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
     print("\nDataset generation completed!")
     return dataset
 
-# In[10]:
-
-
-dataset = generate_dataset(num_samples=10000, first_rewrite=False, second_rewrite=False)
-
-# In[11]:
-
-
-dataset[:5]
+if __name__ == "__main__":
+    dataset = generate_dataset(num_samples=10000, first_rewrite=False, second_rewrite=False)
+    print(dataset[:5])
