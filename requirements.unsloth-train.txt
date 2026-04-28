@@ -26,4 +26,4 @@ requests==2.33.1
 unsloth[colab-new]==2026.4.6
 
 torch==2.5.1+cu121
-torchao==0.15.0
+torchao==0.14.1
