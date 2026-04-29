@@ -574,7 +574,7 @@ torch==2.5.1+cu121
     #   unsloth
     #   unsloth-zoo
     #   xformers
-torchao==0.15.0
+torchao==0.14.1
     # via
     #   -r requirements.unsloth-train.txt
     #   unsloth-zoo
