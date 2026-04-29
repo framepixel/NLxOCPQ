@@ -20,9 +20,8 @@ conda activate nlxocpq-train
 # Make sure the environment already contains the training dependencies.
 # Install these once outside the job script, not on every submission.
 
-# Fail fast if the env drifted back to a torchao release that transformers
-# cannot safely import with the pinned torch version.
-python -c "import importlib.metadata as m, sys; v = m.version('torchao'); print('torchao', v); sys.exit(0 if v == '0.14.1' else 1)"
+# Fail fast if the env drifted away from the torch/torchao pair this job expects.
+python -c "import importlib.metadata as m, sys; v = m.version('torchao'); print('torchao', v); sys.exit(0 if v == '0.12.0' else 1)"
 
 # Run script
 python --version
