@@ -562,7 +562,7 @@ tokenizers==0.22.2
     # via transformers
 toml==0.10.2
     # via streamlit
-torch==2.5.1+cu121
+torch==2.7.1+cu126
     # via
     #   -r requirements.unsloth-train.txt
     #   accelerate
@@ -574,11 +574,11 @@ torch==2.5.1+cu121
     #   unsloth
     #   unsloth-zoo
     #   xformers
-torchao==0.12.0
+torchao==0.13.0
     # via
     #   -r requirements.unsloth-train.txt
     #   unsloth-zoo
-torchvision==0.20.1+cu121
+torchvision==0.22.1+cu126
     # via unsloth
 tornado==6.5.5
     # via
