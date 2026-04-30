@@ -23,6 +23,10 @@ import time
 import traceback
 from typing import Any, Literal
 
+# Help avoid CUDA fragmentation by default in Colab runtimes.
+# Allow user override via environment before starting the server.
+os.environ.setdefault("PYTORCH_ALLOC_CONF", os.getenv("PYTORCH_ALLOC_CONF", "expandable_segments:True"))
+
 import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -39,6 +43,7 @@ DEFAULT_BASE_MODEL = "unsloth/llama-3-8b-Instruct-bnb-4bit"
 DEFAULT_ADAPTER_PATH = "lora_model_ocpq"
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
+PROMPT_TOKEN_MARGIN = 32
 
 
 def _runtime_default(env_name: str, fallback: str) -> str:
@@ -105,6 +110,80 @@ def _extract_json_payload(text: str) -> str:
     if start >= 0 and end > start:
         return text[start : end + 1].strip()
     return text.strip()
+
+
+def _read_adapter_base_model_name(adapter_path: str) -> str | None:
+    adapter_config_path = os.path.join(adapter_path, "adapter_config.json")
+    if not os.path.exists(adapter_config_path):
+        return None
+
+    try:
+        with open(adapter_config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except Exception:
+        return None
+
+    base_model_name = config.get("base_model_name_or_path")
+    return base_model_name if isinstance(base_model_name, str) and base_model_name.strip() else None
+
+
+def _looks_like_lora_adapter(path: str) -> bool:
+    return os.path.exists(os.path.join(path, "adapter_config.json")) and os.path.exists(
+        os.path.join(path, "adapter_model.safetensors")
+    )
+
+
+def _looks_like_full_model_dir(path: str) -> bool:
+    if not os.path.isdir(path):
+        return False
+    if os.path.exists(os.path.join(path, "adapter_config.json")):
+        return False
+    if not os.path.exists(os.path.join(path, "config.json")):
+        return False
+    return any(
+        os.path.exists(os.path.join(path, candidate))
+        for candidate in ("model.safetensors", "pytorch_model.bin", "model-00001-of-0000X.safetensors")
+    ) or any(name.endswith(".safetensors") for name in os.listdir(path))
+
+
+def _resolve_model_paths(base_model_name: str, adapter_path: str) -> tuple[str, str | None, str]:
+    if _looks_like_full_model_dir(adapter_path):
+        return adapter_path, None, "full_model_dir"
+
+    if _looks_like_lora_adapter(adapter_path):
+        adapter_base_model = _read_adapter_base_model_name(adapter_path)
+        if base_model_name == adapter_path and adapter_base_model:
+            return adapter_base_model, adapter_path, "adapter_with_base_from_metadata"
+        if base_model_name == DEFAULT_BASE_MODEL and adapter_base_model:
+            return adapter_base_model, adapter_path, "adapter_with_base_from_metadata"
+        return base_model_name, adapter_path, "adapter_with_explicit_base"
+
+    return base_model_name, adapter_path, "explicit_paths"
+
+
+def _infer_context_limit() -> int:
+    candidates: list[int] = []
+
+    tokenizer_max_length = getattr(tokenizer, "model_max_length", None)
+    if isinstance(tokenizer_max_length, int) and 0 < tokenizer_max_length < 10_000_000:
+        candidates.append(tokenizer_max_length)
+
+    max_position_embeddings = getattr(getattr(model, "config", None), "max_position_embeddings", None)
+    if isinstance(max_position_embeddings, int) and max_position_embeddings > 0:
+        candidates.append(max_position_embeddings)
+
+    generation_max_length = getattr(getattr(model, "generation_config", None), "max_length", None)
+    if isinstance(generation_max_length, int) and generation_max_length > 0:
+        candidates.append(generation_max_length)
+
+    env_limit = os.getenv("COLAB_MAX_CONTEXT_TOKENS")
+    if env_limit:
+        try:
+            candidates.append(int(env_limit))
+        except ValueError:
+            pass
+
+    return min(candidates) if candidates else 8192
 
 
 def _validate_ocpq_payload(generated_text: str) -> tuple[bool, str | None, str | None]:
@@ -176,6 +255,13 @@ def _generate_assistant_text(
     if not torch.is_tensor(chat_input_ids):
         raise HTTPException(status_code=500, detail="Tokenizer input_ids are not a tensor.")
 
+    context_limit = _infer_context_limit()
+    max_prompt_tokens = max(256, context_limit - max_new_tokens - PROMPT_TOKEN_MARGIN)
+    if chat_input_ids.size(-1) > max_prompt_tokens:
+        chat_input_ids = chat_input_ids[:, -max_prompt_tokens:]
+        if attention_mask is not None:
+            attention_mask = attention_mask[:, -max_prompt_tokens:]
+
     input_length = int(chat_input_ids.size(-1))
     generation_kwargs: dict[str, Any] = {
         "max_new_tokens": max_new_tokens,
@@ -184,6 +270,7 @@ def _generate_assistant_text(
         "top_p": top_p if do_sample else None,
         "pad_token_id": tokenizer.eos_token_id,
         "eos_token_id": tokenizer.eos_token_id,
+        "use_cache": True,
     }
 
     generate_inputs: dict[str, Any] = {
@@ -193,8 +280,47 @@ def _generate_assistant_text(
     if attention_mask is not None:
         generate_inputs["attention_mask"] = attention_mask
 
-    with torch.inference_mode():
-        output_ids = model.generate(**generate_inputs)
+    # Try generation, and on OOM attempt a small number of retries with reduced max_new_tokens.
+    attempts = 0
+    max_attempts = 2
+    current_max_new_tokens = max_new_tokens
+    output_ids = None
+
+    while True:
+        try:
+            # ensure the generation args reflect the current_max_new_tokens
+            generate_inputs["max_new_tokens"] = current_max_new_tokens
+            with torch.inference_mode():
+                output_ids = model.generate(**generate_inputs)
+            break
+        except RuntimeError as exc:
+            msg = str(exc).lower()
+            if "out of memory" in msg or "outofmemory" in msg:
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+
+                attempts += 1
+                # If we can reduce token budget, try again with half the tokens.
+                if attempts <= max_attempts and current_max_new_tokens > 64:
+                    new_val = max(64, current_max_new_tokens // 2)
+                    if new_val < current_max_new_tokens:
+                        current_max_new_tokens = new_val
+                        continue
+
+                # Give a helpful error if retries exhausted.
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Internal model server error: OutOfMemoryError: CUDA ran out of memory during generation. "
+                        "I attempted automatic retries by reducing `max_new_tokens` but the GPU still ran out of memory. "
+                        "Mitigations: restart the server with a smaller base model, enable 4-bit loading (set COLAB_LOAD_IN_4BIT=1), "
+                        "reduce the request `max_tokens` from the client, or set the environment variable `PYTORCH_ALLOC_CONF=expandable_segments:True` before starting the server. "
+                        f"Original error: {exc}"
+                    ),
+                ) from exc
+            raise
 
     generated_text = tokenizer.decode(output_ids[0][input_length:], skip_special_tokens=True).strip()
     if stop:
@@ -217,10 +343,19 @@ def _maybe_add_auth_token_kwargs() -> dict[str, Any]:
 
 
 def _load_model(base_model_name: str, adapter_path: str, load_in_4bit: bool) -> tuple[Any, Any]:
-    tokenizer_obj = AutoTokenizer.from_pretrained(adapter_path, use_fast=True, **_maybe_add_auth_token_kwargs())
+    resolved_base_model_name, resolved_adapter_path, load_mode = _resolve_model_paths(base_model_name, adapter_path)
+    tokenizer_source = resolved_adapter_path or resolved_base_model_name
+    tokenizer_obj = AutoTokenizer.from_pretrained(tokenizer_source, use_fast=True, **_maybe_add_auth_token_kwargs())
 
     if tokenizer_obj.pad_token is None:
         tokenizer_obj.pad_token = tokenizer_obj.eos_token
+
+    model_load_kwargs: dict[str, Any] = {
+        "device_map": "auto",
+        "torch_dtype": torch.float16,
+        "low_cpu_mem_usage": True,
+        **_maybe_add_auth_token_kwargs(),
+    }
 
     if load_in_4bit:
         bnb_config = BitsAndBytesConfig(
@@ -229,26 +364,28 @@ def _load_model(base_model_name: str, adapter_path: str, load_in_4bit: bool) -> 
             bnb_4bit_use_double_quant=True,
             bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16,
         )
-        base_model = AutoModelForCausalLM.from_pretrained(
-            base_model_name,
-            quantization_config=bnb_config,
-            device_map="auto",
-            torch_dtype=torch.float16,
-            low_cpu_mem_usage=True,
-            **_maybe_add_auth_token_kwargs(),
-        )
-    else:
-        base_model = AutoModelForCausalLM.from_pretrained(
-            base_model_name,
-            device_map="auto",
-            torch_dtype=torch.float16,
-            low_cpu_mem_usage=True,
-            **_maybe_add_auth_token_kwargs(),
-        )
+        model_load_kwargs["quantization_config"] = bnb_config
 
-    merged_model = PeftModel.from_pretrained(base_model, adapter_path)
-    merged_model.eval()
-    return merged_model, tokenizer_obj
+    print(f"Resolved model load mode: {load_mode}")
+    print(f"Resolved base model: {resolved_base_model_name}")
+    print(f"Resolved adapter path: {resolved_adapter_path or '(none)'}")
+    print(f"Tokenizer source: {tokenizer_source}")
+    print(f"4-bit loading enabled: {load_in_4bit}")
+
+    base_model = AutoModelForCausalLM.from_pretrained(resolved_base_model_name, **model_load_kwargs)
+
+    loaded_model = (
+        PeftModel.from_pretrained(base_model, resolved_adapter_path)
+        if resolved_adapter_path is not None
+        else base_model
+    )
+    loaded_model.eval()
+
+    generation_config = getattr(loaded_model, "generation_config", None)
+    if generation_config is not None and getattr(generation_config, "max_length", None):
+        generation_config.max_length = None
+
+    return loaded_model, tokenizer_obj
 
 
 def _normalize_content(content: Any) -> str:
