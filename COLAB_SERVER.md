@@ -24,7 +24,7 @@ pip install -r requirements.colab-serve.txt
 4. Start the server:
 
 ```bash
-python colab_serve.py --host 0.0.0.0 --port 8000
+python colab_serve.py --host 0.0.0.0 --port 8000 --adapter-path /content/NLxOCPQ/lora_model_ocpq
 ```
 
 5. Publish port 8000 with a tunnel such as `cloudflared` or `ngrok`.
@@ -36,6 +36,19 @@ python colab_serve.py --host 0.0.0.0 --port 8000
 - `COLAB_ADAPTER_PATH` - path to the LoRA adapter directory.
 - `COLAB_LOAD_IN_4BIT` - set to `0` to disable 4-bit loading.
 - `HF_TOKEN` - optional token for gated base-model downloads in Colab.
+
+If you prefer notebook cells over command-line flags, set the paths once at the top of the notebook and reuse them:
+
+```python
+BASE_MODEL = "unsloth/llama-3-8b-Instruct-bnb-4bit"
+ADAPTER_PATH = "/content/NLxOCPQ/lora_model_ocpq"
+```
+
+Then start the server with:
+
+```bash
+python colab_serve.py --host 0.0.0.0 --port 8000 --base-model "$BASE_MODEL" --adapter-path "$ADAPTER_PATH"
+```
 
 ## Notes
 

@@ -41,6 +41,11 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
 
 
+def _runtime_default(env_name: str, fallback: str) -> str:
+    value = os.getenv(env_name)
+    return value if value else fallback
+
+
 class ChatMessage(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
     content: Any
@@ -411,8 +416,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Serve the fine-tuned OCPQ LoRA model.")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--base-model", default=DEFAULT_BASE_MODEL)
-    parser.add_argument("--adapter-path", default=DEFAULT_ADAPTER_PATH)
+    parser.add_argument(
+        "--base-model",
+        default=_runtime_default("COLAB_BASE_MODEL", DEFAULT_BASE_MODEL),
+        help="Base model repo/path to load before applying the adapter.",
+    )
+    parser.add_argument(
+        "--adapter-path",
+        default=_runtime_default("COLAB_ADAPTER_PATH", DEFAULT_ADAPTER_PATH),
+        help="Local or mounted path to the LoRA adapter directory.",
+    )
     parser.add_argument("--load-in-4bit", action="store_true", default=True)
     parser.add_argument("--no-load-in-4bit", dest="load_in_4bit", action="store_false")
     return parser
@@ -420,7 +433,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     args = build_parser().parse_args()
-    os.environ.setdefault("COLAB_BASE_MODEL", args.base_model)
-    os.environ.setdefault("COLAB_ADAPTER_PATH", args.adapter_path)
-    os.environ.setdefault("COLAB_LOAD_IN_4BIT", "1" if args.load_in_4bit else "0")
+    os.environ["COLAB_BASE_MODEL"] = args.base_model
+    os.environ["COLAB_ADAPTER_PATH"] = args.adapter_path
+    os.environ["COLAB_LOAD_IN_4BIT"] = "1" if args.load_in_4bit else "0"
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

@@ -109,6 +109,7 @@ def set_hf_provider(provider_name):
 
 PROMPT_STRATEGIES = [
     "schema-grammar-guided",
+    "schema-allowed-entities-only",
     "schema-few-shot",
     "schema-chain-of-thought-plus",
     "schema-least-to-most",
@@ -123,6 +124,9 @@ def normalize_prompt_strategy(prompt_strategy):
     aliases = {
         "grammar-guided": "schema-grammar-guided",
         "schema-grammar-guided": "schema-grammar-guided",
+        "allowed-entities-only": "schema-allowed-entities-only",
+        "allowed-only": "schema-allowed-entities-only",
+        "schema-allowed-entities-only": "schema-allowed-entities-only",
         "few-shot": "schema-few-shot",
         "schema-few-shot": "schema-few-shot",
         "chain-of-thought-plus": "schema-chain-of-thought-plus",
@@ -1011,6 +1015,128 @@ JSON:
     return None, None, ocpq_json, query_result, query_result_file_path
 
 
+def _run_pipeline_allowed_entities_only(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
+    print("Starting Allowed-Entities-Only NL to OCPQ pipeline...")
+    selected_model = model_name or hf_model
+    print(f"Using model: {selected_model}")
+
+    event_names, object_names = events_and_objects_from_ocel(ocel_path)
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a JSON-only API. You must output raw, valid OCPQ JSON exactly matching the schema. "
+                "Never invent entities or unsupported filter types."
+            ),
+        }
+    ]
+
+    prompt = f"""
+Convert this natural language query to OCPQ JSON.
+
+Output ONLY valid JSON.
+
+Allowed events: {event_names}
+Allowed objects: {object_names}
+
+Rules:
+- Use ONLY event and object names from the allowed lists.
+- Do NOT invent unsupported filter types such as "ExactlyOnce".
+- Represent "exactly once" using supported schema structure, not a custom operator.
+- If a node contains both events and objects, include the required O2E filter(s).
+- Keep all nodes connected in a single tree and avoid empty nodes.
+
+Query:
+{query}
+"""
+    messages.append({"role": "user", "content": prompt})
+
+    response = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=2000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True},
+        },
+    )
+    content = response.choices[0].message.content
+    ocpq_json = parse_llm_json(content)
+    if ocpq_json is None:
+        append_failure_log(
+            stage="allowed_entities_only_parse_failed",
+            query=query,
+            messages=messages,
+            raw_output=content,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=event_names,
+            allowed_objects=object_names,
+            validation_error="Could not parse model output as JSON",
+        )
+    messages.append({"role": "assistant", "content": content})
+    print("Direct generation completed: OCPQ JSON generated.")
+    time.sleep(3)
+
+    # Reuse the same message position the verifier expects for allowed-entity extraction.
+    extracted_structure_stub = json.dumps(
+        {
+            "events": [{"event": event_name} for event_name in event_names],
+            "objects": [{"object": object_name} for object_name in object_names],
+        }
+    )
+    verifier_messages = [messages[0], messages[1], {"role": "assistant", "content": extracted_structure_stub}]
+
+    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, verifier_messages, query=query)
+    if ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+
+    ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+    if ocpq_json is None:
+        raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+
+    with open(output_file, "w") as f:
+        json.dump(ocpq_json, f, indent=2)
+
+    query_result = None
+    query_stderr = None
+    query_result_file_path = None
+
+    try:
+        from QueryExecutor import run_ocpq_query
+        query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
+    except Exception as e:
+        query_result = f"Error running query automatically: {e}"
+        print(query_result)
+
+    if query_stderr and not query_stderr.strip().startswith("warning:"):
+        print("Query execution error output:\n", query_stderr)
+        prompt_fix = (
+            f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+            "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
+        )
+        fixed_json, fixed_content = schema_fix_with_llm(
+            model_name=selected_model,
+            messages=messages,
+            prompt=prompt_fix,
+        )
+
+        if fixed_json is not None and fixed_json != ocpq_json:
+            print("Attempting to re-run fixed query...")
+            with open(output_file, "w") as f:
+                json.dump(fixed_json, f, indent=2)
+            try:
+                query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
+            except Exception as e:
+                query_result = f"Error running fixed query automatically: {e}"
+                print(query_result)
+            ocpq_json = fixed_json
+            messages.append({"role": "assistant", "content": fixed_content})
+
+    return None, None, ocpq_json, query_result, query_result_file_path
+
+
 def _run_pipeline_chain_of_thought_plus(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
     print("Starting Chain-of-Thought-Plus NL to OCPQ pipeline...")
     selected_model = model_name or hf_model
@@ -1516,6 +1642,8 @@ def nl_to_ocpq_pipeline(
     prompt_strategy=None,
 ):
     strategy = normalize_prompt_strategy(prompt_strategy)
+    if strategy == "schema-allowed-entities-only":
+        return _run_pipeline_allowed_entities_only(query, dataset, embeddings, output_file, ocel_path, model_name)
     if strategy == "schema-few-shot":
         return _run_pipeline_few_shot(query, dataset, embeddings, output_file, ocel_path, model_name)
     if strategy == "schema-chain-of-thought-plus":
