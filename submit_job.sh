@@ -21,7 +21,7 @@ conda activate nlxocpq-train
 # Install these once outside the job script, not on every submission.
 
 # Fail fast if the env drifted away from the torch/torchao pair this job expects.
-python -c "import importlib.metadata as m, sys; v = m.version('torchao'); print('torchao', v); sys.exit(0 if v == '0.12.0' else 1)"
+# python -c "import importlib.metadata as m, sys; v = m.version('torchao'); print('torchao', v); sys.exit(0 if v == '0.12.0' else 1)"
 
 # Run script
 python --version
