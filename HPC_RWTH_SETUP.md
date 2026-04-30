@@ -180,9 +180,9 @@ Close the SSH tunnel:
 
 ### Q: I see "OutOfMemoryError" in server logs.
 
-**A:** The c23g GPU (typically A100 80GB) should suffice for llama-3-8b. If errors persist:
+**A:** The c23g GPU (typically A100 80GB) should suffice for llama-3-8b with 4-bit loading. If errors persist:
 - Reduce `max_tokens` sent by Streamlit
-- Enable `--no-load-in-4bit` (requires more VRAM, so not recommended)
+- Keep `--load-in-4bit` enabled
 - Use a smaller base model
 
 ### Q: I want to change the base model or adapter path.
@@ -195,6 +195,7 @@ sbatch NLxOCPQ/hpc_serve.slurm
 ## Environment Variables
 
 - `PYTORCH_ALLOC_CONF=expandable_segments:True` — Already set in `hpc_serve.slurm` to reduce CUDA fragmentation.
+- `torch` — Installed inside the job's virtual environment from the official CUDA 12.4 PyTorch wheel index.
 - `HF_TOKEN` — Set if the base model is gated. Pass via `sbatch` environment or edit the script.
 - `CUDA_VISIBLE_DEVICES=0` — Use only GPU 0. Adjust if your job has multiple GPUs.
 
