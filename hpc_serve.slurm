@@ -1,5 +1,4 @@
 #!/bin/bash
-set -euo pipefail
 #SBATCH --job-name=ocpq-serve
 #SBATCH --partition=c23g
 #SBATCH --nodes=1
@@ -10,6 +9,8 @@ set -euo pipefail
 #SBATCH --time=01:00:00
 #SBATCH --output=logs/%j_serve.log
 #SBATCH --error=logs/%j_serve.err
+
+set -euo pipefail
 
 # Resolve the project directory from this script location so sbatch can be run
 # from any working directory.
