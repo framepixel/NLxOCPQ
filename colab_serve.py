@@ -323,6 +323,7 @@ def health() -> dict[str, str]:
     return {"status": "ok", "model": model_name or "unloaded"}
 
 
+@app.post("/chat/completions")
 @app.post("/v1/chat/completions")
 def chat_completions(request: ChatCompletionRequest) -> ChatCompletionResponse:
     try:
