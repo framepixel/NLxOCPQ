@@ -11,6 +11,7 @@ import time
 
 from sklearn.metrics.pairwise import cosine_similarity
 
+from openai import OpenAI
 from huggingface_hub import InferenceClient
 from pydantic import ValidationError
 
@@ -57,6 +58,7 @@ def get_embedding(text):
     return model.encode(text)
 
 hf_client = None
+openai_client = None
 hf_model = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
 hf_provider = os.getenv("HF_PROVIDER")
 hf_base_url = os.getenv("HF_BASE_URL")
@@ -65,6 +67,7 @@ failure_log_path = os.getenv("OCPQ_FAILURE_LOG_PATH", "ocpq_failure_log.jsonl")
 
 def set_hf_client(token=None, provider=None, model_name=None, base_url=None):
     global hf_client
+    global openai_client
     global hf_model
     global hf_provider
     global hf_base_url
@@ -80,9 +83,11 @@ def set_hf_client(token=None, provider=None, model_name=None, base_url=None):
 
     if selected_base_url:
         hf_backend = "custom-endpoint"
-        hf_client = InferenceClient(api_key=token or None, base_url=selected_base_url)
+        openai_client = OpenAI(api_key=token or "EMPTY", base_url=selected_base_url)
+        hf_client = None
         return
 
+    openai_client = None
     if selected_provider:
         hf_backend = "hf-provider"
         hf_client = InferenceClient(api_key=token or None, provider=selected_provider)
@@ -267,6 +272,31 @@ def append_failure_log(
 # In[7]:
 
 def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries=5):
+    if hf_backend == "custom-endpoint":
+        if openai_client is None:
+            raise RuntimeError(
+                "OpenAI client is not initialized. Call set_hf_client(token, base_url=...) first."
+            )
+
+        for attempt in range(max_retries):
+            try:
+                return openai_client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    response_format=response_format,
+                )
+            except Exception as e:
+                if "429" in str(e):
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 5
+                        print(f"Rate limited (429). Retrying in {wait_time} seconds (Attempt {attempt+1}/{max_retries})...")
+                        time.sleep(wait_time)
+                    else:
+                        raise e
+                else:
+                    raise e
+
     if hf_client is None:
         raise RuntimeError(
             "HF client is not initialized. Call set_hf_client(token, provider=...) first."
