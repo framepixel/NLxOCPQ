@@ -12,10 +12,17 @@
 
 set -euo pipefail
 
-# Resolve the project directory from this script location so sbatch can be run
-# from any working directory.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$SCRIPT_DIR"
+# Run from the directory where sbatch was invoked, and derive the project root
+# relative to that. The script itself is copied into Slurm's spool directory,
+# so BASH_SOURCE points at /var/spool/... and cannot be used for repo paths.
+SUBMIT_DIR="${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"
+cd "$SUBMIT_DIR"
+
+if [ -d "$SUBMIT_DIR/NLxOCPQ" ]; then
+  PROJECT_DIR="$SUBMIT_DIR/NLxOCPQ"
+else
+  PROJECT_DIR="$SUBMIT_DIR"
+fi
 
 # Set up environment variables to minimize CUDA fragmentation
 export PYTORCH_ALLOC_CONF=expandable_segments:True
@@ -53,7 +60,7 @@ echo "Remember to tunnel port 8000 back to your local machine!"
 cd "$PROJECT_DIR"
 
 python "$PROJECT_DIR/colab_serve.py" \
-  --host 127.0.0.1 \
+  --host 0.0.0.0 \
   --port 8000 \
   --base-model unsloth/llama-3-8b-Instruct-bnb-4bit \
   --adapter-path ./lora_model_ocpq \
