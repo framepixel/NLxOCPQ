@@ -8,6 +8,7 @@ import json
 import numpy as np
 import os
 import time
+from types import SimpleNamespace
 
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -63,23 +64,59 @@ hf_model = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
 hf_provider = os.getenv("HF_PROVIDER")
 hf_base_url = os.getenv("HF_BASE_URL")
 hf_backend = os.getenv("HF_BACKEND", "huggingface")
+hf_token = os.getenv("HF_TOKEN")
 failure_log_path = os.getenv("OCPQ_FAILURE_LOG_PATH", "ocpq_failure_log.jsonl")
 
-def set_hf_client(token=None, provider=None, model_name=None, base_url=None):
+local_model = None
+local_tokenizer = None
+local_model_key = None
+local_gpu_device = "cuda"
+local_gpu_dtype = "auto"
+
+def set_hf_client(
+    token=None,
+    provider=None,
+    model_name=None,
+    base_url=None,
+    backend_mode=None,
+    local_device="cuda",
+    local_dtype="auto",
+):
     global hf_client
     global openai_client
     global hf_model
     global hf_provider
     global hf_base_url
     global hf_backend
+    global hf_token
+    global local_model
+    global local_tokenizer
+    global local_model_key
+    global local_gpu_device
+    global local_gpu_dtype
 
     selected_provider = provider or hf_provider
     selected_model = model_name or hf_model
     selected_base_url = base_url or hf_base_url
+    selected_backend = (backend_mode or "").strip().lower() if backend_mode else None
 
     hf_model = selected_model
     hf_provider = selected_provider
     hf_base_url = selected_base_url
+    hf_token = token or hf_token
+
+    if selected_backend == "local-gpu":
+        hf_backend = "local-gpu"
+        hf_client = None
+        openai_client = None
+        hf_provider = None
+        hf_base_url = None
+        local_gpu_device = local_device or "cuda"
+        local_gpu_dtype = local_dtype or "auto"
+        local_model = None
+        local_tokenizer = None
+        local_model_key = None
+        return
 
     if selected_base_url:
         hf_backend = "custom-endpoint"
@@ -97,11 +134,23 @@ def set_hf_client(token=None, provider=None, model_name=None, base_url=None):
 
 
 def get_hf_backend_description():
+    if hf_backend == "local-gpu":
+        return f"Local GPU ({hf_model})"
     if hf_backend == "custom-endpoint":
         return f"Custom endpoint ({hf_base_url or 'unset'})"
     if hf_backend == "hf-provider":
         return f"HF provider ({hf_provider or 'auto'})"
     return "HF default"
+
+
+def set_local_gpu_client(model_name=None, token=None, device="cuda", dtype="auto"):
+    set_hf_client(
+        token=token,
+        model_name=model_name,
+        backend_mode="local-gpu",
+        local_device=device,
+        local_dtype=dtype,
+    )
 
 def set_hf_model(model_name):
     global hf_model
@@ -269,9 +318,217 @@ def append_failure_log(
     except Exception as exc:
         print(f"Warning: failed to write failure log to {failure_log_path}: {exc}")
 
+
+def _dtype_from_name(torch_module, dtype_name):
+    normalized = (dtype_name or "auto").strip().lower()
+    if normalized in ("auto", ""):
+        return None
+    if normalized in ("float16", "fp16", "half"):
+        return torch_module.float16
+    if normalized in ("bfloat16", "bf16"):
+        return torch_module.bfloat16
+    if normalized in ("float32", "fp32"):
+        return torch_module.float32
+    raise ValueError(
+        f"Unsupported local dtype '{dtype_name}'. Use one of: auto, float16, bfloat16, float32"
+    )
+
+
+def _build_local_prompt(messages):
+    parts = []
+    for message in messages:
+        role = message.get("role", "user")
+        content = message.get("content", "")
+        parts.append(f"{role.upper()}: {content}")
+    parts.append("ASSISTANT:")
+    return "\n\n".join(parts)
+
+
+def _ensure_local_gpu_model_loaded():
+    global local_model
+    global local_tokenizer
+    global local_model_key
+
+    model_key = (hf_model, hf_token, local_gpu_device, local_gpu_dtype)
+    if local_model is not None and local_tokenizer is not None and local_model_key == model_key:
+        return
+
+    try:
+        import torch
+    except Exception as exc:
+        raise RuntimeError(
+            "Local GPU backend requires PyTorch with CUDA support."
+        ) from exc
+
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "Local GPU backend selected but no CUDA GPU is available. "
+            "Switch to HF Inference Providers or run on a machine with CUDA."
+        )
+
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except Exception as exc:
+        raise RuntimeError(
+            "transformers is required for local GPU backend but could not be imported."
+        ) from exc
+
+    auth_kwargs = {"token": hf_token} if hf_token else {}
+    # Support three cases for the `--model` argument when using local GPU:
+    # 1) A HF hub id or local model dir with full pretrained weights
+    # 2) A local directory that contains a merged/converted model (pytorch_model.bin, etc.)
+    # 3) A LoRA adapter directory (PEFT) such as lora_model_ocpq* containing adapter_config.json
+    model_kwargs = {"device_map": "auto"}
+    resolved_dtype = _dtype_from_name(torch, local_gpu_dtype)
+    if resolved_dtype is not None:
+        model_kwargs["torch_dtype"] = resolved_dtype
+
+    # If the provided model string refers to an existing local directory, attempt adapter-aware loading
+    if os.path.isdir(hf_model):
+        # Case: PEFT/LoRA adapter directory
+        adapter_config_path = os.path.join(hf_model, "adapter_config.json")
+        adapter_safetensors = os.path.join(hf_model, "adapter_model.safetensors")
+        merged_weights = any(
+            os.path.exists(os.path.join(hf_model, fname))
+            for fname in ("pytorch_model.bin", "pytorch_model-00001-of-00002.bin", "model.safetensors")
+        )
+
+        if os.path.exists(adapter_config_path) or os.path.exists(adapter_safetensors):
+            try:
+                from peft import PeftModel
+            except Exception as exc:
+                raise RuntimeError(
+                    "Loading a LoRA adapter requires the 'peft' package. Install it (pip install peft) to use adapter directories."
+                ) from exc
+
+            # Read base model name from adapter_config if available
+            base_model_name = None
+            try:
+                with open(adapter_config_path, "r", encoding="utf-8") as f:
+                    ac = json.load(f)
+                    base_model_name = ac.get("base_model_name_or_path") or ac.get("base_model_name")
+            except Exception:
+                base_model_name = None
+
+            if not base_model_name:
+                raise RuntimeError(
+                    "Adapter directory detected but base model name not found in adapter_config.json. "
+                    "Include 'base_model_name_or_path' in adapter_config.json or specify the base model explicitly."
+                )
+
+            # Load base model, then attach the adapter
+            base = AutoModelForCausalLM.from_pretrained(base_model_name, **auth_kwargs, **model_kwargs)
+            tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True, **auth_kwargs)
+            model = PeftModel.from_pretrained(base, hf_model)
+
+        elif merged_weights:
+            # Directory appears to contain merged weights; load directly from the directory
+            tokenizer = AutoTokenizer.from_pretrained(hf_model, use_fast=True, **auth_kwargs)
+            if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+                tokenizer.pad_token = tokenizer.eos_token
+            model = AutoModelForCausalLM.from_pretrained(hf_model, **auth_kwargs, **model_kwargs)
+
+        else:
+            raise RuntimeError(
+                f"Model directory '{hf_model}' not recognized as a merged model or a PEFT adapter."
+            )
+
+    else:
+        # Normal HF hub id or remote model
+        tokenizer = AutoTokenizer.from_pretrained(hf_model, use_fast=True, **auth_kwargs)
+        if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
+        model = AutoModelForCausalLM.from_pretrained(hf_model, **auth_kwargs, **model_kwargs)
+
+    if not any(param.is_cuda for param in model.parameters()):
+        raise RuntimeError(
+            "Local backend loaded the model but no parameters are placed on CUDA. "
+            "Check your local GPU configuration."
+        )
+
+    local_model = model
+    local_tokenizer = tokenizer
+    local_model_key = model_key
+
+
+def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
+    import torch
+
+    _ensure_local_gpu_model_loaded()
+
+    normalized_messages = list(messages)
+    if response_format is not None:
+        normalized_messages = [
+            {
+                "role": "system",
+                "content": "Return only valid JSON. Do not include markdown fences or commentary.",
+            }
+        ] + normalized_messages
+
+    if hasattr(local_tokenizer, "apply_chat_template"):
+        input_ids = local_tokenizer.apply_chat_template(
+            normalized_messages,
+            add_generation_prompt=True,
+            return_tensors="pt",
+        )
+        if not isinstance(input_ids, torch.Tensor):
+            input_ids = input_ids["input_ids"]
+        input_ids = input_ids.to(local_model.device)
+        attention_mask = torch.ones_like(input_ids)
+    else:
+        prompt = _build_local_prompt(normalized_messages)
+        model_inputs = local_tokenizer(prompt, return_tensors="pt")
+        input_ids = model_inputs["input_ids"].to(local_model.device)
+        attention_mask = model_inputs.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(local_model.device)
+
+    generate_kwargs = {
+        "input_ids": input_ids,
+        "max_new_tokens": max_tokens,
+        "do_sample": False,
+        "pad_token_id": local_tokenizer.pad_token_id or local_tokenizer.eos_token_id,
+    }
+    if attention_mask is not None:
+        generate_kwargs["attention_mask"] = attention_mask
+
+    with torch.no_grad():
+        output_ids = local_model.generate(**generate_kwargs)
+
+    generated_ids = output_ids[0][input_ids.shape[-1]:]
+    content = local_tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+    )
+
 # In[7]:
 
 def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries=5):
+    if hf_backend == "local-gpu":
+        current_max_tokens = max_tokens
+        for attempt in range(max_retries):
+            try:
+                return _call_local_gpu_chat_completion(
+                    messages=messages,
+                    max_tokens=current_max_tokens,
+                    response_format=response_format,
+                )
+            except RuntimeError as exc:
+                is_oom = "out of memory" in str(exc).lower()
+                if is_oom and attempt < max_retries - 1:
+                    current_max_tokens = max(256, int(current_max_tokens * 0.75))
+                    print(
+                        "Local GPU OOM during generation. "
+                        f"Retrying with max_tokens={current_max_tokens} (attempt {attempt + 1}/{max_retries})."
+                    )
+                    try:
+                        import torch
+                        torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                    continue
+                raise
+
     if hf_backend == "custom-endpoint":
         if openai_client is None:
             raise RuntimeError(
@@ -1686,3 +1943,124 @@ def nl_to_ocpq_pipeline(
     raise ValueError(
         f"Unsupported prompt strategy: {prompt_strategy}. Supported: {', '.join(PROMPT_STRATEGIES)}"
     )
+
+
+def generate_query_result_summary(result_data, max_rows_per_node=100):
+    """
+    Generate a human-readable summary from the query result JSON.
+    
+    Args:
+        result_data: The parsed JSON result from the query executor (from query_result.json)
+        max_rows_per_node: Maximum situations to include per node in preview
+    
+    Returns:
+        dict with keys: metrics, node_overview, situations_preview
+    """
+    summary = {
+        "metrics": {},
+        "node_overview": [],
+        "situations_preview": {},
+        "status": "error"
+    }
+    
+    if "Err" in result_data:
+        summary["error"] = result_data.get("Err", "Unknown error")
+        return summary
+    
+    if "Ok" not in result_data:
+        summary["error"] = "Unexpected result shape"
+        return summary
+    
+    ok_data = result_data.get("Ok", {})
+    eval_data = ok_data.get("evaluationResults", [])
+    object_ids = ok_data.get("objectIds", [])
+    event_ids = ok_data.get("eventIds", [])
+    bindings_skipped = ok_data.get("bindingsSkipped", False)
+    
+    if not isinstance(eval_data, list):
+        summary["error"] = "No evaluation results in response"
+        return summary
+    
+    # Calculate metrics
+    total_situations = 0
+    total_violations = 0
+    for node in eval_data:
+        count = node.get("situationCount", 0)
+        violated = node.get("situationViolatedCount", 0)
+        total_situations += count
+        total_violations += violated
+    
+    summary["metrics"] = {
+        "nodes": len(eval_data),
+        "total_situations": total_situations,
+        "total_violations": total_violations,
+        "satisfaction_rate": f"{(100.0 * (total_situations - total_violations) / total_situations):.1f}%" if total_situations else "N/A",
+        "bindings_skipped": bindings_skipped,
+    }
+    
+    # Node overview table
+    for idx, node in enumerate(eval_data):
+        count = node.get("situationCount", 0)
+        violated = node.get("situationViolatedCount", 0)
+        summary["node_overview"].append({
+            "node": idx,
+            "situation_count": count,
+            "violated_count": violated,
+            "satisfaction_rate": f"{(100.0 * (count - violated) / count):.1f}%" if count else "N/A",
+        })
+    
+    # Situations preview for each node
+    def _format_violation(violation):
+        if violation is None:
+            return "Satisfied"
+        if isinstance(violation, str):
+            return f"Violated: {violation}"
+        if isinstance(violation, dict) and len(violation) == 1:
+            k, v = next(iter(violation.items()))
+            return f"Violated: {k} ({v})"
+        return f"Violated: {violation}"
+    
+    for idx, node in enumerate(eval_data):
+        node_data = node
+        situations = node_data.get("situations", []) if isinstance(node_data, dict) else []
+        rows = []
+        
+        for i, situation in enumerate(situations[:max_rows_per_node], start=1):
+            if not isinstance(situation, list) or len(situation) != 2:
+                continue
+            binding, violation = situation
+            event_map = binding.get("eventMap", []) if isinstance(binding, dict) else []
+            object_map = binding.get("objectMap", []) if isinstance(binding, dict) else []
+            label_map = binding.get("labelMap", []) if isinstance(binding, dict) else []
+            
+            event_parts = []
+            for ev_var, ev_idx in event_map:
+                ev_name = event_ids[ev_idx] if isinstance(ev_idx, int) and 0 <= ev_idx < len(event_ids) else f"index:{ev_idx}"
+                event_parts.append(f"e{ev_var + 1}={ev_name}")
+            
+            object_parts = []
+            for ob_var, ob_idx in object_map:
+                ob_name = object_ids[ob_idx] if isinstance(ob_idx, int) and 0 <= ob_idx < len(object_ids) else f"index:{ob_idx}"
+                object_parts.append(f"o{ob_var + 1}={ob_name}")
+            
+            label_parts = []
+            for item in label_map:
+                if isinstance(item, list) and len(item) == 2:
+                    label_parts.append(f"{item[0]}={item[1]}")
+            
+            rows.append({
+                "situation": i,
+                "status": _format_violation(violation),
+                "events": ", ".join(event_parts) if event_parts else "-",
+                "objects": ", ".join(object_parts) if object_parts else "-",
+                "labels": ", ".join(label_parts) if label_parts else "-",
+            })
+        
+        summary["situations_preview"][f"node_{idx}"] = {
+            "total_situations": len(situations),
+            "preview_rows": rows,
+            "preview_limit": max_rows_per_node,
+        }
+    
+    summary["status"] = "ok"
+    return summary
