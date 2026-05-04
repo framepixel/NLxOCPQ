@@ -210,3 +210,6 @@ local-all-MiniLM-L6-v2/
 embeddings.npy
 test_query.json
 uploaded_logs/
+results/
+output/
+output_2/

@@ -21,3 +21,45 @@ The repository now includes:
 - [`COLAB_SERVER.md`](COLAB_SERVER.md) with the launch steps.
 
 The UI accepts a custom `HF_BASE_URL`, and custom-endpoint mode no longer requires a Hugging Face token if your Colab server is open or uses its own auth.
+
+## Console Runner
+You can run the full NL-to-OCPQ pipeline without Streamlit using `cli.py`.
+
+Each invocation creates a timestamped run directory in `results/` and writes multiple artifacts:
+
+- `query_input.json`
+- `extracted_structure.json`
+- `planned_query_tree.json`
+- `generated_ocpq.json`
+- `query_executor_stdout.txt`
+- `query_executor_stderr.txt`
+- `query_result.json` (if the backend exported one)
+- `run_summary.json`
+
+### Backend Selection
+- `--backend local-gpu`: run the selected model locally on CUDA with `transformers`
+- `--backend hf-provider`: run via Hugging Face Inference Providers
+
+### Examples
+
+Run with local GPU:
+
+```bash
+python cli.py \
+	--backend local-gpu \
+	--model meta-llama/Meta-Llama-3-8B-Instruct \
+	--ocel ../hospital_log_high.json \
+	"For any person, the diagnosis must be completed within 3 days after the registration at ER."
+```
+
+Run with HF inference provider:
+
+```bash
+python cli.py \
+	--backend hf-provider \
+	--model meta-llama/Meta-Llama-3-8B-Instruct \
+	--hf-provider together \
+	--hf-token "$HF_TOKEN" \
+	--ocel ../hospital_log_high.json \
+	"For any person, the diagnosis must be completed within 3 days after the registration at ER."
+```
