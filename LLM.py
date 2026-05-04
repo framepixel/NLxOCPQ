@@ -8,6 +8,7 @@ import json
 import numpy as np
 import os
 import time
+import traceback
 from types import SimpleNamespace
 
 from sklearn.metrics.pairwise import cosine_similarity
@@ -66,6 +67,7 @@ hf_base_url = os.getenv("HF_BASE_URL")
 hf_backend = os.getenv("HF_BACKEND", "huggingface")
 hf_token = os.getenv("HF_TOKEN")
 failure_log_path = os.getenv("OCPQ_FAILURE_LOG_PATH", "ocpq_failure_log.jsonl")
+few_shot_enabled = True
 
 local_model = None
 local_tokenizer = None
@@ -131,6 +133,15 @@ def set_hf_client(
     else:
         hf_backend = "hf-default"
         hf_client = InferenceClient(api_key=token or None)
+
+
+def set_few_shot_enabled(enabled=True):
+    global few_shot_enabled
+    few_shot_enabled = bool(enabled)
+
+
+def get_few_shot_enabled():
+    return few_shot_enabled
 
 
 def get_hf_backend_description():
@@ -253,12 +264,23 @@ import re
 import ast
 
 def parse_llm_json(content):
+    if not isinstance(content, str):
+        return None
     # Target json code blocks specifically
     match = re.search(r'```(?:json)?\n(.*?)\n```', content, re.DOTALL)
     if not match:
         match = re.search(r'\{.*\}', content, re.DOTALL)
-        
-    clean_content = match.group(1) if match.lastindex else (match.group(0) if match else content.strip())
+
+    if match:
+        if match.lastindex:
+            clean_content = match.group(1)
+        else:
+            clean_content = match.group(0)
+    else:
+        clean_content = content.strip()
+
+    if not clean_content:
+        return None
     
     # Auto-heal truncated JSON
     if not clean_content.endswith("}"):
@@ -761,6 +783,45 @@ def _normalize_time_between_events_seconds(ocpq_json, query):
 
     return ocpq_json
 
+
+def run_ocpq_query_with_logging(ocel_path, output_file, query, messages, stage):
+    try:
+        from QueryExecutor import run_ocpq_query
+        result = run_ocpq_query(ocel_path, output_file)
+        if not result:
+            warning = "warning: run_ocpq_query returned no result"
+            allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+            append_failure_log(
+                stage=f"{stage}_query_exec_empty",
+                query=query,
+                messages=messages,
+                raw_output=None,
+                parsed_json=None,
+                normalized_json=None,
+                allowed_events=allowed_events,
+                allowed_objects=allowed_objects,
+                validation_error=warning,
+                extra={"warning": warning},
+            )
+            return warning, warning, None
+        return result
+    except Exception as exc:
+        trace = traceback.format_exc()
+        allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+        append_failure_log(
+            stage=f"{stage}_query_exec_failed",
+            query=query,
+            messages=messages,
+            raw_output=None,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=allowed_events,
+            allowed_objects=allowed_objects,
+            validation_error=str(exc),
+            extra={"traceback": trace},
+        )
+        return f"Error running query automatically: {exc}", None, None
+
 def validate_and_normalize_ocpq_json(ocpq_json):
     """
     Strictly validate against the Pydantic BindingBoxTree model.
@@ -995,6 +1056,8 @@ def run_subproblem_2_plan_tree(messages, model_name):
 
 
 def build_few_shot_examples(query, dataset, embeddings):
+    if not few_shot_enabled:
+        return ""
     examples = retrieve_examples(query, dataset, embeddings)
     example_prompts = []
     for ex in examples:
@@ -1022,10 +1085,16 @@ def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_n
     if len(messages) > 4:
         logical_tree = messages[4].get("content", "{}")
 
+    example_block = ""
+    if few_shot_string:
+        example_block = (
+            "Use these examples as references for the output syntax.\n"
+            f"EXAMPLES:\n{few_shot_string}\n\n"
+        )
+
     prompt_3 = (
         "Now, based on your previous reasoning, output the final OCPQ JSON matching the Exact Schema.\n\n"
-        "Use these examples as references for the output syntax.\n"
-        f"EXAMPLES:\n{few_shot_string}\n\n"
+        f"{example_block}"
         "CRITICAL FINAL CONSTRAINTS:\n"
         "1. DO NOT copy events or objects from the examples above.\n"
         "2. You MUST strictly use ONLY the allowed events and objects mapped in your first subproblem.\n"
@@ -1120,16 +1189,13 @@ def _run_pipeline_grammar_guided(query, dataset, embeddings, output_file="test_q
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
 
-    query_result = None
-    query_stderr = None
-    query_result_file_path = None
-    
-    try:
-        from QueryExecutor import run_ocpq_query
-        query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-    except Exception as e:
-        query_result = f"Error running query automatically: {e}"
-        print(query_result)
+    query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+        ocel_path=ocel_path,
+        output_file=output_file,
+        query=query,
+        messages=messages,
+        stage="grammar_guided",
+    )
     
     # Auto-fix using the chat history context block
     # Only try to fix if an actual execution error (stderr from a crash/panic) occurred
@@ -1147,11 +1213,13 @@ def _run_pipeline_grammar_guided(query, dataset, embeddings, output_file="test_q
             print("Attempting to re-run fixed query...")
             with open(output_file, "w") as f:
                 json.dump(fixed_json, f, indent=2)
-            try:
-                query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-            except Exception as e:
-                query_result = f"Error running fixed query automatically: {e}"
-                print(query_result)
+            query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                ocel_path=ocel_path,
+                output_file=output_file,
+                query=query,
+                messages=messages,
+                stage="grammar_guided_fix",
+            )
             ocpq_json = fixed_json
             messages.append({"role": "assistant", "content": fixed_content})
 
@@ -1173,8 +1241,13 @@ def _run_pipeline_few_shot(query, dataset, embeddings, output_file="test_query.j
     ]
 
     few_shot_string = build_few_shot_examples(query, dataset, embeddings)
+    example_block = f"\nEXAMPLES:\n{few_shot_string}\n" if few_shot_string else ""
+    prompt_intro = "Translate natural language process queries into OCPQ JSON based on the examples."
+    if not few_shot_string:
+        prompt_intro = "Translate natural language process queries into OCPQ JSON."
+
     prompt_3 = f"""
-Translate natural language process queries into OCPQ JSON based on the examples.
+{prompt_intro}
 
 Output ONLY valid JSON.
 
@@ -1182,10 +1255,7 @@ CRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'regi
 DO NOT use names that aren't in these lists.
 Valid events: {event_names}
 Valid objects: {object_names}
-
-EXAMPLES:
-{few_shot_string}
-
+{example_block}
 Now translate this query:
 Question: {query}
 JSON:
@@ -1260,16 +1330,13 @@ JSON:
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
 
-    query_result = None
-    query_stderr = None
-    query_result_file_path = None
-
-    try:
-        from QueryExecutor import run_ocpq_query
-        query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-    except Exception as e:
-        query_result = f"Error running query automatically: {e}"
-        print(query_result)
+    query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+        ocel_path=ocel_path,
+        output_file=output_file,
+        query=query,
+        messages=messages,
+        stage="few_shot",
+    )
 
     if query_stderr and not query_stderr.strip().startswith("warning:"):
         print("Query execution error output:\n", query_stderr)
@@ -1292,11 +1359,13 @@ JSON:
             print("Attempting to re-run fixed query...")
             with open(output_file, "w") as f:
                 json.dump(fixed_json, f, indent=2)
-            try:
-                query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-            except Exception as e:
-                query_result = f"Error running fixed query automatically: {e}"
-                print(query_result)
+            query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                ocel_path=ocel_path,
+                output_file=output_file,
+                query=query,
+                messages=messages,
+                stage="few_shot_fix",
+            )
             ocpq_json = fixed_json
 
     return None, None, ocpq_json, query_result, query_result_file_path
@@ -1386,16 +1455,13 @@ Query:
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
 
-    query_result = None
-    query_stderr = None
-    query_result_file_path = None
-
-    try:
-        from QueryExecutor import run_ocpq_query
-        query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-    except Exception as e:
-        query_result = f"Error running query automatically: {e}"
-        print(query_result)
+    query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+        ocel_path=ocel_path,
+        output_file=output_file,
+        query=query,
+        messages=messages,
+        stage="allowed_entities_only",
+    )
 
     if query_stderr and not query_stderr.strip().startswith("warning:"):
         print("Query execution error output:\n", query_stderr)
@@ -1413,11 +1479,13 @@ Query:
             print("Attempting to re-run fixed query...")
             with open(output_file, "w") as f:
                 json.dump(fixed_json, f, indent=2)
-            try:
-                query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-            except Exception as e:
-                query_result = f"Error running fixed query automatically: {e}"
-                print(query_result)
+            query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                ocel_path=ocel_path,
+                output_file=output_file,
+                query=query,
+                messages=messages,
+                stage="allowed_entities_only_fix",
+            )
             ocpq_json = fixed_json
             messages.append({"role": "assistant", "content": fixed_content})
 
@@ -1587,16 +1655,13 @@ ONLY output valid JSON.
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
 
-    query_result = None
-    query_stderr = None
-    query_result_file_path = None
-
-    try:
-        from QueryExecutor import run_ocpq_query
-        query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-    except Exception as e:
-        query_result = f"Error running query automatically: {e}"
-        print(query_result)
+    query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+        ocel_path=ocel_path,
+        output_file=output_file,
+        query=query,
+        messages=messages,
+        stage="chain_of_thought_plus",
+    )
 
     if query_stderr and not query_stderr.strip().startswith("warning:"):
         print("Query execution error output:\n", query_stderr)
@@ -1614,11 +1679,13 @@ ONLY output valid JSON.
             print("Attempting to re-run fixed query...")
             with open(output_file, "w") as f:
                 json.dump(fixed_json, f, indent=2)
-            try:
-                query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-            except Exception as e:
-                query_result = f"Error running fixed query automatically: {e}"
-                print(query_result)
+            query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                ocel_path=ocel_path,
+                output_file=output_file,
+                query=query,
+                messages=messages,
+                stage="chain_of_thought_plus_fix",
+            )
             ocpq_json = fixed_json
             messages.append({"role": "assistant", "content": fixed_content})
 
@@ -1881,16 +1948,13 @@ Return JSON:
         with open(output_file, "w") as f:
             json.dump(verification_json.get("fixed_query", ocpq_json), f, indent=2)
 
-    query_result = None
-    query_stderr = None
-    query_result_file_path = None
-
-    try:
-        from QueryExecutor import run_ocpq_query
-        query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-    except Exception as e:
-        query_result = f"Error running query automatically: {e}"
-        print(query_result)
+    query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+        ocel_path=ocel_path,
+        output_file=output_file,
+        query=query,
+        messages=messages,
+        stage="least_to_most",
+    )
 
     if query_stderr and not query_stderr.strip().startswith("warning:"):
         print("Query execution error output:\n", query_stderr)
@@ -1908,11 +1972,13 @@ Return JSON:
             print("Attempting to re-run fixed query...")
             with open(output_file, "w") as f:
                 json.dump(fixed_json, f, indent=2)
-            try:
-                query_result, query_stderr, query_result_file_path = run_ocpq_query(ocel_path, output_file)
-            except Exception as e:
-                query_result = f"Error running fixed query automatically: {e}"
-                print(query_result)
+            query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                ocel_path=ocel_path,
+                output_file=output_file,
+                query=query,
+                messages=messages,
+                stage="least_to_most_fix",
+            )
             ocpq_json = fixed_json
             messages.append({"role": "assistant", "content": fixed_content})
 
