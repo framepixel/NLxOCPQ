@@ -23,8 +23,9 @@ def run_ocpq_query(ocel_path, query_result_file):
     cli_dir = os.path.join(project_root, "OCPQ", "backend", "ocpq_cli")
     
     if not os.path.exists(cli_dir):
-        print(f"Warning: OCPQ CLI directory not found at {cli_dir}")
-        return None
+        warning = f"warning: OCPQ CLI directory not found at {cli_dir}"
+        print(warning)
+        return warning, warning, None
         
     # Find cargo executable
     cargo_cmd = shutil.which("cargo")
