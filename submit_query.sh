@@ -13,15 +13,27 @@ set -euo pipefail
 # Run from the directory where sbatch was invoked
 cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"
 
+# CRITICAL: Purge all modules first, then reload only what we need
+module purge
+module load GCC/13.3.0
+module load CUDA/12.4.0
+
 # Activate the project virtual environment.
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate nlxocpq-train
 
+# Set compilation flags to prevent Intel-optimized symbol dependencies
+export CFLAGS="-march=x86-64 -mtune=generic"
+export CXXFLAGS="-march=x86-64 -mtune=generic"
+export RUSTFLAGS="-C target-cpu=generic"
+
+# Ensure no Intel paths contaminate the build
+unset PKG_CONFIG_PATH
+unset LIBSQLITE3_SYS_USE_PKG_CONFIG
+export LD_LIBRARY_PATH=""
+
 # Make sure the environment already contains the training dependencies.
 # Install these once outside the job script, not on every submission.
-
-# Fail fast if the env drifted away from the torch/torchao pair this job expects.
-# python -c "import importlib.metadata as m, sys; v = m.version('torchao'); print('torchao', v); sys.exit(0 if v == '0.12.0' else 1)"
 
 # Run script
 python --version
