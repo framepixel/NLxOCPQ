@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=2
-#SBATCH --time=00:04:00
+#SBATCH --time=00:06:00
 
 set -euo pipefail
 
@@ -25,4 +25,4 @@ conda activate nlxocpq-train
 
 # Run script
 python --version
-python cli.py --backend local-gpu --model lora_model_ocpq_v0-1 --prompt-strategy schema-allowed-entities-only --ocel ../OCEL_Logs/hospital_log_high.json  "For any person, the diagnosis must be completed within 3 days after the registration at ER."
+python cli.py --backend local-gpu --model lora_model_ocpq --prompt-strategy schema-allowed-entities-only --ocel ../OCEL_Logs/hospital_log_high.json  "For every person, the diagnosis must occur exactly once."
