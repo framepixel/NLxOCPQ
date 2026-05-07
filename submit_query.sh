@@ -18,9 +18,12 @@ module purge
 module load GCC/13.3.0
 module load CUDA/12.4.0
 
-# Activate the project virtual environment.
-source "$HOME/miniforge3/etc/profile.d/conda.sh"
-conda activate nlxocpq-train
+unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER
+unset PYTHONHOME PYTHONPATH
+
+# Activate the project virtual environment
+source "$HOME/envs/nlxocpq-venv/bin/activate"
+export LD_LIBRARY_PATH="$HOME/envs/nlxocpq-venv/lib:${LD_LIBRARY_PATH:-}"
 
 # Set compilation flags to prevent Intel-optimized symbol dependencies
 export CFLAGS="-march=x86-64 -mtune=generic"
@@ -30,11 +33,24 @@ export RUSTFLAGS="-C target-cpu=generic"
 # Ensure no Intel paths contaminate the build
 unset PKG_CONFIG_PATH
 unset LIBSQLITE3_SYS_USE_PKG_CONFIG
-export LD_LIBRARY_PATH=""
-
-# Make sure the environment already contains the training dependencies.
-# Install these once outside the job script, not on every submission.
 
 # Run script
-python --version
-python cli.py --backend local-gpu --model lora_model_ocpq --prompt-strategy schema-allowed-entities-only --ocel ../OCEL_Logs/hospital_log_high.json  "For every person, the diagnosis must occur exactly once."
+echo "Starting CLI at: $(date)"
+set +e
+python -u cli.py \
+  --backend local-gpu \
+  --model lora_model_ocpq \
+  --prompt-strategy schema-allowed-entities-only \
+  --ocel ../OCEL_Logs/hospital_log_high.json \
+  "For every person, the diagnosis must occur exactly once." \
+  > query-cli.stdout 2> query-cli.stderr
+cli_status=$?
+set -e
+
+echo "CLI exit status: $cli_status"
+echo "--- STDOUT ---"
+cat query-cli.stdout
+echo "--- STDERR ---"
+cat query-cli.stderr
+
+exit $cli_status
