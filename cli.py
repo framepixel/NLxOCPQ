@@ -149,9 +149,18 @@ def main():
     run_dir = _unique_run_dir(output_root, args.run_name.strip())
     run_dir.mkdir(parents=True, exist_ok=False)
 
+    debug_log = run_dir / "debug.log"
+    
+    def debug_print(msg):
+        print(f"[DEBUG] {msg}", flush=True)
+        with open(debug_log, "a") as f:
+            f.write(f"[DEBUG] {msg}\n")
+
     generated_query_path = run_dir / "generated_ocpq.json"
+    debug_print("Starting main()")
 
     try:
+        debug_print("Importing LLM module...")
         from LLM import (
             dataset,
             embeddings,
@@ -161,7 +170,9 @@ def main():
             set_hf_client,
             set_local_gpu_client,
         )
+        debug_print("LLM import successful")
     except Exception as exc:
+        debug_print(f"LLM import failed: {exc}")
         summary = {
             "status": "failed",
             "run_dir": str(run_dir.resolve()),
@@ -186,19 +197,25 @@ def main():
     }
     _write_json(run_dir / "query_input.json", input_payload)
 
+    debug_print(f"Backend: {args.backend}, Model: {args.model}")
+    
     if args.backend == "local-gpu":
+        debug_print("Calling set_local_gpu_client()...")
         set_local_gpu_client(
             model_name=args.model,
             token=args.hf_token or None,
             device=args.local_device,
             dtype=args.local_dtype,
         )
+        debug_print("set_local_gpu_client() completed")
     else:
+        debug_print("Calling set_hf_client()...")
         set_hf_client(
             token=args.hf_token or None,
             provider=args.hf_provider or None,
             model_name=args.model,
         )
+        debug_print("set_hf_client() completed")
 
     summary = {
         "status": "failed",
@@ -217,6 +234,7 @@ def main():
     }
 
     try:
+        debug_print("Calling nl_to_ocpq_pipeline()...")
         structure, tree, ocpq_json, query_stdout, query_result_file_path = nl_to_ocpq_pipeline(
             query=query,
             dataset=dataset,
@@ -226,6 +244,7 @@ def main():
             model_name=args.model,
             prompt_strategy=args.prompt_strategy,
         )
+        debug_print("nl_to_ocpq_pipeline() completed")
 
         _write_json(run_dir / "extracted_structure.json", _safe_json_payload(structure))
         _write_json(run_dir / "planned_query_tree.json", _safe_json_payload(tree))
@@ -255,12 +274,14 @@ def main():
                 result_summary = generate_query_result_summary(result_data)
                 _write_json(run_dir / "result_summary.json", result_summary)
             except Exception as summary_exc:
-                print(f"Warning: Failed to generate result summary: {summary_exc}", file=sys.stderr)
+                debug_print(f"Failed to generate result summary: {summary_exc}")
 
         summary["status"] = "ok"
         summary["query_result_export_found"] = bool(copied_result_file)
         summary["query_result_export_source"] = query_result_file_path
+        debug_print("Pipeline completed successfully")
     except Exception as exc:
+        debug_print(f"Pipeline error: {exc}")
         summary["error"] = str(exc)
     finally:
         _write_json(run_dir / "run_summary.json", summary)
