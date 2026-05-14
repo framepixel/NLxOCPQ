@@ -27,18 +27,20 @@ def run_ocpq_query(ocel_path, query_result_file):
         print(warning)
         return warning, warning, None
         
-    # Find cargo executable
-    cargo_cmd = shutil.which("cargo")
+    # Prefer a real cargo binary from common install locations over a broken shim on PATH.
+    cargo_candidates = [
+        os.path.expanduser("~/.cargo/bin/cargo"),
+        os.path.expanduser("~/.cargo/bin/cargo.exe"),
+        "/usr/bin/cargo",
+        "/usr/local/bin/cargo",
+        shutil.which("cargo"),
+    ]
+    cargo_cmd = next(
+        (candidate for candidate in cargo_candidates if candidate and os.path.exists(candidate)),
+        None,
+    )
     if not cargo_cmd:
-        # Fallback to default manual paths for Windows and Unix
-        cargo_cmd_windows = os.path.expanduser("~\\.cargo\\bin\\cargo.exe")
-        cargo_cmd_unix = os.path.expanduser("~/.cargo/bin/cargo")
-        if os.path.exists(cargo_cmd_windows):
-            cargo_cmd = cargo_cmd_windows
-        elif os.path.exists(cargo_cmd_unix):
-            cargo_cmd = cargo_cmd_unix
-        else:
-            cargo_cmd = "cargo" # final fallback
+        cargo_cmd = "cargo"  # final fallback
         
     # The -q (quiet) flag restricts cargo build output, only showing program output
     cmd = [
