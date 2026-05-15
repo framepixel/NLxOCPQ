@@ -53,12 +53,14 @@ def _dump_testset_with_compact_query(payload):
             continue
 
         compact_query = json.dumps(item.get("ocpq_query"), ensure_ascii=False, separators=(",", ":"))
-        item_without_query = {k: v for k, v in item.items() if k != "ocpq_query"}
+        compact_results = json.dumps(item.get("results"), ensure_ascii=False, separators=(",", ":"))
+        # Remove compacted keys from the pretty-printed object so we can inject them on one line.
+        item_without_query = {k: v for k, v in item.items() if k not in ("ocpq_query", "results")}
 
         rendered_obj = json.dumps(item_without_query, indent=2, ensure_ascii=False)
         obj_lines = rendered_obj.splitlines()
 
-        # Remove opening/closing braces from rendered object so we can inject compact query.
+        # Remove opening/closing braces from rendered object so we can inject compact fields.
         inner_lines = obj_lines[1:-1]
         lines.append("  {")
 
@@ -67,7 +69,8 @@ def _dump_testset_with_compact_query(payload):
                 lines.append(f"  {line}")
             lines[-1] = lines[-1] + ","
 
-        lines.append(f'    "ocpq_query": {compact_query}')
+        lines.append(f'    "ocpq_query": {compact_query},')
+        lines.append(f'    "results": {compact_results}')
         closing = "  }," if idx < len(payload) - 1 else "  }"
         lines.append(closing)
 
@@ -144,8 +147,8 @@ def _build_parser():
     parser = argparse.ArgumentParser(
         description="Append one executed OCPQ query run to a JSON testset."
     )
-    parser.add_argument("test_set_path", help="Path to the testset JSON file.")
     parser.add_argument("query_path", help="Path to the query JSON file.")
+    parser.add_argument("test_set_path", help="Path to the testset JSON file.")
     parser.add_argument(
         "--graph-query",
         action="store_true",
