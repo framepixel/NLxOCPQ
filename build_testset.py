@@ -125,12 +125,13 @@ def build_testset(
     result_payload = _read_result_file(last_file)
 
     record = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        # "timestamp": datetime.now(timezone.utc).isoformat(),
         "nl_query": nl_query,
-        "is_graph_query": is_a_graph_query,
-        "query_path": str(query_path),
-        "executed_query_path": str(executed_query_path),
+        # "is_graph_query": is_a_graph_query,
+        # "query_path": str(query_path),
+        # "executed_query_path": str(executed_query_path),
         "ocpq_query": executed_query_json,
+        "ocel_path": str(ocel_path) if ocel_path else DEFAULT_OCEL_PATH,
         "stdout": stdout,
         "stderr": stderr,
         "results": result_payload,
