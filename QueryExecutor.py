@@ -7,6 +7,57 @@ import time
 import signal
 from urllib import request, error
 
+
+def _find_cargo_command():
+    cargo_candidates = []
+
+    if os.name == "nt":
+        home_dir = os.path.expanduser("~")
+        cargo_candidates.extend([
+            os.path.join(home_dir, ".cargo", "bin", "cargo.exe"),
+            os.path.join(home_dir, ".cargo", "bin", "cargo.bat"),
+            os.path.join(home_dir, ".cargo", "bin", "cargo.cmd"),
+        ])
+    else:
+        cargo_candidates.extend([
+            os.path.expanduser("~/.cargo/bin/cargo"),
+            os.path.expanduser("~/.cargo/bin/cargo.exe"),
+            "/usr/bin/cargo",
+            "/usr/local/bin/cargo",
+        ])
+
+    cargo_candidates.append(shutil.which("cargo"))
+
+    cargo_cmd = next(
+        (candidate for candidate in cargo_candidates if candidate and os.path.exists(candidate)),
+        None,
+    )
+
+    if cargo_cmd:
+        return cargo_cmd
+
+    searched = "\n- ".join(candidate for candidate in cargo_candidates if candidate)
+    raise FileNotFoundError(
+        "Cargo was not found. Install Rust via rustup or add cargo to PATH. "
+        "Searched locations:\n- " + searched
+    )
+
+
+def _terminate_process(process):
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return
+
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+    except Exception:
+        process.terminate()
+
 def run_ocpq_query(ocel_path, query_result_file):
     """
     Executes the generated OCPQ query using the Rust CLI backend.
@@ -27,26 +78,16 @@ def run_ocpq_query(ocel_path, query_result_file):
         print(warning)
         return warning, warning, None
         
-    # Prefer a real cargo binary from common install locations over a broken shim on PATH.
-    cargo_candidates = [
-        os.path.expanduser("~/.cargo/bin/cargo"),
-        os.path.expanduser("~/.cargo/bin/cargo.exe"),
-        "/usr/bin/cargo",
-        "/usr/local/bin/cargo",
-        shutil.which("cargo"),
-    ]
-    cargo_cmd = next(
-        (candidate for candidate in cargo_candidates if candidate and os.path.exists(candidate)),
-        None,
-    )
-    if not cargo_cmd:
-        cargo_cmd = "cargo"  # final fallback
+    cargo_cmd = _find_cargo_command()
         
     # The -q (quiet) flag restricts cargo build output, only showing program output
+    # Include the `evaluate` subcommand so the CLI receives the correct command
+    # and explicitly target the `ocpq_cli` package to avoid ambiguity.
     cmd = [
-        cargo_cmd, "run", "-q", "--release", "--",
+        cargo_cmd, "run", "-q", "--release", "-p", "ocpq_cli", "--",
+        "evaluate",
         "--ocel", ocel_abs,
-        "--bbox-tree", query_abs
+        "--bbox-tree", query_abs,
     ]
     
     print(f"\nExecuting OCPQ CLI query locally...")
@@ -88,8 +129,7 @@ def run_ocpq_query(ocel_path, query_result_file):
         if process and process.poll() is None:
             print("\nExecution interrupted (e.g. Streamlit Stop)! Force-killing the sub-processes...")
             try:
-                # Kill the entire process group so `cargo` and its spawned `ocpq_cli` binary both die instantly
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                _terminate_process(process)
             except Exception as kill_err:
                 print(f"Failed to kill process: {kill_err}")
                 
