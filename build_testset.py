@@ -56,6 +56,7 @@ def _dump_testset_with_compact_query(payload):
         compact_results = json.dumps(item.get("results"), ensure_ascii=False, separators=(",", ":"))
         # Remove compacted keys from the pretty-printed object so we can inject them on one line.
         item_without_query = {k: v for k, v in item.items() if k not in ("ocpq_query", "results")}
+        has_results = "results" in item
 
         rendered_obj = json.dumps(item_without_query, indent=2, ensure_ascii=False)
         obj_lines = rendered_obj.splitlines()
@@ -69,8 +70,11 @@ def _dump_testset_with_compact_query(payload):
                 lines.append(f"  {line}")
             lines[-1] = lines[-1] + ","
 
-        lines.append(f'    "ocpq_query": {compact_query},')
-        lines.append(f'    "results": {compact_results}')
+        if has_results:
+            lines.append(f'    "ocpq_query": {compact_query},')
+            lines.append(f'    "results": {compact_results}')
+        else:
+            lines.append(f'    "ocpq_query": {compact_query}')
         closing = "  }," if idx < len(payload) - 1 else "  }"
         lines.append(closing)
 
@@ -132,9 +136,9 @@ def build_testset(
         # "executed_query_path": str(executed_query_path),
         "ocpq_query": executed_query_json,
         "ocel_path": str(ocel_path) if ocel_path else DEFAULT_OCEL_PATH,
-        "stdout": stdout,
-        "stderr": stderr,
-        "results": result_payload,
+        # "stdout": stdout,
+        # "stderr": stderr,
+        # "results": result_payload,
     }
 
     testset = _load_testset(test_set_path)
