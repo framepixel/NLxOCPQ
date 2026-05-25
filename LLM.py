@@ -68,6 +68,10 @@ hf_backend = os.getenv("HF_BACKEND", "huggingface")
 hf_token = os.getenv("HF_TOKEN")
 failure_log_path = os.getenv("OCPQ_FAILURE_LOG_PATH", "ocpq_failure_log.jsonl")
 few_shot_enabled = True
+generation_temperature = None
+
+LLM_CALL_STATS = []
+QUERY_EXEC_STATS = []
 
 local_model = None
 local_tokenizer = None
@@ -138,6 +142,34 @@ def set_hf_client(
 def set_few_shot_enabled(enabled=True):
     global few_shot_enabled
     few_shot_enabled = bool(enabled)
+
+
+def set_generation_temperature(value):
+    global generation_temperature
+    if value is None:
+        generation_temperature = None
+        return
+    generation_temperature = float(value)
+
+
+def get_generation_temperature():
+    return generation_temperature
+
+
+def reset_llm_call_stats():
+    LLM_CALL_STATS.clear()
+
+
+def get_llm_call_stats():
+    return list(LLM_CALL_STATS)
+
+
+def reset_query_exec_stats():
+    QUERY_EXEC_STATS.clear()
+
+
+def get_query_exec_stats():
+    return list(QUERY_EXEC_STATS)
 
 
 def get_few_shot_enabled():
@@ -505,12 +537,21 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
         if attention_mask is not None:
             attention_mask = attention_mask.to(local_model.device)
 
+    prompt_tokens = int(input_ids.shape[-1])
+
+    do_sample = False
+    temperature = generation_temperature
+    if temperature is not None and temperature > 0:
+        do_sample = True
+
     generate_kwargs = {
         "input_ids": input_ids,
         "max_new_tokens": max_tokens,
-        "do_sample": False,
+        "do_sample": do_sample,
         "pad_token_id": local_tokenizer.pad_token_id or local_tokenizer.eos_token_id,
     }
+    if temperature is not None and temperature > 0:
+        generate_kwargs["temperature"] = float(temperature)
     if attention_mask is not None:
         generate_kwargs["attention_mask"] = attention_mask
 
@@ -519,9 +560,69 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
 
     generated_ids = output_ids[0][input_ids.shape[-1]:]
     content = local_tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
-    return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+    completion_tokens = int(generated_ids.shape[-1])
+    usage = SimpleNamespace(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
     )
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
+        usage=usage,
+    )
+
+
+def _extract_usage_from_response(response):
+    usage = getattr(response, "usage", None)
+    if usage is None and isinstance(response, dict):
+        usage = response.get("usage")
+    if usage is None:
+        return None
+
+    if isinstance(usage, dict):
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        total_tokens = usage.get("total_tokens")
+    else:
+        prompt_tokens = getattr(usage, "prompt_tokens", None)
+        completion_tokens = getattr(usage, "completion_tokens", None)
+        total_tokens = getattr(usage, "total_tokens", None)
+
+    if prompt_tokens is None and completion_tokens is None and total_tokens is None:
+        return None
+
+    if total_tokens is None:
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def _record_llm_call(response, duration_sec, model_name=None, response_format=None):
+    usage = _extract_usage_from_response(response)
+    entry = {
+        "model": model_name,
+        "backend": hf_backend,
+        "duration_sec": round(float(duration_sec), 4),
+        "prompt_tokens": usage.get("prompt_tokens") if usage else None,
+        "completion_tokens": usage.get("completion_tokens") if usage else None,
+        "total_tokens": usage.get("total_tokens") if usage else None,
+    }
+    if isinstance(response_format, dict):
+        entry["response_format"] = response_format.get("type")
+    LLM_CALL_STATS.append(entry)
+
+
+def _build_response_format(schema_name, schema, enforce_schema=True):
+    if not enforce_schema:
+        return {"type": "json_object"}
+    return {
+        "type": "json_schema",
+        "json_schema": {"name": schema_name, "schema": schema, "strict": True},
+    }
 
 # In[7]:
 
@@ -530,11 +631,19 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
         current_max_tokens = max_tokens
         for attempt in range(max_retries):
             try:
-                return _call_local_gpu_chat_completion(
+                start_time = time.time()
+                response = _call_local_gpu_chat_completion(
                     messages=messages,
                     max_tokens=current_max_tokens,
                     response_format=response_format,
                 )
+                _record_llm_call(
+                    response=response,
+                    duration_sec=time.time() - start_time,
+                    model_name=model,
+                    response_format=response_format,
+                )
+                return response
             except RuntimeError as exc:
                 is_oom = "out of memory" in str(exc).lower()
                 if is_oom and attempt < max_retries - 1:
@@ -559,12 +668,24 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
 
         for attempt in range(max_retries):
             try:
-                return openai_client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    max_tokens=max_tokens,
+                kwargs = {
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "response_format": response_format,
+                }
+                if generation_temperature is not None:
+                    kwargs["temperature"] = float(generation_temperature)
+
+                start_time = time.time()
+                response = openai_client.chat.completions.create(**kwargs)
+                _record_llm_call(
+                    response=response,
+                    duration_sec=time.time() - start_time,
+                    model_name=model,
                     response_format=response_format,
                 )
+                return response
             except Exception as e:
                 if "429" in str(e):
                     if attempt < max_retries - 1:
@@ -583,12 +704,24 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
 
     for attempt in range(max_retries):
         try:
-            return hf_client.chat_completion(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                response_format=response_format
+            kwargs = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "response_format": response_format,
+            }
+            if generation_temperature is not None:
+                kwargs["temperature"] = float(generation_temperature)
+
+            start_time = time.time()
+            response = hf_client.chat_completion(**kwargs)
+            _record_llm_call(
+                response=response,
+                duration_sec=time.time() - start_time,
+                model_name=model,
+                response_format=response_format,
             )
+            return response
         except Exception as e:
             err_text = str(e)
             unsupported_model = (
@@ -785,6 +918,11 @@ def _normalize_time_between_events_seconds(ocpq_json, query):
 
 
 def run_ocpq_query_with_logging(ocel_path, output_file, query, messages, stage):
+    start_time = time.time()
+    exec_success = False
+    exec_stdout = None
+    exec_stderr = None
+    exec_result_file = None
     try:
         from QueryExecutor import run_ocpq_query
         result = run_ocpq_query(ocel_path, output_file)
@@ -803,7 +941,11 @@ def run_ocpq_query_with_logging(ocel_path, output_file, query, messages, stage):
                 validation_error=warning,
                 extra={"warning": warning},
             )
+            exec_stdout = warning
+            exec_stderr = warning
             return warning, warning, None
+        exec_stdout, exec_stderr, exec_result_file = result
+        exec_success = bool(exec_result_file and not exec_stderr)
         return result
     except Exception as exc:
         trace = traceback.format_exc()
@@ -820,7 +962,20 @@ def run_ocpq_query_with_logging(ocel_path, output_file, query, messages, stage):
             validation_error=str(exc),
             extra={"traceback": trace},
         )
-        return f"Error running query automatically: {exc}", None, None
+        exec_stdout = f"Error running query automatically: {exc}"
+        exec_stderr = None
+        return exec_stdout, None, None
+    finally:
+        QUERY_EXEC_STATS.append(
+            {
+                "stage": stage,
+                "duration_sec": round(time.time() - start_time, 4),
+                "success": exec_success,
+                "stdout": exec_stdout,
+                "stderr": exec_stderr,
+                "result_file": exec_result_file,
+            }
+        )
 
 def validate_and_normalize_ocpq_json(ocpq_json):
     """
@@ -836,7 +991,7 @@ def validate_and_normalize_ocpq_json(ocpq_json):
         return None
 
 
-def schema_fix_with_llm(model_name, messages, prompt, max_tokens=2000):
+def schema_fix_with_llm(model_name, messages, prompt, max_tokens=2000, schema_enforced=True):
     """
     Run a schema-constrained repair pass so the output must match OCPQ schema.
     """
@@ -846,10 +1001,7 @@ def schema_fix_with_llm(model_name, messages, prompt, max_tokens=2000):
         model=model_name,
         messages=fix_messages,
         max_tokens=max_tokens,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True},
-        },
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
     )
     fixed_content = fix_response.choices[0].message.content or ""
     fixed_json = parse_llm_json(fixed_content)
@@ -858,7 +1010,7 @@ def schema_fix_with_llm(model_name, messages, prompt, max_tokens=2000):
 
 # Verify the generated OCPQ JSON and ask the LLM to fix it if it's invalid or doesn't follow the schema. 
 # This is a safety net to improve the quality of the output before executing the query.
-def verify_ocpq_json(ocpq_json, model_name, messages, query=None):
+def verify_ocpq_json(ocpq_json, model_name, messages, query=None, schema_enforced=True):
     ocpq_json = _normalize_time_between_events_seconds(ocpq_json, query)
     normalized = validate_and_normalize_ocpq_json(ocpq_json)
     
@@ -960,6 +1112,7 @@ JSON:
             model_name=model_name,
             messages=messages,
             prompt=prompt,
+            schema_enforced=schema_enforced,
         )
         fixed_json = _normalize_time_between_events_seconds(fixed_json, query)
         fixed_json = validate_and_normalize_ocpq_json(fixed_json)
@@ -1073,7 +1226,7 @@ def build_few_shot_examples(query, dataset, embeddings):
     return "\n\n".join(example_prompts)
 
 
-def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_name):
+def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_name, schema_enforced=True):
     few_shot_string = build_few_shot_examples(query, dataset, embeddings)
     
     # Re-inject extracted structure and logical tree right before the end
@@ -1117,10 +1270,7 @@ def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_n
         model=model_name,
         messages=messages_sp3,
         max_tokens=2000,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True},
-        },
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
     )
     content = response_3.choices[0].message.content
     ocpq_json = parse_llm_json(content)
@@ -1143,7 +1293,17 @@ def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_n
     return ocpq_json
 
 # Use a single continuous chat context with Least-to-Most Prompting
-def _run_pipeline_grammar_guided(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
+def _run_pipeline_grammar_guided(
+    query,
+    dataset,
+    embeddings,
+    output_file="test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+):
     print("Starting Least-to-Most NL to OCPQ pipeline...")
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
@@ -1175,58 +1335,83 @@ def _run_pipeline_grammar_guided(query, dataset, embeddings, output_file="test_q
         embeddings=embeddings,
         messages=messages,
         model_name=selected_model,
+        schema_enforced=schema_enforced,
     )
 
-    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages, query=query)
-    if ocpq_json is None:
-        raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
-    
-    # Full schema gate before writing/running the query.
-    ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
-    if ocpq_json is None:
-        raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+    if schema_validation:
+        ocpq_json = verify_ocpq_json(
+            ocpq_json,
+            selected_model,
+            messages,
+            query=query,
+            schema_enforced=schema_enforced,
+        )
+        if ocpq_json is None:
+            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+
+        # Full schema gate before writing/running the query.
+        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+        if ocpq_json is None:
+            raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+    elif ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be parsed.")
 
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
 
-    query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
-        ocel_path=ocel_path,
-        output_file=output_file,
-        query=query,
-        messages=messages,
-        stage="grammar_guided",
-    )
-    
-    # Auto-fix using the chat history context block
-    # Only try to fix if an actual execution error (stderr from a crash/panic) occurred
-    if query_stderr and not query_stderr.strip().startswith("warning:"):
-        print("Query execution error output:\n", query_stderr)
-        
-        prompt_4 = f"The generated JSON query caused this execution error:\n{query_stderr}\n\nPlease fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
-        fixed_json, fixed_content = schema_fix_with_llm(
-            model_name=selected_model,
+    query_result = None
+    query_result_file_path = None
+    query_stderr = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path,
+            output_file=output_file,
+            query=query,
             messages=messages,
-            prompt=prompt_4,
+            stage="grammar_guided",
         )
 
-        if fixed_json is not None and fixed_json != ocpq_json:
-            print("Attempting to re-run fixed query...")
-            with open(output_file, "w") as f:
-                json.dump(fixed_json, f, indent=2)
-            query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
-                ocel_path=ocel_path,
-                output_file=output_file,
-                query=query,
+        # Auto-fix using the chat history context block
+        # Only try to fix if an actual execution error (stderr from a crash/panic) occurred
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            print("Query execution error output:\n", query_stderr)
+
+            prompt_4 = f"The generated JSON query caused this execution error:\n{query_stderr}\n\nPlease fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
+            fixed_json, fixed_content = schema_fix_with_llm(
+                model_name=selected_model,
                 messages=messages,
-                stage="grammar_guided_fix",
+                prompt=prompt_4,
+                schema_enforced=schema_enforced,
             )
-            ocpq_json = fixed_json
-            messages.append({"role": "assistant", "content": fixed_content})
+
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path,
+                    output_file=output_file,
+                    query=query,
+                    messages=messages,
+                    stage="grammar_guided_fix",
+                )
+                ocpq_json = fixed_json
+                messages.append({"role": "assistant", "content": fixed_content})
 
     return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
 
 
-def _run_pipeline_few_shot(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
+def _run_pipeline_few_shot(
+    query,
+    dataset,
+    embeddings,
+    output_file="test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+):
     print("Starting Few-Shot NL to OCPQ pipeline...")
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
@@ -1270,10 +1455,7 @@ JSON:
         model=selected_model,
         messages=messages,
         max_tokens=2000,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True},
-        },
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
     )
     content = response_3.choices[0].message.content
     ocpq_json = parse_llm_json(content)
@@ -1293,12 +1475,13 @@ JSON:
     print("Sub-problem 3 completed: OCPQ JSON generated.")
     time.sleep(3)
 
-    normalized = validate_and_normalize_ocpq_json(ocpq_json)
-    if normalized is not None:
-        ocpq_json = normalized
-    else:
-        # Branch-parity behavior: run a lightweight repair request when output is invalid.
-        prompt = f"""
+    if schema_validation:
+        normalized = validate_and_normalize_ocpq_json(ocpq_json)
+        if normalized is not None:
+            ocpq_json = normalized
+        else:
+            # Branch-parity behavior: run a lightweight repair request when output is invalid.
+            prompt = f"""
 The following JSON is invalid or incomplete.
 
 Fix it so that:
@@ -1310,68 +1493,84 @@ Return ONLY fixed JSON.
 JSON:
 {ocpq_json}
 """
-        repair = call_hf_with_retry(
-            model=selected_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=2000,
-            response_format={"type": "json_object"},
-        )
-        ocpq_json = parse_llm_json(repair.choices[0].message.content)
-        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
-        if ocpq_json is None:
-            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+            repair = call_hf_with_retry(
+                model=selected_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=2000,
+                response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
+            )
+            ocpq_json = parse_llm_json(repair.choices[0].message.content)
+            ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+            if ocpq_json is None:
+                raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+    elif ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be parsed.")
 
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
 
-    query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
-        ocel_path=ocel_path,
-        output_file=output_file,
-        query=query,
-        messages=messages,
-        stage="few_shot",
-    )
-
-    if query_stderr and not query_stderr.strip().startswith("warning:"):
-        print("Query execution error output:\n", query_stderr)
-        prompt_4 = (
-            f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
-            "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
-        )
-        messages.append({"role": "user", "content": prompt_4})
-
-        fix_response = call_hf_with_retry(
-            model=selected_model,
+    query_result = None
+    query_result_file_path = None
+    query_stderr = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path,
+            output_file=output_file,
+            query=query,
             messages=messages,
-            max_tokens=2000,
-            response_format=None,
+            stage="few_shot",
         )
-        fixed_json = parse_llm_json(fix_response.choices[0].message.content)
-        fixed_json = validate_and_normalize_ocpq_json(fixed_json)
 
-        if fixed_json is not None and fixed_json != ocpq_json:
-            print("Attempting to re-run fixed query...")
-            with open(output_file, "w") as f:
-                json.dump(fixed_json, f, indent=2)
-            query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
-                ocel_path=ocel_path,
-                output_file=output_file,
-                query=query,
-                messages=messages,
-                stage="few_shot_fix",
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            print("Query execution error output:\n", query_stderr)
+            prompt_4 = (
+                f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+                "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
             )
-            ocpq_json = fixed_json
+            messages.append({"role": "user", "content": prompt_4})
+
+            fix_response = call_hf_with_retry(
+                model=selected_model,
+                messages=messages,
+                max_tokens=2000,
+                response_format=None,
+            )
+            fixed_json = parse_llm_json(fix_response.choices[0].message.content)
+            fixed_json = validate_and_normalize_ocpq_json(fixed_json)
+
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path,
+                    output_file=output_file,
+                    query=query,
+                    messages=messages,
+                    stage="few_shot_fix",
+                )
+                ocpq_json = fixed_json
 
     return None, None, ocpq_json, query_result, query_result_file_path
 
 
-def _run_pipeline_allowed_entities_only(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
+def _run_pipeline_allowed_entities_only(
+    query,
+    dataset,
+    embeddings,
+    output_file="test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+):
     print("Starting Allowed-Entities-Only NL to OCPQ pipeline...")
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
@@ -1412,10 +1611,7 @@ Query:
         model=selected_model,
         messages=messages,
         max_tokens=2000,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True},
-        },
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
     )
     content = response.choices[0].message.content
     ocpq_json = parse_llm_json(content)
@@ -1444,55 +1640,79 @@ Query:
     )
     verifier_messages = [messages[0], messages[1], {"role": "assistant", "content": extracted_structure_stub}]
 
-    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, verifier_messages, query=query)
-    if ocpq_json is None:
-        raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+    if schema_validation:
+        ocpq_json = verify_ocpq_json(
+            ocpq_json,
+            selected_model,
+            verifier_messages,
+            query=query,
+            schema_enforced=schema_enforced,
+        )
+        if ocpq_json is None:
+            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
 
-    ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
-    if ocpq_json is None:
-        raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+        if ocpq_json is None:
+            raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+    elif ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be parsed.")
 
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
 
-    query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
-        ocel_path=ocel_path,
-        output_file=output_file,
-        query=query,
-        messages=messages,
-        stage="allowed_entities_only",
-    )
-
-    if query_stderr and not query_stderr.strip().startswith("warning:"):
-        print("Query execution error output:\n", query_stderr)
-        prompt_fix = (
-            f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
-            "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
-        )
-        fixed_json, fixed_content = schema_fix_with_llm(
-            model_name=selected_model,
+    query_result = None
+    query_result_file_path = None
+    query_stderr = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path,
+            output_file=output_file,
+            query=query,
             messages=messages,
-            prompt=prompt_fix,
+            stage="allowed_entities_only",
         )
 
-        if fixed_json is not None and fixed_json != ocpq_json:
-            print("Attempting to re-run fixed query...")
-            with open(output_file, "w") as f:
-                json.dump(fixed_json, f, indent=2)
-            query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
-                ocel_path=ocel_path,
-                output_file=output_file,
-                query=query,
-                messages=messages,
-                stage="allowed_entities_only_fix",
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            print("Query execution error output:\n", query_stderr)
+            prompt_fix = (
+                f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+                "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
             )
-            ocpq_json = fixed_json
-            messages.append({"role": "assistant", "content": fixed_content})
+            fixed_json, fixed_content = schema_fix_with_llm(
+                model_name=selected_model,
+                messages=messages,
+                prompt=prompt_fix,
+                schema_enforced=schema_enforced,
+            )
+
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path,
+                    output_file=output_file,
+                    query=query,
+                    messages=messages,
+                    stage="allowed_entities_only_fix",
+                )
+                ocpq_json = fixed_json
+                messages.append({"role": "assistant", "content": fixed_content})
 
     return None, None, ocpq_json, query_result, query_result_file_path
 
 
-def _run_pipeline_chain_of_thought_plus(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
+def _run_pipeline_chain_of_thought_plus(
+    query,
+    dataset,
+    embeddings,
+    output_file="test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+):
     print("Starting Chain-of-Thought-Plus NL to OCPQ pipeline...")
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
@@ -1620,10 +1840,7 @@ ONLY output valid JSON.
         model=selected_model,
         messages=messages,
         max_tokens=2000,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True},
-        },
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
     )
     content = response_3.choices[0].message.content
     ocpq_json = parse_llm_json(content)
@@ -1644,55 +1861,79 @@ ONLY output valid JSON.
     print("Sub-problem 3 completed: OCPQ JSON generated.")
     time.sleep(3)
 
-    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages, query=query)
-    if ocpq_json is None:
-        raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+    if schema_validation:
+        ocpq_json = verify_ocpq_json(
+            ocpq_json,
+            selected_model,
+            messages,
+            query=query,
+            schema_enforced=schema_enforced,
+        )
+        if ocpq_json is None:
+            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
 
-    ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
-    if ocpq_json is None:
-        raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+        if ocpq_json is None:
+            raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+    elif ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be parsed.")
 
     with open(output_file, "w") as f:
         json.dump(ocpq_json, f, indent=2)
 
-    query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
-        ocel_path=ocel_path,
-        output_file=output_file,
-        query=query,
-        messages=messages,
-        stage="chain_of_thought_plus",
-    )
-
-    if query_stderr and not query_stderr.strip().startswith("warning:"):
-        print("Query execution error output:\n", query_stderr)
-        prompt_4 = (
-            f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
-            "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
-        )
-        fixed_json, fixed_content = schema_fix_with_llm(
-            model_name=selected_model,
+    query_result = None
+    query_result_file_path = None
+    query_stderr = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path,
+            output_file=output_file,
+            query=query,
             messages=messages,
-            prompt=prompt_4,
+            stage="chain_of_thought_plus",
         )
 
-        if fixed_json is not None and fixed_json != ocpq_json:
-            print("Attempting to re-run fixed query...")
-            with open(output_file, "w") as f:
-                json.dump(fixed_json, f, indent=2)
-            query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
-                ocel_path=ocel_path,
-                output_file=output_file,
-                query=query,
-                messages=messages,
-                stage="chain_of_thought_plus_fix",
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            print("Query execution error output:\n", query_stderr)
+            prompt_4 = (
+                f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+                "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
             )
-            ocpq_json = fixed_json
-            messages.append({"role": "assistant", "content": fixed_content})
+            fixed_json, fixed_content = schema_fix_with_llm(
+                model_name=selected_model,
+                messages=messages,
+                prompt=prompt_4,
+                schema_enforced=schema_enforced,
+            )
+
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path,
+                    output_file=output_file,
+                    query=query,
+                    messages=messages,
+                    stage="chain_of_thought_plus_fix",
+                )
+                ocpq_json = fixed_json
+                messages.append({"role": "assistant", "content": fixed_content})
 
     return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
 
 
-def _run_pipeline_least_to_most(query, dataset, embeddings, output_file="test_query.json", ocel_path="../hospital_log_high.json", model_name=None):
+def _run_pipeline_least_to_most(
+    query,
+    dataset,
+    embeddings,
+    output_file="test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+):
     print("Starting Least-to-Most NL to OCPQ pipeline...")
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
@@ -1857,10 +2098,7 @@ ONLY output valid JSON.
         model=selected_model,
         messages=messages,
         max_tokens=2000,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "ocpq_schema", "schema": OCPQ_JSON_SCHEMA, "strict": True},
-        },
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
     )
     content = response_4.choices[0].message.content
     ocpq_json = parse_llm_json(content)
@@ -1881,13 +2119,22 @@ ONLY output valid JSON.
     print("Sub-problem 4 completed: OCPQ JSON generated.")
     time.sleep(3)
 
-    ocpq_json = verify_ocpq_json(ocpq_json, selected_model, messages, query=query)
-    if ocpq_json is None:
-        raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+    if schema_validation:
+        ocpq_json = verify_ocpq_json(
+            ocpq_json,
+            selected_model,
+            messages,
+            query=query,
+            schema_enforced=schema_enforced,
+        )
+        if ocpq_json is None:
+            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
 
-    ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
-    if ocpq_json is None:
-        raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+        if ocpq_json is None:
+            raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+    elif ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be parsed.")
 
     prompt_5 = f"""
 You are verifying an OCPQ query for correctness and performance.
@@ -1948,39 +2195,44 @@ Return JSON:
         with open(output_file, "w") as f:
             json.dump(verification_json.get("fixed_query", ocpq_json), f, indent=2)
 
-    query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
-        ocel_path=ocel_path,
-        output_file=output_file,
-        query=query,
-        messages=messages,
-        stage="least_to_most",
-    )
-
-    if query_stderr and not query_stderr.strip().startswith("warning:"):
-        print("Query execution error output:\n", query_stderr)
-        prompt_6 = (
-            f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
-            "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
-        )
-        fixed_json, fixed_content = schema_fix_with_llm(
-            model_name=selected_model,
+    query_result = None
+    query_result_file_path = None
+    query_stderr = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path,
+            output_file=output_file,
+            query=query,
             messages=messages,
-            prompt=prompt_6,
+            stage="least_to_most",
         )
 
-        if fixed_json is not None and fixed_json != ocpq_json:
-            print("Attempting to re-run fixed query...")
-            with open(output_file, "w") as f:
-                json.dump(fixed_json, f, indent=2)
-            query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
-                ocel_path=ocel_path,
-                output_file=output_file,
-                query=query,
-                messages=messages,
-                stage="least_to_most_fix",
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            print("Query execution error output:\n", query_stderr)
+            prompt_6 = (
+                f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+                "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
             )
-            ocpq_json = fixed_json
-            messages.append({"role": "assistant", "content": fixed_content})
+            fixed_json, fixed_content = schema_fix_with_llm(
+                model_name=selected_model,
+                messages=messages,
+                prompt=prompt_6,
+                schema_enforced=schema_enforced,
+            )
+
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path,
+                    output_file=output_file,
+                    query=query,
+                    messages=messages,
+                    stage="least_to_most_fix",
+                )
+                ocpq_json = fixed_json
+                messages.append({"role": "assistant", "content": fixed_content})
 
     return structure_text, verification_json, ocpq_json, query_result, query_result_file_path
 
@@ -1993,18 +2245,71 @@ def nl_to_ocpq_pipeline(
     ocel_path="../hospital_log_high.json",
     model_name=None,
     prompt_strategy=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
 ):
     strategy = normalize_prompt_strategy(prompt_strategy)
     if strategy == "schema-allowed-entities-only":
-        return _run_pipeline_allowed_entities_only(query, dataset, embeddings, output_file, ocel_path, model_name)
+        return _run_pipeline_allowed_entities_only(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+        )
     if strategy == "schema-few-shot":
-        return _run_pipeline_few_shot(query, dataset, embeddings, output_file, ocel_path, model_name)
+        return _run_pipeline_few_shot(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+        )
     if strategy == "schema-chain-of-thought-plus":
-        return _run_pipeline_chain_of_thought_plus(query, dataset, embeddings, output_file, ocel_path, model_name)
+        return _run_pipeline_chain_of_thought_plus(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+        )
     if strategy == "schema-least-to-most":
-        return _run_pipeline_least_to_most(query, dataset, embeddings, output_file, ocel_path, model_name)
+        return _run_pipeline_least_to_most(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+        )
     if strategy == "schema-grammar-guided":
-        return _run_pipeline_grammar_guided(query, dataset, embeddings, output_file, ocel_path, model_name)
+        return _run_pipeline_grammar_guided(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+        )
 
     raise ValueError(
         f"Unsupported prompt strategy: {prompt_strategy}. Supported: {', '.join(PROMPT_STRATEGIES)}"

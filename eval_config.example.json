@@ -1,0 +1,48 @@
+{
+  "testset_path": "testset.json",
+  "output_dir": "eval_runs",
+  "backend": "local-gpu",
+  "local_device": "cuda",
+  "local_dtype": "auto",
+  "temperature": 0.0,
+  "repeats": 3,
+  "limit": 0,
+  "seed": 3407,
+  "shuffle": false,
+  "auto_expand_finetuned": true,
+  "fine_tune_map": {
+    "meta-llama/Meta-Llama-3-8B-Instruct": "lora_model_ocpq"
+  },
+  "schema_enforced": [true, false],
+  "schema_validation": true,
+  "schema_validation_when_no_schema": false,
+  "prompt_strategies": [
+    "schema-grammar-guided",
+    "schema-allowed-entities-only",
+    "schema-few-shot",
+    "schema-chain-of-thought-plus",
+    "schema-least-to-most"
+  ],
+  "models": [
+    {
+      "name": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "label": "llama3-8b-base"
+    },
+    {
+      "name": "lora_model_ocpq",
+      "label": "llama3-8b-lora"
+    },
+    {
+      "name": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+      "label": "mixtral-8x7b"
+    },
+    {
+      "name": "openai/gpt-oss-20b",
+      "label": "gpt-oss-20b"
+    },
+    {
+      "name": "google/gemma-4-31B-it",
+      "label": "gemma4-31b"
+    }
+  ]
+}

@@ -63,3 +63,24 @@ python cli.py \
 	--ocel ../hospital_log_high.json \
 	"For any person, the diagnosis must be completed within 3 days after the registration at ER."
 ```
+
+## Testset Evaluation
+Use `eval_testset.py` to evaluate the handcrafted `testset.json` across models, prompting strategies, and schema settings.
+
+1. Copy the template config and edit it:
+
+```bash
+cp eval_config.example.json eval_config.json
+```
+
+2. Run the evaluator:
+
+```bash
+python eval_testset.py --config eval_config.json
+```
+
+Outputs are stored under `eval_runs/` and include:
+
+- `predictions.json` (per-run records)
+- `summary.json` (aggregated metrics + consistency)
+- `config_resolved.json` (run manifest)
