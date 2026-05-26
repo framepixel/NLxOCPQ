@@ -1,15 +1,101 @@
 from unsloth import FastLanguageModel
 import os
+import re
 import torch
 from transformers import TrainingArguments
 from trl import SFTTrainer
 from datasets import load_dataset
 from unsloth.chat_templates import get_chat_template
 
+
+def _slugify(value):
+    value = str(value).strip().lower()
+    value = value.replace("/", "-")
+    value = re.sub(r"[^a-z0-9.-]+", "-", value)
+    value = re.sub(r"-+", "-", value)
+    return value.strip("-") or "model"
+
+
+def _read_cuda_resources():
+    if not torch.cuda.is_available():
+        return {
+            "cuda_available": False,
+            "device_count": 0,
+            "device_name": None,
+            "total_gb": None,
+            "free_gb": None,
+            "bf16_supported": False,
+        }
+
+    device_index = torch.cuda.current_device()
+    properties = torch.cuda.get_device_properties(device_index)
+    total_gb = properties.total_memory / (1024 ** 3)
+    free_gb = None
+    try:
+        free_bytes, _ = torch.cuda.mem_get_info()
+        free_gb = free_bytes / (1024 ** 3)
+    except Exception:
+        free_gb = None
+
+    return {
+        "cuda_available": True,
+        "device_count": torch.cuda.device_count(),
+        "device_name": torch.cuda.get_device_name(device_index),
+        "total_gb": total_gb,
+        "free_gb": free_gb,
+        "bf16_supported": torch.cuda.is_bf16_supported(),
+    }
+
+
+def _choose_training_mode():
+    resources = _read_cuda_resources()
+    if not resources["cuda_available"]:
+        raise RuntimeError("CUDA is required for this training script.")
+
+    force_4bit = os.getenv("OCPQ_FORCE_4BIT", "").strip().lower() in {"1", "true", "yes", "on"}
+    force_full_precision = os.getenv("OCPQ_FORCE_FULL_PRECISION", "").strip().lower() in {"1", "true", "yes", "on"}
+    min_full_precision_gb = float(os.getenv("OCPQ_MIN_FULL_PRECISION_GB", "32"))
+
+    if force_4bit and force_full_precision:
+        raise ValueError("Set only one of OCPQ_FORCE_4BIT or OCPQ_FORCE_FULL_PRECISION.")
+
+    if force_4bit:
+        use_4bit = True
+    elif force_full_precision:
+        use_4bit = False
+    elif resources["free_gb"] is not None:
+        use_4bit = resources["free_gb"] < min_full_precision_gb
+    else:
+        use_4bit = resources["total_gb"] < min_full_precision_gb
+
+    quantized_model_name = os.getenv(
+        "OCPQ_QUANTIZED_MODEL",
+        "unsloth/llama-3-8b-Instruct-bnb-4bit",
+    )
+    full_precision_model_name = os.getenv(
+        "OCPQ_FULL_PRECISION_MODEL",
+        "meta-llama/Meta-Llama-3-8B-Instruct",
+    )
+    selected_model_name = quantized_model_name if use_4bit else full_precision_model_name
+
+    base_label_source = os.getenv("OCPQ_MODEL_LABEL", selected_model_name)
+    model_label = _slugify(base_label_source.split("/")[-1])
+    precision_label = "quantized" if use_4bit else "full-precision"
+    run_label = f"{model_label}-fine-tuned-{precision_label}"
+
+    dtype = None if use_4bit else (torch.bfloat16 if resources["bf16_supported"] else torch.float16)
+
+    return {
+        "resources": resources,
+        "use_4bit": use_4bit,
+        "dtype": dtype,
+        "model_name": selected_model_name,
+        "precision_label": precision_label,
+        "run_label": run_label,
+    }
+
 # 1. Configuration
 max_seq_length = 2048 # Good size for JSON generation
-dtype = None # Auto detection
-load_in_4bit = True # CRITICAL for fitting in an 11GB GPU
 random_seed = int(os.getenv("OCPQ_RANDOM_SEED", "3407"))
 validation_split = float(os.getenv("OCPQ_VALIDATION_SPLIT", "0.1"))
 learning_rate = float(os.getenv("OCPQ_LEARNING_RATE", "2e-4"))
@@ -17,19 +103,36 @@ num_train_epochs = float(os.getenv("OCPQ_NUM_TRAIN_EPOCHS", "1"))
 logging_steps = int(os.getenv("OCPQ_LOGGING_STEPS", "100"))
 eval_steps = int(os.getenv("OCPQ_EVAL_STEPS", "250"))
 save_steps = int(os.getenv("OCPQ_SAVE_STEPS", str(eval_steps)))
-output_dir = os.getenv("OCPQ_OUTPUT_DIR", "outputs")
 finetune_dataset_path = os.getenv("OCPQ_FINETUNE_DATASET", "finetune_ocpq.jsonl")
-adapter_output_dir = os.getenv("OCPQ_ADAPTER_OUTPUT_DIR", "lora_model_ocpq")
 
-# 2. Load Model & Tokenizer in 4-bit
+training_mode = _choose_training_mode()
+resources = training_mode["resources"]
+dtype = training_mode["dtype"]
+load_in_4bit = training_mode["use_4bit"]
+selected_model_name = training_mode["model_name"]
+precision_label = training_mode["precision_label"]
+run_label = training_mode["run_label"]
+
+output_dir = os.getenv("OCPQ_OUTPUT_DIR") or os.path.join("outputs", run_label)
+adapter_output_dir = os.getenv("OCPQ_ADAPTER_OUTPUT_DIR") or os.path.join("adapters", run_label)
+
+print(
+    "CUDA resources detected: "
+    f"device={resources['device_name']}, "
+    f"total_gb={resources['total_gb']:.1f}, "
+    f"free_gb={(resources['free_gb'] if resources['free_gb'] is not None else 'unknown')}, "
+    f"mode={precision_label}"
+)
+
+# 2. Load Model & Tokenizer using the selected precision mode
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name = "unsloth/llama-3-8b-Instruct-bnb-4bit", # Pre-quantized to save RAM
+    model_name = selected_model_name,
     max_seq_length = max_seq_length,
     dtype = dtype,
     load_in_4bit = load_in_4bit,
 )
 
-# 3. Add LoRA Adapters (This makes training possible on 11GB)
+# 3. Add LoRA Adapters
 model = FastLanguageModel.get_peft_model(
     model,
     r = 16, # Rank of the adapter (16 is a good standard)
@@ -115,3 +218,4 @@ print("Final validation metrics:", eval_metrics)
 model.save_pretrained(adapter_output_dir)
 tokenizer.save_pretrained(adapter_output_dir)
 print(f"Finished! Saved LoRA adapter to '{adapter_output_dir}'")
+print(f"Training label: {run_label}")

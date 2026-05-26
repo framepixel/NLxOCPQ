@@ -13,6 +13,10 @@ from pathlib import Path
 
 from ocpq_schema import BindingBoxTree
 from QueryExecutor import run_ocpq_query
+try:
+    from expand_models import expand_models
+except Exception:
+    expand_models = None
 from LLM import (
     dataset as retrieval_dataset,
     embeddings,
@@ -281,6 +285,13 @@ def _hash_query_key(ocel_path, ocpq_query):
 
 def run_evaluation(config_path):
     config = _read_json(config_path)
+    if config.get("auto_expand_finetuned"):
+        if expand_models is None:
+            raise RuntimeError(
+                "auto_expand_finetuned is enabled, but expand_models.py could not be imported."
+            )
+        config = expand_models(config)
+
     testset_path = config.get("testset_path", "testset.json")
     output_dir = Path(config.get("output_dir", "eval_runs"))
     output_dir.mkdir(parents=True, exist_ok=True)
