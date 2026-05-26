@@ -1,11 +1,34 @@
-from unsloth import FastLanguageModel
 import os
 import re
-import torch
-from transformers import TrainingArguments
-from trl import SFTTrainer
-from datasets import load_dataset
-from unsloth.chat_templates import get_chat_template
+import sys
+
+
+def _import_training_stack():
+    try:
+        from unsloth import FastLanguageModel
+        import torch
+        from transformers import TrainingArguments
+        from trl import SFTTrainer
+        from datasets import load_dataset
+        from unsloth.chat_templates import get_chat_template
+
+        return FastLanguageModel, torch, TrainingArguments, SFTTrainer, load_dataset, get_chat_template
+    except ImportError as exc:
+        message = str(exc)
+        if "CXXABI_1.3.11" in message or "libstdc++.so.6" in message:
+            print(
+                "Failed to import torch/unsloth because the active libstdc++ runtime is too old for the installed PyTorch wheel.\n"
+                "On this cluster, load a newer GCC runtime or prepend a newer libstdc++.so.6 to LD_LIBRARY_PATH before running train_unsloth.py.\n"
+                "Example:\n"
+                "  module load GCC/13.3.0\n"
+                "  export LD_LIBRARY_PATH=\"/path/to/newer/gcc/lib:$LD_LIBRARY_PATH\"\n"
+                "If you are using conda, reinstalling/updating libstdcxx-ng in the environment can also resolve the mismatch.",
+                file=sys.stderr,
+            )
+        raise
+
+
+FastLanguageModel, torch, TrainingArguments, SFTTrainer, load_dataset, get_chat_template = _import_training_stack()
 
 
 def _slugify(value):

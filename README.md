@@ -103,6 +103,8 @@ Important environment variables
 - `OCPQ_FULL_PRECISION_MODEL`: HF/local id for the full-precision model (default: `meta-llama/Meta-Llama-3-8B-Instruct`).
 - `OCPQ_MIN_FULL_PRECISION_GB`: free VRAM threshold (GB) above which full-precision is chosen by default (default: `32`).
 
+If `torch` fails to import with `CXXABI_1.3.11 not found`, the Python environment is picking up an older `libstdc++.so.6` than the PyTorch wheel requires. On the RWTH cluster, the repo already uses a newer GCC runtime in `submit_query.sh`; for interactive training, load a newer GCC module and make sure its `lib` directory appears before the conda/env `lib` directory in `LD_LIBRARY_PATH`.
+
 How the script decides and labels outputs
 - The script probes CUDA and available free VRAM; if free VRAM is below `OCPQ_MIN_FULL_PRECISION_GB` it will select the quantized model path.
 - The saved adapter folder and a printed `Training label` include a descriptive name: `<model>-fine-tuned-quantized` or `<model>-fine-tuned-full-precision` (slugified). This makes it easy to reference the adapter in evaluation configs.

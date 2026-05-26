@@ -17,6 +17,12 @@ cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate nlxocpq-train
 
+# The PyTorch wheel used by train_unsloth.py needs a newer libstdc++.so.6 than
+# the default cluster runtime provides. Load the newer GCC toolchain and keep
+# its lib directory ahead of the conda environment libraries.
+module load GCC/13.3.0
+export LD_LIBRARY_PATH="/cvmfs/software.hpc.rwth.de/Linux/RH8/x86_64/intel/skylake_avx512/software/intel-compilers/2024.2.0/compiler/2024.2/lib:${LD_LIBRARY_PATH:-}"
+
 # Make sure the environment already contains the training dependencies.
 # Install these once outside the job script, not on every submission.
 
@@ -25,4 +31,4 @@ conda activate nlxocpq-train
 
 # Run script
 python --version
-python -u train_unsloth.py
+OCPQ_FORCE_4BIT=1 OCPQ_FULL_PRECISION_MODEL="mistralai/Mixtral-8x7B-Instruct-v0.1" python -u train_unsloth.py
