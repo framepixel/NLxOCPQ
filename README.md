@@ -84,3 +84,57 @@ Outputs are stored under `eval_runs/` and include:
 - `predictions.json` (per-run records)
 - `summary.json` (aggregated metrics + consistency)
 - `config_resolved.json` (run manifest)
+
+## Fine-tuning an LLM with train_unsloth.py
+
+You can fine-tune a base LLM using `train_unsloth.py`. The script auto-detects available CUDA resources and will choose between a quantized (4-bit) or full-precision training setup by default. You can override behavior with environment variables.
+
+Quick checklist
+- Ensure CUDA is available and appropriate drivers are installed.
+- Install training dependencies (see `requirements.unsloth-train.txt` or install `unsloth`, `trl`, `datasets`, `peft`, `transformers`).
+- Prepare a fine-tuning JSONL dataset (the repo uses `finetune_ocpq.jsonl`).
+
+Important environment variables
+- `OCPQ_FINETUNE_DATASET`: path to the JSONL dataset (default: `finetune_ocpq.jsonl`).
+- `OCPQ_ADAPTER_OUTPUT_DIR`: directory to write the LoRA adapter (default: `adapters/<run_label>`).
+- `OCPQ_FORCE_4BIT`: if set (`1`, `true`) force the quantized 4-bit model path.
+- `OCPQ_FORCE_FULL_PRECISION`: if set (`1`, `true`) force full-precision loading.
+- `OCPQ_QUANTIZED_MODEL`: HF/local id for the quantized model (default: `unsloth/llama-3-8b-Instruct-bnb-4bit`).
+- `OCPQ_FULL_PRECISION_MODEL`: HF/local id for the full-precision model (default: `meta-llama/Meta-Llama-3-8B-Instruct`).
+- `OCPQ_MIN_FULL_PRECISION_GB`: free VRAM threshold (GB) above which full-precision is chosen by default (default: `32`).
+
+How the script decides and labels outputs
+- The script probes CUDA and available free VRAM; if free VRAM is below `OCPQ_MIN_FULL_PRECISION_GB` it will select the quantized model path.
+- The saved adapter folder and a printed `Training label` include a descriptive name: `<model>-fine-tuned-quantized` or `<model>-fine-tuned-full-precision` (slugified). This makes it easy to reference the adapter in evaluation configs.
+
+Example commands
+- Auto-detect mode (recommended):
+```bash
+OCPQ_FINETUNE_DATASET=finetune_ocpq.jsonl python train_unsloth.py
+```
+- Force quantized 4-bit training:
+```bash
+OCPQ_FORCE_4BIT=1 OCPQ_FINETUNE_DATASET=finetune_ocpq.jsonl python train_unsloth.py
+```
+- Force full-precision training and set custom model id:
+```bash
+OCPQ_FORCE_FULL_PRECISION=1 OCPQ_FULL_PRECISION_MODEL=meta-llama/Meta-Llama-3-8B-Instruct \
+	OCPQ_FINETUNE_DATASET=finetune_ocpq.jsonl python train_unsloth.py
+```
+
+Using the adapter in evaluation
+- After training, point your evaluation config to the adapter directory. There are two options:
+	- Use the adapter directory as a local model name in `eval_config.json` (set `models[].name` to the adapter path). The evaluator's backend will detect a local adapter directory and load it.
+	- Or use the `fine_tune_map` in `eval_config.json` to map the base model to the adapter (see `eval_config.example.json`). Example mapping entry:
+```json
+"fine_tune_map": {
+	"meta-llama/Meta-Llama-3-8B-Instruct": {
+		"name": "adapters/meta-llama-3-8b-instruct-fine-tuned-quantized",
+		"label": "meta-llama-3-8b-instruct-fine-tuned-quantized"
+	}
+}
+```
+
+Notes
+- The script prints `CUDA resources detected:` and `Training label:` so you can confirm which path and label were chosen.
+- If you plan to run multiple experiments, keep `OCPQ_ADAPTER_OUTPUT_DIR` or the run label descriptive so the evaluation harness can automatically expand and reference the correct adapter.
