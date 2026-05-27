@@ -44,8 +44,8 @@
       "label": "llama3-8b-base"
     },
     {
-      "name": "mistralai/Mixtral-8x7B-Instruct-v0.1",
-      "label": "mixtral-8x7b"
+      "name": "Qwen/Qwen3.5-9B",
+      "label": "qwen3.5-9b"
     },
     {
       "name": "openai/gpt-oss-20b",

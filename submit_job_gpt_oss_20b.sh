@@ -1,0 +1,77 @@
+#!/usr/bin/env zsh
+#SBATCH --job-name=ocpq-lora-gpt-oss-20b
+#SBATCH --output=ocpq-lora-gpt-oss-20b-%J.out
+#SBATCH --partition=c23g
+#SBATCH --gres=gpu:1
+#SBATCH --mem=32G
+#SBATCH --cpus-per-task=4
+#SBATCH --time=04:00:00
+
+set -euo pipefail
+
+# Run from the directory where sbatch was invoked
+cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"
+
+# CRITICAL: Purge all modules first, then reload only what we need
+module purge
+module load GCC/13.3.0
+module load CUDA/12.4.0
+module load Python/3.12.3
+
+unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER
+unset PYTHONHOME PYTHONPATH
+
+# Activate the experimental environment for newer models.
+source "$HOME/miniforge3/etc/profile.d/conda.sh"
+conda activate nlxocpq-train-next
+
+# Use node-local cache when available to avoid shared FS issues.
+if [[ -n "${SLURM_TMPDIR:-}" ]]; then
+	export HF_HOME="${HF_HOME:-$SLURM_TMPDIR/hf}"
+else
+	export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
+fi
+export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$HF_HOME/transformers}"
+mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE"
+
+# Reduce download flakiness on HPC.
+export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-0}"
+export HF_HUB_DOWNLOAD_RETRIES="${HF_HUB_DOWNLOAD_RETRIES:-5}"
+export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-60}"
+
+# The PyTorch wheel used by train_unsloth.py needs a newer libstdc++.so.6 than
+# the default cluster runtime provides. Load the newer GCC toolchain and keep
+# its lib directory ahead of the conda environment libraries.
+gcc_libstdcxx_path="$(gcc -print-file-name=libstdc++.so.6)"
+gcc_libstdcxx_dir="$(dirname "$gcc_libstdcxx_path")"
+gcc_libgcc_path="$(gcc -print-file-name=libgcc_s.so.1)"
+gcc_libgcc_dir="$(dirname "$gcc_libgcc_path")"
+if [[ -z "$gcc_libstdcxx_dir" || "$gcc_libstdcxx_dir" == "." ]]; then
+	echo "Unable to resolve libstdc++.so.6 from the loaded GCC module." >&2
+	exit 1
+fi
+if [[ -z "$gcc_libgcc_dir" || "$gcc_libgcc_dir" == "." ]]; then
+	echo "Unable to resolve libgcc_s.so.1 from the loaded GCC module." >&2
+	exit 1
+fi
+export LD_LIBRARY_PATH="$gcc_libstdcxx_dir:$gcc_libgcc_dir:${LD_LIBRARY_PATH:-}"
+export LD_PRELOAD="$gcc_libgcc_path:$gcc_libstdcxx_path${LD_PRELOAD:+:$LD_PRELOAD}"
+
+# Set compilation flags to prevent Intel-optimized symbol dependencies
+export CFLAGS="-march=x86-64 -mtune=generic"
+export CXXFLAGS="-march=x86-64 -mtune=generic"
+export RUSTFLAGS="-C target-cpu=generic"
+
+# Ensure no Intel paths contaminate the build
+unset PKG_CONFIG_PATH
+unset LIBSQLITE3_SYS_USE_PKG_CONFIG
+
+# Model selection (use a 4-bit or full-precision ID as needed).
+: "${OCPQ_QUANTIZED_MODEL:=openai/gpt-oss-20b}"
+: "${OCPQ_MODEL_LABEL:=gpt-oss-20b}"
+
+python --version
+
+LD_PRELOAD="$gcc_libgcc_path:$gcc_libstdcxx_path${LD_PRELOAD:+:$LD_PRELOAD}" \
+	OCPQ_FORCE_4BIT=1 OCPQ_QUANTIZED_MODEL="$OCPQ_QUANTIZED_MODEL" OCPQ_MODEL_LABEL="$OCPQ_MODEL_LABEL" \
+	python -u train_unsloth.py
