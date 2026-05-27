@@ -28,6 +28,7 @@ source "$HOME/envs/nlxocpq-venv/bin/activate"
 # Keep the venv's runtime libraries first; the Actran directory ships an older
 # libstdc++.so.6 that breaks numpy/torch on this cluster.
 export LD_LIBRARY_PATH="/cvmfs/software.hpc.rwth.de/Linux/RH8/x86_64/intel/skylake_avx512/software/intel-compilers/2024.2.0/compiler/2024.2/lib:$HOME/envs/nlxocpq-venv/lib:${LD_LIBRARY_PATH:-}"
+export LD_PRELOAD="$gcc_lib_dir/libstdc++.so.6${LD_PRELOAD:+:$LD_PRELOAD}"
 
 # Set compilation flags to prevent Intel-optimized symbol dependencies
 export CFLAGS="-march=x86-64 -mtune=generic"
