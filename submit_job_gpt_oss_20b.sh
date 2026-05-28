@@ -36,8 +36,11 @@ mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE"
 
 # Reduce download flakiness on HPC.
 export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-0}"
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 export HF_HUB_DOWNLOAD_RETRIES="${HF_HUB_DOWNLOAD_RETRIES:-5}"
 export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-60}"
+export HUGGINGFACE_HUB_TOKEN="${HUGGINGFACE_HUB_TOKEN:-${HF_TOKEN:-}}"
+export HF_TOKEN="${HF_TOKEN:-${HUGGINGFACE_HUB_TOKEN:-}}"
 
 # The PyTorch wheel used by train_unsloth.py needs a newer libstdc++.so.6 than
 # the default cluster runtime provides. Load the newer GCC toolchain and keep
@@ -54,8 +57,21 @@ if [[ -z "$gcc_libgcc_dir" || "$gcc_libgcc_dir" == "." ]]; then
 	echo "Unable to resolve libgcc_s.so.1 from the loaded GCC module." >&2
 	exit 1
 fi
-export LD_LIBRARY_PATH="$gcc_libstdcxx_dir:$gcc_libgcc_dir:${LD_LIBRARY_PATH:-}"
-export LD_PRELOAD="$gcc_libgcc_path:$gcc_libstdcxx_path${LD_PRELOAD:+:$LD_PRELOAD}"
+## Add Intel runtime libs (libsvml, libiomp5) used by bitsandbytes/triton if present
+intel_runtime_lib_dir="/cvmfs/software.hpc.rwth.de/Linux/RH8/x86_64/intel/skylake_avx512/software/intel-compilers/2024.2.0/compiler/2024.2/lib"
+intel_libsvml="$intel_runtime_lib_dir/libsvml.so"
+intel_libiomp5="$intel_runtime_lib_dir/libiomp5.so"
+intel_libintlc="$intel_runtime_lib_dir/libintlc.so"
+
+for intel_lib in "$intel_libsvml" "$intel_libiomp5" "$intel_libintlc"; do
+	if [[ ! -f "$intel_lib" ]]; then
+		echo "Missing Intel runtime library: $intel_lib" >&2
+		exit 1
+	fi
+done
+
+export LD_LIBRARY_PATH="$intel_runtime_lib_dir:$gcc_libstdcxx_dir:$gcc_libgcc_dir:${LD_LIBRARY_PATH:-}"
+export LD_PRELOAD="$gcc_libgcc_path:$gcc_libstdcxx_path:$intel_libsvml:$intel_libiomp5${LD_PRELOAD:+:$LD_PRELOAD}"
 
 # Set compilation flags to prevent Intel-optimized symbol dependencies
 export CFLAGS="-march=x86-64 -mtune=generic"
@@ -69,6 +85,7 @@ unset LIBSQLITE3_SYS_USE_PKG_CONFIG
 # Model selection (use a 4-bit or full-precision ID as needed).
 : "${OCPQ_QUANTIZED_MODEL:=openai/gpt-oss-20b}"
 : "${OCPQ_MODEL_LABEL:=gpt-oss-20b}"
+: "${OCPQ_CHAT_TEMPLATE:=chatml}"
 
 python --version
 
