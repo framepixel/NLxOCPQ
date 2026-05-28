@@ -135,6 +135,9 @@ load_in_4bit = training_mode["use_4bit"]
 selected_model_name = training_mode["model_name"]
 precision_label = training_mode["precision_label"]
 run_label = training_mode["run_label"]
+attention_implementation = os.getenv("OCPQ_ATTENTION_IMPLEMENTATION")
+if not attention_implementation and "gpt-oss" in selected_model_name.lower():
+    attention_implementation = "eager"
 
 output_dir = os.getenv("OCPQ_OUTPUT_DIR") or os.path.join("outputs", run_label)
 adapter_output_dir = os.getenv("OCPQ_ADAPTER_OUTPUT_DIR") or os.path.join("adapters", run_label)
@@ -153,6 +156,7 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     max_seq_length = max_seq_length,
     dtype = dtype,
     load_in_4bit = load_in_4bit,
+    attn_implementation = attention_implementation,
 )
 
 # 3. Add LoRA Adapters
