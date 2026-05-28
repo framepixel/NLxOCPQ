@@ -25,13 +25,18 @@ unset PYTHONHOME PYTHONPATH
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate nlxocpq-train-next
 
-# Use node-local cache when available to avoid shared FS issues.
-if [[ -n "${SLURM_TMPDIR:-}" ]]; then
-	export HF_HOME="${HF_HOME:-$SLURM_TMPDIR/hf}"
-else
-	export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
-fi
+# Use a persistent cache by default to avoid shared FS / temp filesystem issues.
+export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$HF_HOME/transformers}"
+export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
+export HF_HUB_ETAG_TIMEOUT="${HF_HUB_ETAG_TIMEOUT:-60}"
+export HF_HUB_DOWNLOAD_THREADS="${HF_HUB_DOWNLOAD_THREADS:-1}"
+export HF_ENABLE_PARALLEL_LOADING="${HF_ENABLE_PARALLEL_LOADING:-false}"
+export HF_HUB_DISABLE_SYMLINKS_WARNING="${HF_HUB_DISABLE_SYMLINKS_WARNING:-1}"
+export HF_HUB_DISABLE_EXPERIMENTAL_WARNING="${HF_HUB_DISABLE_EXPERIMENTAL_WARNING:-1}"
+if [[ "${OCPQ_CLEAR_HF_CACHE:-0}" == "1" ]]; then
+	rm -rf "$HF_HUB_CACHE" "$HF_HOME/xet" "$TRANSFORMERS_CACHE"
+fi
 mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE"
 
 # Reduce download flakiness on HPC.
@@ -90,5 +95,5 @@ python --version
 
 # Preload GCC ABI libraries first, then the Intel runtime needed by bitsandbytes/triton.
 LD_PRELOAD="$gcc_libgcc_path:$gcc_libstdcxx_path:$intel_libsvml:$intel_libiomp5${LD_PRELOAD:+:$LD_PRELOAD}" \
-	OCPQ_FORCE_4BIT=1 OCPQ_QUANTIZED_MODEL="$OCPQ_QUANTIZED_MODEL" OCPQ_MODEL_LABEL="$OCPQ_MODEL_LABEL" OCPQ_CHAT_TEMPLATE="$OCPQ_CHAT_TEMPLATE" \
+	OCPQ_QUANTIZED_MODEL="$OCPQ_QUANTIZED_MODEL" OCPQ_MODEL_LABEL="$OCPQ_MODEL_LABEL" OCPQ_CHAT_TEMPLATE="$OCPQ_CHAT_TEMPLATE" \
 	python -u train_unsloth.py

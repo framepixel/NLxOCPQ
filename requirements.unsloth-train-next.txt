@@ -1,14 +1,14 @@
 --extra-index-url https://download.pytorch.org/whl/cu126
 
-# Experimental/newer-model training environment (separate from the stable stack).
-# Start with known-working pins, then update selectively as needed.
-huggingface-hub==1.7.1
+# Python 3.10-compatible next training environment (separate from the stable stack).
+# Keep the HF/Transformers stack on 4.x / 0.x until the next env is validated.
+huggingface-hub==0.33.5
 numpy==2.0.2
 openai==2.28.0
 scikit-learn==1.8.0
 sentence-transformers==5.3.0
 tqdm==4.67.1
-transformers==5.3.0
+transformers==4.53.3
 datasets==4.3.0
 nbconvert==7.17.0
 jupyter==1.1.1
