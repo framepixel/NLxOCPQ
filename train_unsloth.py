@@ -174,7 +174,7 @@ model = FastLanguageModel.get_peft_model(
 # Unsloth applies the exact Llama-3 special tokens (<|start_header_id|>user<|end_header_id|>)
 tokenizer = get_chat_template(
     tokenizer,
-    chat_template = "llama-3",
+    chat_template = os.getenv("OCPQ_CHAT_TEMPLATE", "llama-3"),
     mapping = {"role" : "role", "content" : "content", "user": "user", "assistant": "assistant"},
 )
 
