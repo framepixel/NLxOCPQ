@@ -128,8 +128,9 @@ eval_steps = int(os.getenv("OCPQ_EVAL_STEPS", "250"))
 save_steps = int(os.getenv("OCPQ_SAVE_STEPS", str(eval_steps)))
 finetune_dataset_path = os.getenv("OCPQ_FINETUNE_DATASET", "finetune_ocpq.jsonl")
 dataset_num_proc = int(os.getenv("OCPQ_DATASET_NUM_PROC", "1"))
-enable_eval = os.getenv("OCPQ_ENABLE_EVAL", "1").strip().lower() in {"1", "true", "yes", "on"}
 disable_tqdm = os.getenv("OCPQ_DISABLE_TQDM", "0").strip().lower() in {"1", "true", "yes", "on"}
+enable_trainer_eval = os.getenv("OCPQ_ENABLE_TRAINER_EVAL", "1").strip().lower() in {"1", "true", "yes", "on"}
+enable_final_eval = os.getenv("OCPQ_ENABLE_FINAL_EVAL", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 training_mode = _choose_training_mode()
 resources = training_mode["resources"]
@@ -206,7 +207,7 @@ trainer = SFTTrainer(
     model = model,
     tokenizer = tokenizer,
     train_dataset = train_dataset,
-    eval_dataset = eval_dataset if enable_eval else None,
+    eval_dataset = eval_dataset if enable_trainer_eval else None,
     dataset_text_field = "text",
     max_seq_length = max_seq_length,
     dataset_num_proc = dataset_num_proc,
@@ -221,13 +222,13 @@ trainer = SFTTrainer(
         fp16 = not torch.cuda.is_bf16_supported(),
         bf16 = torch.cuda.is_bf16_supported(),
         logging_steps = logging_steps,
-        eval_strategy = "steps" if enable_eval else "no",
+        eval_strategy = "steps" if enable_trainer_eval else "no",
         eval_steps = eval_steps,
         save_strategy = "steps",
         save_steps = save_steps,
         save_total_limit = 2,
-        load_best_model_at_end = enable_eval,
-        metric_for_best_model = "eval_loss" if enable_eval else None,
+        load_best_model_at_end = enable_trainer_eval,
+        metric_for_best_model = "eval_loss" if enable_trainer_eval else None,
         greater_is_better = False,
         optim = "adamw_8bit",
         weight_decay = 0.01,
@@ -239,11 +240,45 @@ trainer = SFTTrainer(
     ),
 )
 
+def _manual_eval_loss(model, tokenizer, texts, batch_size=2):
+    if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    model.eval()
+    device = next(model.parameters()).device
+    total_loss = 0.0
+    total_tokens = 0
+
+    for start_index in range(0, len(texts), batch_size):
+        batch_texts = texts[start_index:start_index + batch_size]
+        batch = tokenizer(
+            batch_texts,
+            padding=True,
+            truncation=True,
+            max_length=max_seq_length,
+            return_tensors="pt",
+        )
+        batch = {key: value.to(device) for key, value in batch.items()}
+        labels = batch["input_ids"].clone()
+        labels[batch["attention_mask"] == 0] = -100
+
+        with torch.no_grad():
+            outputs = model(**batch, labels=labels)
+
+        valid_tokens = int((labels != -100).sum().item())
+        total_loss += float(outputs.loss.item()) * valid_tokens
+        total_tokens += valid_tokens
+
+    return {"eval_loss": total_loss / max(total_tokens, 1)}
+
 # 6. Start Training
 print("Starting Unsloth Training...")
 trainer_stats = trainer.train()
-if enable_eval:
-    eval_metrics = trainer.evaluate()
+if enable_final_eval:
+    if enable_trainer_eval:
+        eval_metrics = trainer.evaluate()
+    else:
+        eval_metrics = _manual_eval_loss(model, tokenizer, eval_dataset["text"])
     print("Final validation metrics:", eval_metrics)
 
 # 7. Save the Fine-Tuned LoRA Adapter
