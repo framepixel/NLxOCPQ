@@ -81,6 +81,10 @@ export LD_PRELOAD="$gcc_libgcc_path:$gcc_libstdcxx_path:$intel_libsvml:$intel_li
 export CFLAGS="-march=x86-64 -mtune=generic"
 export CXXFLAGS="-march=x86-64 -mtune=generic"
 export RUSTFLAGS="-C target-cpu=generic"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
+export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
+export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+export OCPQ_DATASET_NUM_PROC="${OCPQ_DATASET_NUM_PROC:-1}"
 
 # Ensure no Intel paths contaminate the build
 unset PKG_CONFIG_PATH
@@ -95,5 +99,5 @@ python --version
 
 # Preload GCC ABI libraries first, then the Intel runtime needed by bitsandbytes/triton.
 LD_PRELOAD="$gcc_libgcc_path:$gcc_libstdcxx_path:$intel_libsvml:$intel_libiomp5${LD_PRELOAD:+:$LD_PRELOAD}" \
-	OCPQ_QUANTIZED_MODEL="$OCPQ_QUANTIZED_MODEL" OCPQ_MODEL_LABEL="$OCPQ_MODEL_LABEL" OCPQ_CHAT_TEMPLATE="$OCPQ_CHAT_TEMPLATE" \
+	OCPQ_QUANTIZED_MODEL="$OCPQ_QUANTIZED_MODEL" OCPQ_MODEL_LABEL="$OCPQ_MODEL_LABEL" OCPQ_CHAT_TEMPLATE="$OCPQ_CHAT_TEMPLATE" OCPQ_DATASET_NUM_PROC="$OCPQ_DATASET_NUM_PROC" \
 	python -u train_unsloth.py
