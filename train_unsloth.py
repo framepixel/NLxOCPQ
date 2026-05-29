@@ -1,4 +1,12 @@
 import os
+
+os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
+os.environ.setdefault("TORCHINDUCTOR_DISABLE", "1")
+os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
+os.environ.setdefault("TQDM_DISABLE", "1")
+os.environ.setdefault("TQDM_MONITOR_INTERVAL", "0")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 import re
 import sys
 
@@ -237,6 +245,7 @@ trainer = SFTTrainer(
         output_dir = output_dir,
         report_to = "none",
         disable_tqdm = disable_tqdm,
+        torch_compile = False,
     ),
 )
 
