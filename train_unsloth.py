@@ -127,6 +127,7 @@ logging_steps = int(os.getenv("OCPQ_LOGGING_STEPS", "100"))
 eval_steps = int(os.getenv("OCPQ_EVAL_STEPS", "250"))
 save_steps = int(os.getenv("OCPQ_SAVE_STEPS", str(eval_steps)))
 finetune_dataset_path = os.getenv("OCPQ_FINETUNE_DATASET", "finetune_ocpq.jsonl")
+dataset_num_proc = int(os.getenv("OCPQ_DATASET_NUM_PROC", "1"))
 
 training_mode = _choose_training_mode()
 resources = training_mode["resources"]
@@ -206,7 +207,7 @@ trainer = SFTTrainer(
     eval_dataset = eval_dataset,
     dataset_text_field = "text",
     max_seq_length = max_seq_length,
-    dataset_num_proc = 2,
+    dataset_num_proc = dataset_num_proc,
     packing = False, # Can make training faster, but takes more memory
     args = TrainingArguments(
         per_device_train_batch_size = 2, # Small batch size to avoid OOM
