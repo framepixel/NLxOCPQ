@@ -128,6 +128,7 @@ eval_steps = int(os.getenv("OCPQ_EVAL_STEPS", "250"))
 save_steps = int(os.getenv("OCPQ_SAVE_STEPS", str(eval_steps)))
 finetune_dataset_path = os.getenv("OCPQ_FINETUNE_DATASET", "finetune_ocpq.jsonl")
 dataset_num_proc = int(os.getenv("OCPQ_DATASET_NUM_PROC", "1"))
+enable_eval = os.getenv("OCPQ_ENABLE_EVAL", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 training_mode = _choose_training_mode()
 resources = training_mode["resources"]
@@ -204,7 +205,7 @@ trainer = SFTTrainer(
     model = model,
     tokenizer = tokenizer,
     train_dataset = train_dataset,
-    eval_dataset = eval_dataset,
+    eval_dataset = eval_dataset if enable_eval else None,
     dataset_text_field = "text",
     max_seq_length = max_seq_length,
     dataset_num_proc = dataset_num_proc,
@@ -219,13 +220,13 @@ trainer = SFTTrainer(
         fp16 = not torch.cuda.is_bf16_supported(),
         bf16 = torch.cuda.is_bf16_supported(),
         logging_steps = logging_steps,
-        eval_strategy = "steps",
+        eval_strategy = "steps" if enable_eval else "no",
         eval_steps = eval_steps,
         save_strategy = "steps",
         save_steps = save_steps,
         save_total_limit = 2,
-        load_best_model_at_end = True,
-        metric_for_best_model = "eval_loss",
+        load_best_model_at_end = enable_eval,
+        metric_for_best_model = "eval_loss" if enable_eval else None,
         greater_is_better = False,
         optim = "adamw_8bit",
         weight_decay = 0.01,
@@ -239,8 +240,9 @@ trainer = SFTTrainer(
 # 6. Start Training
 print("Starting Unsloth Training...")
 trainer_stats = trainer.train()
-eval_metrics = trainer.evaluate()
-print("Final validation metrics:", eval_metrics)
+if enable_eval:
+    eval_metrics = trainer.evaluate()
+    print("Final validation metrics:", eval_metrics)
 
 # 7. Save the Fine-Tuned LoRA Adapter
 model.save_pretrained(adapter_output_dir)

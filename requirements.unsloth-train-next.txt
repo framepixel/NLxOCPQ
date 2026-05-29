@@ -29,4 +29,4 @@ unsloth[colab-new]==2026.4.6
 torch==2.7.1+cu126
 torchvision==0.22.1+cu126
 torchaudio==2.7.1+cu126
-torchao==0.13.0
+torchao==0.16.0
