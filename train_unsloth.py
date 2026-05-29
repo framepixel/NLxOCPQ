@@ -129,6 +129,7 @@ save_steps = int(os.getenv("OCPQ_SAVE_STEPS", str(eval_steps)))
 finetune_dataset_path = os.getenv("OCPQ_FINETUNE_DATASET", "finetune_ocpq.jsonl")
 dataset_num_proc = int(os.getenv("OCPQ_DATASET_NUM_PROC", "1"))
 enable_eval = os.getenv("OCPQ_ENABLE_EVAL", "1").strip().lower() in {"1", "true", "yes", "on"}
+disable_tqdm = os.getenv("OCPQ_DISABLE_TQDM", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 training_mode = _choose_training_mode()
 resources = training_mode["resources"]
@@ -234,6 +235,7 @@ trainer = SFTTrainer(
         seed = random_seed,
         output_dir = output_dir,
         report_to = "none",
+        disable_tqdm = disable_tqdm,
     ),
 )
 
