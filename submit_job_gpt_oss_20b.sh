@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
-#SBATCH --job-name=ocpq-lora-gpt-oss-20b
-#SBATCH --output=ocpq-lora-gpt-oss-20b-%J.out
+#SBATCH --job-name=ocpq-lora-gemma-3-12b-it
+#SBATCH --output=ocpq-lora-gemma-3-12b-it-%J.out
 #SBATCH --partition=c23g
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
@@ -96,8 +96,8 @@ unset PKG_CONFIG_PATH
 unset LIBSQLITE3_SYS_USE_PKG_CONFIG
 
 # Model selection (use a 4-bit or full-precision ID as needed).
-: "${OCPQ_QUANTIZED_MODEL:=openai/gpt-oss-20b}"
-: "${OCPQ_MODEL_LABEL:=gpt-oss-20b}"
+: "${OCPQ_QUANTIZED_MODEL:=google/gemma-3-12b-it}"
+: "${OCPQ_MODEL_LABEL:=gemma-3-12b-it}"
 : "${OCPQ_CHAT_TEMPLATE:=chatml}"
 : "${OCPQ_ATTENTION_IMPLEMENTATION:=eager}"
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
-#SBATCH --job-name=ocpq-lora-qwen3-5-4b
-#SBATCH --output=ocpq-lora-qwen3-5-4b-%J.out
+#SBATCH --job-name=ocpq-lora-qwen2-5-7b
+#SBATCH --output=ocpq-lora-qwen2-5-7b-%J.out
 #SBATCH --partition=c23g
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
@@ -101,8 +101,8 @@ unset PKG_CONFIG_PATH
 unset LIBSQLITE3_SYS_USE_PKG_CONFIG
 
 # Model selection (use a 4-bit or full-precision ID as needed).
-: "${OCPQ_QUANTIZED_MODEL:=Qwen/Qwen3.5-4B}"
-: "${OCPQ_MODEL_LABEL:=qwen3.5-4b}"
+: "${OCPQ_QUANTIZED_MODEL:=Qwen/Qwen2.5-7B-Instruct}"
+: "${OCPQ_MODEL_LABEL:=qwen2.5-7b}"
 : "${OCPQ_CHAT_TEMPLATE:=qwen-2.5}"
 
 python --version
