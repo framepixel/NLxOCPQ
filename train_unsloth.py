@@ -8,6 +8,15 @@ os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
 os.environ.setdefault("TQDM_DISABLE", "1")
 os.environ.setdefault("TQDM_MONITOR_INTERVAL", "0")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("PYTORCH_NVML_BASED_CUDA_CHECK", "1")
+for _env_name in (
+    "HIP_VISIBLE_DEVICES",
+    "ROCR_VISIBLE_DEVICES",
+    "CUDA_MPS_PIPE_DIRECTORY",
+    "CUDA_MPS_LOG_DIRECTORY",
+    "CUDA_MPS_ACTIVE_THREAD_PERCENTAGE",
+):
+    os.environ.pop(_env_name, None)
 
 import re
 import signal
