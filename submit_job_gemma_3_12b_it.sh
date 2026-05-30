@@ -101,7 +101,7 @@ unset LIBSQLITE3_SYS_USE_PKG_CONFIG
 # Model selection (use a 4-bit or full-precision ID as needed).
 : "${OCPQ_QUANTIZED_MODEL:=google/gemma-3-12b-it}"
 : "${OCPQ_MODEL_LABEL:=gemma-3-12b-it}"
-: "${OCPQ_CHAT_TEMPLATE:=chatml}"
+: "${OCPQ_CHAT_TEMPLATE:=gemma-3}"
 : "${OCPQ_ATTENTION_IMPLEMENTATION:=eager}"
 
 python --version
