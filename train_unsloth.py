@@ -1,3 +1,5 @@
+import atexit
+import json
 import os
 
 os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
@@ -8,19 +10,22 @@ os.environ.setdefault("TQDM_MONITOR_INTERVAL", "0")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 import re
+import signal
 import sys
+import time
+from pathlib import Path
 
 
 def _import_training_stack():
     try:
         from unsloth import FastLanguageModel
         import torch
-        from transformers import TrainingArguments
+        from transformers import TrainingArguments, TrainerCallback
         from trl import SFTTrainer
         from datasets import load_dataset
         from unsloth.chat_templates import get_chat_template
 
-        return FastLanguageModel, torch, TrainingArguments, SFTTrainer, load_dataset, get_chat_template
+        return FastLanguageModel, torch, TrainingArguments, TrainerCallback, SFTTrainer, load_dataset, get_chat_template
     except ImportError as exc:
         message = str(exc)
         if "CXXABI_1.3.11" in message or "libstdc++.so.6" in message:
@@ -36,7 +41,7 @@ def _import_training_stack():
         raise
 
 
-FastLanguageModel, torch, TrainingArguments, SFTTrainer, load_dataset, get_chat_template = _import_training_stack()
+FastLanguageModel, torch, TrainingArguments, TrainerCallback, SFTTrainer, load_dataset, get_chat_template = _import_training_stack()
 
 
 def _slugify(value):
@@ -150,9 +155,133 @@ run_label = training_mode["run_label"]
 attention_implementation = os.getenv("OCPQ_ATTENTION_IMPLEMENTATION")
 if not attention_implementation and "gpt-oss" in selected_model_name.lower():
     attention_implementation = "eager"
+is_gpt_oss_model = "gpt-oss" in selected_model_name.lower()
 
 output_dir = os.getenv("OCPQ_OUTPUT_DIR") or os.path.join("outputs", run_label)
 adapter_output_dir = os.getenv("OCPQ_ADAPTER_OUTPUT_DIR") or os.path.join("adapters", run_label)
+recovery_output_dir = os.getenv("OCPQ_RECOVERY_DIR") or os.path.join(output_dir, "recovery")
+recovery_snapshot_dir = os.path.join(recovery_output_dir, "latest-adapter")
+recovery_manifest_path = os.path.join(recovery_output_dir, "recovery-state.json")
+latest_checkpoint_pointer_path = os.path.join(recovery_output_dir, "latest-checkpoint.txt")
+
+
+def _ensure_directory(path):
+    Path(path).mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _latest_checkpoint_path(output_directory):
+    output_path = Path(output_directory)
+    if not output_path.exists():
+        return None
+
+    checkpoints = []
+    for child in output_path.iterdir():
+        if child.is_dir() and child.name.startswith("checkpoint-"):
+            try:
+                step = int(child.name.split("-", 1)[1])
+            except (IndexError, ValueError):
+                continue
+            checkpoints.append((step, child))
+
+    if not checkpoints:
+        return None
+
+    checkpoints.sort(key=lambda item: item[0])
+    return str(checkpoints[-1][1])
+
+
+def _resolve_resume_checkpoint(output_directory):
+    resume_setting = os.getenv("OCPQ_RESUME_FROM_CHECKPOINT", "latest").strip()
+    if not resume_setting:
+        return None
+
+    normalized = resume_setting.lower()
+    if normalized in {"0", "false", "no", "off", "none"}:
+        return None
+    if normalized in {"1", "true", "yes", "on", "latest", "auto"}:
+        return _latest_checkpoint_path(output_directory)
+    return resume_setting
+
+
+_recovery_snapshot_in_progress = False
+_train_completed = False
+
+
+def _persist_recovery_snapshot(reason, checkpoint_dir=None, global_step=None, exception_text=None):
+    global _recovery_snapshot_in_progress
+
+    if _recovery_snapshot_in_progress:
+        return
+
+    _recovery_snapshot_in_progress = True
+    try:
+        _ensure_directory(recovery_output_dir)
+        _ensure_directory(recovery_snapshot_dir)
+
+        model.save_pretrained(recovery_snapshot_dir)
+        tokenizer.save_pretrained(recovery_snapshot_dir)
+
+        manifest = {
+            "reason": reason,
+            "timestamp": time.time(),
+            "selected_model_name": selected_model_name,
+            "run_label": run_label,
+            "output_dir": output_dir,
+            "adapter_output_dir": adapter_output_dir,
+            "recovery_snapshot_dir": recovery_snapshot_dir,
+            "checkpoint_dir": checkpoint_dir,
+            "global_step": global_step,
+            "exception_text": exception_text,
+        }
+        with open(recovery_manifest_path, "w", encoding="utf-8") as manifest_file:
+            json.dump(manifest, manifest_file, indent=2, sort_keys=True)
+
+        if checkpoint_dir:
+            with open(latest_checkpoint_pointer_path, "w", encoding="utf-8") as pointer_file:
+                pointer_file.write(str(checkpoint_dir))
+                pointer_file.write("\n")
+
+        print(f"Recovery snapshot saved to '{recovery_snapshot_dir}' ({reason}).")
+    except Exception as snapshot_exc:
+        print(f"Warning: failed to save recovery snapshot: {snapshot_exc}", file=sys.stderr)
+    finally:
+        _recovery_snapshot_in_progress = False
+
+
+def _install_termination_handlers():
+    signal_names = {}
+    if hasattr(signal, "SIGINT"):
+        signal_names[getattr(signal, "SIGINT")] = "SIGINT"
+    if hasattr(signal, "SIGTERM"):
+        signal_names[getattr(signal, "SIGTERM")] = "SIGTERM"
+
+    def _handle_termination(signum, frame):
+        signal_name = signal_names.get(signum, f"signal {signum}")
+        _persist_recovery_snapshot(
+            reason=f"terminated-by-{signal_name}",
+            checkpoint_dir=_latest_checkpoint_path(output_dir),
+        )
+        raise SystemExit(128 + signum)
+
+    for signal_name in ("SIGINT", "SIGTERM"):
+        if hasattr(signal, signal_name):
+            try:
+                signal.signal(getattr(signal, signal_name), _handle_termination)
+            except Exception:
+                pass
+
+
+def _save_on_exit():
+    if not _train_completed:
+        _persist_recovery_snapshot(
+            reason="atexit",
+            checkpoint_dir=_latest_checkpoint_path(output_dir),
+        )
+
+
+atexit.register(_save_on_exit)
+_install_termination_handlers()
 
 print(
     "CUDA resources detected: "
@@ -249,6 +378,29 @@ trainer = SFTTrainer(
     ),
 )
 
+
+class RecoveryCallback(TrainerCallback):
+    def on_save(self, args, state, control, **kwargs):
+        checkpoint_dir = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
+        _persist_recovery_snapshot(
+            reason="trainer-save",
+            checkpoint_dir=checkpoint_dir,
+            global_step=state.global_step,
+        )
+        return control
+
+    def on_train_end(self, args, state, control, **kwargs):
+        checkpoint_dir = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
+        _persist_recovery_snapshot(
+            reason="train-end",
+            checkpoint_dir=checkpoint_dir,
+            global_step=state.global_step,
+        )
+        return control
+
+
+trainer.add_callback(RecoveryCallback())
+
 def _manual_eval_loss(model, tokenizer, texts, batch_size=2):
     if tokenizer.pad_token is None and tokenizer.eos_token is not None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -268,8 +420,11 @@ def _manual_eval_loss(model, tokenizer, texts, batch_size=2):
             return_tensors="pt",
         )
         batch = {key: value.to(device) for key, value in batch.items()}
+        if is_gpt_oss_model:
+            batch["attention_mask"] = batch["attention_mask"].unsqueeze(1).unsqueeze(2)
         labels = batch["input_ids"].clone()
-        labels[batch["attention_mask"] == 0] = -100
+        padding_mask = batch["attention_mask"] == 0 if batch["attention_mask"].dim() == 2 else batch["attention_mask"].squeeze(1).squeeze(1) == 0
+        labels[padding_mask] = -100
 
         with torch.no_grad():
             outputs = model(**batch, labels=labels)
@@ -282,13 +437,35 @@ def _manual_eval_loss(model, tokenizer, texts, batch_size=2):
 
 # 6. Start Training
 print("Starting Unsloth Training...")
-trainer_stats = trainer.train()
+resume_from_checkpoint = _resolve_resume_checkpoint(output_dir)
+if resume_from_checkpoint:
+    print(f"Resuming from checkpoint: {resume_from_checkpoint}")
+
+try:
+    trainer_stats = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+    _train_completed = True
+except Exception as train_exc:
+    _persist_recovery_snapshot(
+        reason="train-exception",
+        checkpoint_dir=_latest_checkpoint_path(output_dir),
+        exception_text=repr(train_exc),
+    )
+    raise
+
 if enable_final_eval:
-    if enable_trainer_eval:
-        eval_metrics = trainer.evaluate()
-    else:
-        eval_metrics = _manual_eval_loss(model, tokenizer, eval_dataset["text"])
-    print("Final validation metrics:", eval_metrics)
+    try:
+        if enable_trainer_eval:
+            eval_metrics = trainer.evaluate()
+        else:
+            eval_metrics = _manual_eval_loss(model, tokenizer, eval_dataset["text"])
+        print("Final validation metrics:", eval_metrics)
+    except Exception as eval_exc:
+        _persist_recovery_snapshot(
+            reason="eval-exception",
+            checkpoint_dir=_latest_checkpoint_path(output_dir),
+            exception_text=repr(eval_exc),
+        )
+        raise
 
 # 7. Save the Fine-Tuned LoRA Adapter
 model.save_pretrained(adapter_output_dir)
