@@ -25,19 +25,9 @@ unset PYTHONHOME PYTHONPATH
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate nlxocpq-train-next
 
-# Gemma 4 requires a Transformers build that recognizes model_type='gemma4'.
-if [[ "${OCPQ_AUTO_UPGRADE_TRANSFORMERS:-1}" == "1" ]]; then
-	if ! python - <<'PY'
-from transformers.models.auto.configuration_auto import CONFIG_MAPPING
-import sys
-sys.exit(0 if "gemma4" in CONFIG_MAPPING else 1)
-PY
-	then
-		echo "Transformers in this env does not support gemma4. Upgrading transformers..."
-		pip install --upgrade "transformers>=4.57.0"
-	fi
-fi
-
+# Gemma 4 requires a Transformers build that recognizes model_type='gemma4',
+# but current Unsloth releases only support a narrower Transformers range.
+# Do not auto-upgrade here, because that can break Unsloth compatibility.
 if ! python - <<'PY'
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 import sys
@@ -45,7 +35,8 @@ sys.exit(0 if "gemma4" in CONFIG_MAPPING else 1)
 PY
 then
 	echo "ERROR: Installed transformers does not support model_type 'gemma4'." >&2
-	echo "Run: pip install --upgrade transformers  (or disable Gemma 4 for this run)." >&2
+	echo "Current Unsloth builds are not compatible with the Transformers versions that add Gemma 4 support." >&2
+	echo "Use a compatible non-Unsloth Gemma 4 stack or stay on Gemma 3 for Unsloth training." >&2
 	exit 1
 fi
 
