@@ -25,6 +25,10 @@ import time
 from pathlib import Path
 
 
+model = None
+tokenizer = None
+
+
 def _import_training_stack():
     try:
         from unsloth import FastLanguageModel
@@ -231,6 +235,13 @@ def _persist_recovery_snapshot(reason, checkpoint_dir=None, global_step=None, ex
     global _recovery_snapshot_in_progress
 
     if _recovery_snapshot_in_progress:
+        return
+
+    if model is None or tokenizer is None:
+        print(
+            "Skipping recovery snapshot because model/tokenizer are not initialized yet.",
+            file=sys.stderr,
+        )
         return
 
     _recovery_snapshot_in_progress = True
