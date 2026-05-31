@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
-#SBATCH --job-name=ocpq-lora-gemma-3-12b-it
-#SBATCH --output=ocpq-lora-gemma-3-12b-it-%J.out
+#SBATCH --job-name=ocpq-lora-gemma-4-e4b-it
+#SBATCH --output=ocpq-lora-gemma-4-e4b-it-%J.out
 #SBATCH --partition=c23g
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
@@ -94,18 +94,18 @@ export OCPQ_EVAL_BATCH_SIZE="${OCPQ_EVAL_BATCH_SIZE:-1}"
 export OCPQ_GRADIENT_ACCUMULATION_STEPS="${OCPQ_GRADIENT_ACCUMULATION_STEPS:-8}"
 export OCPQ_MAX_SEQ_LENGTH="${OCPQ_MAX_SEQ_LENGTH:-1024}"
 
-# Resume behavior: use latest checkpoint if not overridden
-export OCPQ_RESUME_FROM_CHECKPOINT="${OCPQ_RESUME_FROM_CHECKPOINT:-latest}"
+# Resume behavior: prefer the lightweight adapter snapshot if available.
+export OCPQ_RESUME_FROM_CHECKPOINT="${OCPQ_RESUME_FROM_CHECKPOINT:-adapter}"
 
 # Ensure no Intel paths contaminate the build
 unset PKG_CONFIG_PATH
 unset LIBSQLITE3_SYS_USE_PKG_CONFIG
 
 # Model selection (use a 4-bit or full-precision ID as needed).
-: "${OCPQ_QUANTIZED_MODEL:=google/gemma-3-12b-it}"
-: "${OCPQ_MODEL_LABEL:=gemma-3-12b-it}"
-: "${OCPQ_CHAT_TEMPLATE:=gemma-3}"
-: "${OCPQ_ATTENTION_IMPLEMENTATION:=eager}"
+: "${OCPQ_QUANTIZED_MODEL:=google/gemma-4-E4B-it}"
+: "${OCPQ_MODEL_LABEL:=gemma-4-e4b-it}"
+: "${OCPQ_CHAT_TEMPLATE:=gemma-4}"
+: "${OCPQ_ATTENTION_IMPLEMENTATION:=sdpa}"
 
 python --version
 

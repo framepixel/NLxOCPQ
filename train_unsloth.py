@@ -214,6 +214,12 @@ def _resolve_resume_checkpoint(output_directory):
         return None
     if normalized in {"1", "true", "yes", "on", "latest", "auto"}:
         return _latest_checkpoint_path(output_directory)
+    if normalized in {"adapter", "recovery", "latest-adapter"}:
+        for candidate in (recovery_snapshot_dir, adapter_output_dir):
+            candidate_path = Path(candidate)
+            if (candidate_path / "adapter_config.json").exists():
+                return str(candidate_path)
+        return None
     return resume_setting
 
 
@@ -327,6 +333,21 @@ model = FastLanguageModel.get_peft_model(
     use_rslora = False,
     loftq_config = None,
 )
+
+resume_checkpoint = _resolve_resume_checkpoint(output_dir)
+if resume_checkpoint and Path(resume_checkpoint).is_dir() and (Path(resume_checkpoint) / "adapter_config.json").exists():
+    print(f"Restoring adapter weights from: {resume_checkpoint}")
+    try:
+        model.delete_adapter("default")
+    except Exception:
+        pass
+    model.load_adapter(
+        resume_checkpoint,
+        adapter_name="default",
+        is_trainable=True,
+        low_cpu_mem_usage=True,
+    )
+    model.set_adapter("default")
 
 # 4. Format Dataset
 # Unsloth applies the exact Llama-3 special tokens (<|start_header_id|>user<|end_header_id|>)
@@ -450,9 +471,11 @@ def _manual_eval_loss(model, tokenizer, texts, batch_size=2):
 
 # 6. Start Training
 print("Starting Unsloth Training...")
-resume_from_checkpoint = _resolve_resume_checkpoint(output_dir)
+resume_from_checkpoint = resume_checkpoint if resume_checkpoint and not (Path(resume_checkpoint).is_dir() and (Path(resume_checkpoint) / "adapter_config.json").exists()) else None
 if resume_from_checkpoint:
     print(f"Resuming from checkpoint: {resume_from_checkpoint}")
+elif resume_checkpoint:
+    print("Resuming from adapter weights without trainer state.")
 
 try:
     trainer_stats = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
