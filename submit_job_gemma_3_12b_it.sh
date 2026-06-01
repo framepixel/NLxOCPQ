@@ -3,7 +3,7 @@
 #SBATCH --output=ocpq-lora-gemma-3-4b-it-%J.out
 #SBATCH --partition=c23g
 #SBATCH --gres=gpu:1
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 #SBATCH --time=04:00:00
 
