@@ -12,6 +12,8 @@ import traceback
 from types import SimpleNamespace
 
 from sklearn.metrics.pairwise import cosine_similarity
+import torch
+from transformers import AutoModel, AutoTokenizer
 
 from openai import OpenAI
 from huggingface_hub import InferenceClient
@@ -32,32 +34,45 @@ def load_resources():
     embeddings = np.load('embeddings.npy')
 
     # Load the local embedding model so we can embed user queries on the fly.
-    # Import lazily so UI startup does not crash when transformer dependencies are temporarily mismatched.
     embedding_error = None
+    tokenizer = None
     model = None
     try:
-        from sentence_transformers import SentenceTransformer
-
-        model = SentenceTransformer('./local-all-MiniLM-L6-v2')
+        local_dir = './local-all-MiniLM-L6-v2'
+        model_name = 'sentence-transformers/all-MiniLM-L6-v2'
+        source_dir = local_dir if os.path.isdir(local_dir) else model_name
+        tokenizer = AutoTokenizer.from_pretrained(source_dir)
+        model = AutoModel.from_pretrained(source_dir)
     except Exception as exc:
         embedding_error = str(exc)
         print(
-            "Warning: sentence-transformers could not be loaded. "
+            "Warning: the embedding model could not be loaded. "
             "Falling back to non-embedding example retrieval. "
             f"Reason: {embedding_error}"
         )
     
-    return dataset, embeddings, model, embedding_error
+    return dataset, embeddings, tokenizer, model, embedding_error
 
-dataset, embeddings, model, embedding_load_error = load_resources()
+dataset, embeddings, tokenizer, model, embedding_load_error = load_resources()
+
+
+def mean_pooling(model_output, attention_mask):
+    token_embeddings = model_output.last_hidden_state
+    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 def get_embedding(text):
-    if model is None:
+    if model is None or tokenizer is None:
         raise RuntimeError(
             "Embedding model is unavailable. "
-            f"sentence-transformers load error: {embedding_load_error}"
+            f"embedding load error: {embedding_load_error}"
         )
-    return model.encode(text)
+    inputs = tokenizer(text, padding=True, truncation=True, return_tensors='pt')
+    with torch.no_grad():
+        model_output = model(**inputs)
+    embedding = mean_pooling(model_output, inputs['attention_mask'])
+    embedding = torch.nn.functional.normalize(embedding, p=2, dim=1)
+    return embedding.squeeze(0).cpu().numpy()
 
 hf_client = None
 openai_client = None

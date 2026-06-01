@@ -41,6 +41,15 @@ DEFAULT_PROMPT_STRATEGIES = [
     "schema-chain-of-thought-plus",
     "schema-least-to-most",
 ]
+EVALUATION_PHASES = [
+    "generation",
+    "schema_check",
+    "execution",
+    "similarity",
+    "consistency",
+    "summary",
+]
+RUN_PHASE_TRACE = ["generation", "schema_check", "execution", "similarity"]
 
 
 def _read_json(path):
@@ -64,6 +73,10 @@ def _sha256_file(path):
 def _slug(value):
     value = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value))
     return value.strip("_") or "item"
+
+
+def _log_phase(phase, message):
+    print(f"[{phase}] {message}")
 
 
 def _extract_query_entities(ocpq_json):
@@ -277,14 +290,56 @@ def _load_testset(path, limit, seed, shuffle):
     return rows
 
 
+def _classify_run_status(status, error, schema_valid, exec_stats, query_result_file, query_stdout):
+    if status != "ok":
+        lowered = (error or "").lower()
+        if "validated against the schema" in lowered or "strict pydantic" in lowered:
+            return "schema_invalid"
+        if "parsed" in lowered or "json" in lowered and "parse" in lowered:
+            return "parse_failed"
+        if "execute" in lowered or "execution" in lowered:
+            return "execution_failed"
+        return "pipeline_error"
+
+    if not schema_valid:
+        return "schema_invalid"
+
+    exec_success = bool((exec_stats or {}).get("success"))
+    if exec_success and query_result_file:
+        return "success"
+
+    stderr = (exec_stats or {}).get("stderr") or query_stdout or ""
+    if stderr and str(stderr).strip().startswith("warning:"):
+        return "no_result"
+    if stderr:
+        return "execution_failed"
+    if query_result_file:
+        return "success"
+    return "no_result"
+
+
+def _compute_total_runs(num_cases, num_models, num_strategies, num_schema_settings, repeats):
+    return num_cases * num_models * num_strategies * num_schema_settings * repeats
+
+
+def _format_run_progress(case_idx, total_cases, strategy_idx, total_strategies, schema_idx, total_schema, repeat_idx, total_repeats, run_idx, total_runs):
+    return (
+        f"case {case_idx}/{total_cases} | "
+        f"strategy {strategy_idx}/{total_strategies} | "
+        f"schema {schema_idx}/{total_schema} | "
+        f"repeat {repeat_idx}/{total_repeats} | "
+        f"run {run_idx}/{total_runs}"
+    )
+
+
 def _hash_query_key(ocel_path, ocpq_query):
     payload = json.dumps(ocpq_query, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return f"{ocel_path}::{digest}"
 
 
-def run_evaluation(config_path):
-    config = _read_json(config_path)
+def run_evaluation(config_path_or_config):
+    config = config_path_or_config if isinstance(config_path_or_config, dict) else _read_json(config_path_or_config)
     if config.get("auto_expand_finetuned"):
         if expand_models is None:
             raise RuntimeError(
@@ -325,9 +380,18 @@ def run_evaluation(config_path):
     limit = int(config.get("limit", 0))
     seed = int(config.get("seed", 3407))
     shuffle = bool(config.get("shuffle", False))
+    dry_run = bool(config.get("dry_run", False))
 
     testset = _load_testset(testset_path, limit, seed, shuffle)
     testset_hash = _sha256_file(testset_abs)
+    total_runs = _compute_total_runs(len(testset), len(models), len(prompt_strategies), len(schema_enforced_values), repeats)
+
+    if dry_run:
+        print(f"Dry run: loaded {len(testset)} test cases from {testset_abs}.")
+        print(f"Dry run: {len(models)} models x {len(prompt_strategies)} prompt strategies x {len(schema_enforced_values)} schema settings x {repeats} repeats = {total_runs} planned runs.")
+        print(f"Dry run: schema enforcement values = {schema_enforced_values}")
+        print(f"Dry run: schema_validation_when_no_schema = {schema_validation_when_no_schema}")
+        return None
 
     manifest = {
         "run_id": run_id,
@@ -335,6 +399,7 @@ def run_evaluation(config_path):
         "testset_path": str(testset_abs),
         "testset_hash": testset_hash,
         "records": len(testset),
+        "evaluation_phases": EVALUATION_PHASES,
         "prompt_strategies": prompt_strategies,
         "schema_enforced": schema_enforced_values,
         "schema_validation": schema_validation,
@@ -346,6 +411,9 @@ def run_evaluation(config_path):
 
     ground_truth_cache = {}
     records = []
+
+    _log_phase("generation", f"Starting evaluation run {run_id} with {len(testset)} test cases.")
+    run_counter = 0
 
     for case_idx, row in enumerate(testset, start=1):
         nl_query = row.get("nl_query", "")
@@ -376,14 +444,14 @@ def run_evaluation(config_path):
 
         gt_record = ground_truth_cache[case_key]
 
-        for model_cfg in models:
+        for model_idx, model_cfg in enumerate(models, start=1):
             resolved_model = _resolve_model_config(model_cfg, global_cfg)
             _configure_backend(resolved_model, global_cfg)
             set_few_shot_enabled(True)
             set_generation_temperature(resolved_model.get("temperature", global_cfg.get("temperature")))
 
-            for prompt_strategy in prompt_strategies:
-                for schema_enforced in schema_enforced_values:
+            for strategy_idx, prompt_strategy in enumerate(prompt_strategies, start=1):
+                for schema_idx, schema_enforced in enumerate(schema_enforced_values, start=1):
                     effective_schema_validation = schema_validation
                     if not schema_enforced and not schema_validation_when_no_schema:
                         effective_schema_validation = False
@@ -393,6 +461,7 @@ def run_evaluation(config_path):
                     )
 
                     for repeat_idx in range(1, repeats + 1):
+                        run_counter += 1
                         reset_llm_call_stats()
                         reset_query_exec_stats()
 
@@ -401,12 +470,19 @@ def run_evaluation(config_path):
                         output_file = output_dir_runs / f"{config_id}_rep{repeat_idx}.json"
 
                         start_time = time.time()
-                        status = "ok"
+                        pipeline_status = "ok"
                         error = None
                         trace = None
                         ocpq_json = None
                         query_stdout = None
                         query_result_file = None
+
+                        _log_phase(
+                            "generation",
+                            f"{_format_run_progress(case_idx, len(testset), strategy_idx, len(prompt_strategies), schema_idx, len(schema_enforced_values), repeat_idx, repeats, run_counter, total_runs)} | "
+                            f"model {model_idx}/{len(models)}:{resolved_model['label']} | "
+                            f"{prompt_strategy} | schema={'on' if schema_enforced else 'off'}",
+                        )
 
                         try:
                             _, _, ocpq_json, query_stdout, query_result_file = nl_to_ocpq_pipeline(
@@ -422,7 +498,7 @@ def run_evaluation(config_path):
                                 execute_query=True,
                             )
                         except Exception as exc:
-                            status = "error"
+                            pipeline_status = "error"
                             error = str(exc)
                             trace = traceback.format_exc()
 
@@ -446,6 +522,26 @@ def run_evaluation(config_path):
                         hallucinated = bool(pred_events - gold_events or pred_objects - gold_objects)
                         unsupported = _contains_unsupported_filter(ocpq_json)
                         semantic_match = ocpq_json == gold_query
+                        final_status = _classify_run_status(
+                            pipeline_status,
+                            error,
+                            schema_valid,
+                            exec_stats,
+                            query_result_file,
+                            query_stdout,
+                        )
+
+                        _log_phase("schema_check", f"case {case_idx:03d} | status={final_status}")
+                        _log_phase(
+                            "execution",
+                            f"case {case_idx:03d} | success={bool((exec_stats or {}).get('success'))} "
+                            f"| result_file={'yes' if query_result_file else 'no'}",
+                        )
+                        _log_phase(
+                            "similarity",
+                            f"case {case_idx:03d} | combined_f1="
+                            f"{((similarity or {}).get('combined') or {}).get('f1')}",
+                        )
 
                         record = {
                             "case_id": case_idx,
@@ -461,9 +557,12 @@ def run_evaluation(config_path):
                             "schema_validation": effective_schema_validation,
                             "repeat": repeat_idx,
                             "config_id": config_id,
-                            "status": status,
+                            "status": final_status,
+                            "pipeline_status": pipeline_status,
                             "error": error,
                             "traceback": trace,
+                            "evaluation_phase": "run_complete",
+                            "evaluation_phase_trace": RUN_PHASE_TRACE,
                             "prediction": ocpq_json,
                             "query_stdout": query_stdout,
                             "query_result_file": query_result_file,
@@ -489,7 +588,11 @@ def run_evaluation(config_path):
 
     _write_json(run_dir / "predictions.json", records)
 
+    _log_phase("consistency", "Aggregating repeat consistency metrics.")
     summary = _build_summary(records, repeats)
+    summary["evaluation_phases"] = EVALUATION_PHASES
+    summary["evaluation_phase_trace"] = EVALUATION_PHASES
+    _log_phase("summary", "Writing summary.json and completing the run.")
     _write_json(run_dir / "summary.json", summary)
 
     return run_dir
@@ -533,6 +636,7 @@ def _build_summary(records, repeats):
     summary = {
         "total_records": len(records),
         "by_config": {},
+        "evaluation_phase": "summary",
     }
 
     for config_id, recs in by_config.items():
@@ -554,13 +658,43 @@ def _build_summary(records, repeats):
             for r in recs
             if r.get("similarity")
         ])
+        event_precision = _mean([
+            (r.get("similarity") or {}).get("events", {}).get("precision")
+            for r in recs
+            if r.get("similarity")
+        ])
+        event_recall = _mean([
+            (r.get("similarity") or {}).get("events", {}).get("recall")
+            for r in recs
+            if r.get("similarity")
+        ])
         object_jaccard = _mean([
             (r.get("similarity") or {}).get("objects", {}).get("jaccard")
             for r in recs
             if r.get("similarity")
         ])
+        object_precision = _mean([
+            (r.get("similarity") or {}).get("objects", {}).get("precision")
+            for r in recs
+            if r.get("similarity")
+        ])
+        object_recall = _mean([
+            (r.get("similarity") or {}).get("objects", {}).get("recall")
+            for r in recs
+            if r.get("similarity")
+        ])
         combined_f1 = _mean([
             (r.get("similarity") or {}).get("combined", {}).get("f1")
+            for r in recs
+            if r.get("similarity")
+        ])
+        combined_precision = _mean([
+            (r.get("similarity") or {}).get("combined", {}).get("precision")
+            for r in recs
+            if r.get("similarity")
+        ])
+        combined_recall = _mean([
+            (r.get("similarity") or {}).get("combined", {}).get("recall")
             for r in recs
             if r.get("similarity")
         ])
@@ -582,8 +716,14 @@ def _build_summary(records, repeats):
                 "unsupported_filter_rate": unsupported_rate,
                 "execution_success_rate": exec_success_rate,
                 "event_jaccard": event_jaccard,
+                "event_precision": event_precision,
+                "event_recall": event_recall,
                 "object_jaccard": object_jaccard,
+                "object_precision": object_precision,
+                "object_recall": object_recall,
                 "combined_f1": combined_f1,
+                "combined_precision": combined_precision,
+                "combined_recall": combined_recall,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
@@ -604,7 +744,15 @@ def _build_summary(records, repeats):
 def main():
     parser = argparse.ArgumentParser(description="Evaluate NLxOCPQ against a handcrafted testset.")
     parser.add_argument("--config", required=True, help="Path to evaluation config JSON.")
+    parser.add_argument("--dry-run", action="store_true", help="Print the planned run counts and exit without running evaluations.")
     args = parser.parse_args()
+
+    if args.dry_run:
+        config = _read_json(args.config)
+        config["dry_run"] = True
+        run_evaluation(config)
+        print("Dry run complete.")
+        return
 
     run_dir = run_evaluation(args.config)
     print(f"Evaluation complete. Outputs saved in {run_dir}")

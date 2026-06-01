@@ -1,0 +1,51 @@
+{
+  "testset_path": "testset.json",
+  "output_dir": "eval_runs",
+  "backend": "local-gpu",
+  "local_device": "cuda",
+  "local_dtype": "auto",
+  "temperature": 0.0,
+  "repeats": 3,
+  "limit": 0,
+  "seed": 3407,
+  "shuffle": false,
+  "auto_expand_finetuned": true,
+  "fine_tune_map": {
+    "meta-llama/Meta-Llama-3-8B-Instruct": {
+      "name": "adapters/llama-3-8b-instruct-bnb-4bit-fine-tuned-quantized",
+      "label": "llama3-8b-finetuned"
+    },
+    "openai/gpt-oss-20b": {
+      "name": "adapters/gpt-oss-20b-fine-tuned-quantized",
+      "label": "gpt-oss-20b-finetuned"
+    },
+    "google/gemma-3-4B-it": {
+      "name": "adapters/gemma-3-4b-it-fine-tuned-quantized",
+      "label": "gemma3-4b-finetuned"
+    }
+  },
+  "schema_enforced": [true, false],
+  "schema_validation": true,
+  "schema_validation_when_no_schema": false,
+  "prompt_strategies": [
+    "schema-grammar-guided",
+    "schema-allowed-entities-only",
+    "schema-few-shot",
+    "schema-chain-of-thought-plus",
+    "schema-least-to-most"
+  ],
+  "models": [
+    {
+      "name": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "label": "llama3-8b-base"
+    },
+    {
+      "name": "openai/gpt-oss-20b",
+      "label": "gpt-oss-20b"
+    },
+    {
+      "name": "google/gemma-3-4B-it",
+      "label": "gemma3-4b"
+    }
+  ]
+}
