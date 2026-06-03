@@ -94,6 +94,16 @@ def _load_json_if_exists(path):
     return _read_json(path)
 
 
+def _resolve_ocel_path(raw_path, anchor_dir):
+    if not raw_path:
+        return raw_path
+    normalized = str(raw_path).replace("\\", os.sep).replace("/", os.sep)
+    candidate = Path(normalized)
+    if candidate.is_absolute():
+        return str(candidate)
+    return str((anchor_dir / candidate).resolve())
+
+
 def _log_phase(phase, message):
     print(f"[{phase}] {message}")
 
@@ -303,11 +313,15 @@ def _resolve_model_config(model_cfg, global_cfg):
 
 def _load_testset(path, limit, seed, shuffle):
     rows = _read_json(path)
+    anchor_dir = Path(path).resolve().parent
     if shuffle:
         rng = random.Random(seed)
         rng.shuffle(rows)
     if limit and limit > 0:
         rows = rows[:limit]
+    for row in rows:
+        if isinstance(row, dict) and row.get("ocel_path"):
+            row["ocel_path"] = _resolve_ocel_path(row["ocel_path"], anchor_dir)
     return rows
 
 
