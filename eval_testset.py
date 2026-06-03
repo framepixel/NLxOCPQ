@@ -610,6 +610,8 @@ def run_evaluation(config_path_or_config):
                             pipeline_status = "error"
                             error = str(exc)
                             trace = traceback.format_exc()
+                            _log_phase("error", f"case {case_idx:03d} | {exc}")
+                            print(trace)
 
                         total_duration = time.time() - start_time
                         llm_stats = _summarize_llm_stats(get_llm_call_stats())

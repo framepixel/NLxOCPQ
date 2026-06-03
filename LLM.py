@@ -1342,7 +1342,7 @@ def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_n
     time.sleep(3)
     return ocpq_json
 
-# Use a single continuous chat context with Least-to-Most Prompting
+# Use a single continuous chat context with Grammar-Guided Prompting
 def _run_pipeline_grammar_guided(
     query,
     dataset,
@@ -1354,7 +1354,7 @@ def _run_pipeline_grammar_guided(
     schema_validation=True,
     execute_query=True,
 ):
-    print("Starting Least-to-Most NL to OCPQ pipeline...")
+    print("Starting Grammar-Guided NL to OCPQ pipeline...")
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
     
