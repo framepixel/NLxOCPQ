@@ -12,16 +12,14 @@ from ocpq_schema import BindingBoxTree
 
 UNSUPPORTED_FILTER_TYPES = {"ExactlyOnce"}
 PROMPT_STRATEGIES = [
-    "schema-grammar-guided",
     "schema-allowed-entities-only",
-    "schema-few-shot",
+    "schema-grammar-guided",
     "schema-chain-of-thought-plus",
-    "schema-least-to-most",
 ]
 DEFAULT_ABLATION_STRATEGIES = [
     "schema-allowed-entities-only",
-    "schema-few-shot",
-    "schema-least-to-most",
+    "schema-grammar-guided",
+    "schema-chain-of-thought-plus",
 ]
 
 
@@ -39,6 +37,31 @@ def classify_pattern(text):
     if not tags:
         tags.append("other")
     return tags
+
+
+def _log_phase(phase, message):
+    print(f"[{phase}] {message}")
+
+
+def _format_duration(seconds):
+    if seconds is None:
+        return "unknown"
+    seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
+def _estimate_remaining_eta(start_time, completed_runs, total_runs):
+    if completed_runs <= 0:
+        return None
+    elapsed = time.time() - start_time
+    avg_per_run = elapsed / completed_runs
+    return avg_per_run * max(total_runs - completed_runs, 0)
 
 
 def extract_query_entities(ocpq_json):
@@ -155,6 +178,8 @@ def run_predictions(
     _configure_backend(backend, model, hf_provider, hf_token, local_device, local_dtype)
     set_few_shot_enabled(few_shot_mode == "on")
 
+    total_runs = len(eval_rows)
+    run_start_time = time.time()
     predictions = []
     for idx, row in enumerate(eval_rows, start=1):
         nl = row.get("nl", "")
@@ -174,6 +199,11 @@ def run_predictions(
         }
 
         start_time = time.time()
+        _log_phase(
+            "generation",
+            f"case {idx}/{total_runs} | prompt={prompt_strategy} | few_shot={few_shot_mode} | "
+            f"eta={_format_duration(_estimate_remaining_eta(run_start_time, idx - 1, total_runs))}",
+        )
         try:
             structure, tree, ocpq_json, query_stdout, query_result_file_path = nl_to_ocpq_pipeline(
                 query=nl,
@@ -216,6 +246,11 @@ def run_predictions(
         )
         record.update(metrics)
         predictions.append(record)
+        _log_phase(
+            "summary",
+            f"completed {idx}/{total_runs} | status={record.get('status')} | "
+            f"eta={_format_duration(_estimate_remaining_eta(run_start_time, idx, total_runs))}",
+        )
 
     summary = summarize_predictions(predictions)
     _write_json(Path(output_path), predictions)
@@ -488,12 +523,20 @@ def main():
 
     few_shot_modes = ["on", "off"] if args.few_shot == "both" else [args.few_shot]
     ablation_summary = {"runs": []}
+    total_runs = len(eval_rows) * len(strategies) * len(few_shot_modes)
+    run_counter = 0
+    ablation_start_time = time.time()
 
     for strategy in strategies:
         for few_shot_mode in few_shot_modes:
             name = f"{strategy}_fewshot-{few_shot_mode}"
             predictions_path = output_dir / f"predictions_{name}.json"
             summary_path = output_dir / f"summary_{name}.json"
+            _log_phase(
+                "generation",
+                f"strategy={strategy} | few_shot={few_shot_mode} | "
+                f"eta={_format_duration(_estimate_remaining_eta(ablation_start_time, run_counter, total_runs))}",
+            )
             summary = run_predictions(
                 eval_rows=eval_rows,
                 output_path=predictions_path,
@@ -508,6 +551,7 @@ def main():
                 local_device=args.local_device,
                 local_dtype=args.local_dtype,
             )
+            run_counter += len(eval_rows)
             ablation_summary["runs"].append(
                 {
                     "strategy": strategy,
@@ -516,6 +560,11 @@ def main():
                     "summary": str(summary_path),
                     "metrics": summary,
                 }
+            )
+            _log_phase(
+                "summary",
+                f"finished strategy={strategy} | few_shot={few_shot_mode} | "
+                f"eta={_format_duration(_estimate_remaining_eta(ablation_start_time, run_counter, total_runs))}",
             )
 
     ablation_path = output_dir / "ablation_summary.json"

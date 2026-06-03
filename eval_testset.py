@@ -35,11 +35,9 @@ from LLM import (
 
 UNSUPPORTED_FILTER_TYPES = {"ExactlyOnce"}
 DEFAULT_PROMPT_STRATEGIES = [
-    "schema-grammar-guided",
     "schema-allowed-entities-only",
-    "schema-few-shot",
+    "schema-grammar-guided",
     "schema-chain-of-thought-plus",
-    "schema-least-to-most",
 ]
 EVALUATION_PHASES = [
     "generation",
@@ -332,6 +330,27 @@ def _format_run_progress(case_idx, total_cases, strategy_idx, total_strategies, 
     )
 
 
+def _format_duration(seconds):
+    if seconds is None:
+        return "unknown"
+    seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
+def _estimate_remaining_eta(start_time, completed_runs, total_runs):
+    if completed_runs <= 0:
+        return None
+    elapsed = time.time() - start_time
+    avg_per_run = elapsed / completed_runs
+    return avg_per_run * max(total_runs - completed_runs, 0)
+
+
 def _hash_query_key(ocel_path, ocpq_query):
     payload = json.dumps(ocpq_query, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -383,11 +402,15 @@ def run_evaluation(config_path_or_config):
     dry_run = bool(config.get("dry_run", False))
 
     testset = _load_testset(testset_path, limit, seed, shuffle)
+    valid_testset = [
+        row for row in testset
+        if row.get("nl_query", "") and row.get("ocel_path") and row.get("ocpq_query")
+    ]
     testset_hash = _sha256_file(testset_abs)
-    total_runs = _compute_total_runs(len(testset), len(models), len(prompt_strategies), len(schema_enforced_values), repeats)
+    total_runs = _compute_total_runs(len(valid_testset), len(models), len(prompt_strategies), len(schema_enforced_values), repeats)
 
     if dry_run:
-        print(f"Dry run: loaded {len(testset)} test cases from {testset_abs}.")
+        print(f"Dry run: loaded {len(valid_testset)} valid test cases from {testset_abs}.")
         print(f"Dry run: {len(models)} models x {len(prompt_strategies)} prompt strategies x {len(schema_enforced_values)} schema settings x {repeats} repeats = {total_runs} planned runs.")
         print(f"Dry run: schema enforcement values = {schema_enforced_values}")
         print(f"Dry run: schema_validation_when_no_schema = {schema_validation_when_no_schema}")
@@ -398,7 +421,9 @@ def run_evaluation(config_path_or_config):
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "testset_path": str(testset_abs),
         "testset_hash": testset_hash,
-        "records": len(testset),
+        "records": len(valid_testset),
+        "loaded_records": len(testset),
+        "skipped_records": len(testset) - len(valid_testset),
         "evaluation_phases": EVALUATION_PHASES,
         "prompt_strategies": prompt_strategies,
         "schema_enforced": schema_enforced_values,
@@ -411,11 +436,13 @@ def run_evaluation(config_path_or_config):
 
     ground_truth_cache = {}
     records = []
+    total_cases = len(valid_testset)
+    evaluation_start_time = time.time()
 
-    _log_phase("generation", f"Starting evaluation run {run_id} with {len(testset)} test cases.")
+    _log_phase("generation", f"Starting evaluation run {run_id} with {total_cases} valid test cases.")
     run_counter = 0
 
-    for case_idx, row in enumerate(testset, start=1):
+    for case_idx, row in enumerate(valid_testset, start=1):
         nl_query = row.get("nl_query", "")
         ocel_path = row.get("ocel_path")
         gold_query = row.get("ocpq_query")
@@ -479,9 +506,9 @@ def run_evaluation(config_path_or_config):
 
                         _log_phase(
                             "generation",
-                            f"{_format_run_progress(case_idx, len(testset), strategy_idx, len(prompt_strategies), schema_idx, len(schema_enforced_values), repeat_idx, repeats, run_counter, total_runs)} | "
+                            f"{_format_run_progress(case_idx, total_cases, strategy_idx, len(prompt_strategies), schema_idx, len(schema_enforced_values), repeat_idx, repeats, run_counter, total_runs)} | "
                             f"model {model_idx}/{len(models)}:{resolved_model['label']} | "
-                            f"{prompt_strategy} | schema={'on' if schema_enforced else 'off'}",
+                            f"{prompt_strategy} | schema={'on' if schema_enforced else 'off'} | eta={_format_duration(_estimate_remaining_eta(evaluation_start_time, run_counter - 1, total_runs))}",
                         )
 
                         try:
