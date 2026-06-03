@@ -117,11 +117,17 @@ def _normalize_value(value):
     return str(value)
 
 
-def _configure_backend(backend, model, hf_provider, hf_token, local_device, local_dtype):
+def _configure_backend(backend, model, hf_provider, hf_token, local_device, local_dtype, local_quantization):
     from LLM import set_hf_client, set_local_gpu_client
 
     if backend == "local-gpu":
-        set_local_gpu_client(model_name=model, token=hf_token or None, device=local_device, dtype=local_dtype)
+        set_local_gpu_client(
+            model_name=model,
+            token=hf_token or None,
+            device=local_device,
+            dtype=local_dtype,
+            quantization=local_quantization,
+        )
     else:
         set_hf_client(token=hf_token or None, provider=hf_provider or None, model_name=model)
 
@@ -170,12 +176,13 @@ def run_predictions(
     few_shot_mode,
     local_device,
     local_dtype,
+    local_quantization,
 ):
     from LLM import dataset as retrieval_dataset
     from LLM import embeddings
     from LLM import nl_to_ocpq_pipeline, set_few_shot_enabled
 
-    _configure_backend(backend, model, hf_provider, hf_token, local_device, local_dtype)
+    _configure_backend(backend, model, hf_provider, hf_token, local_device, local_dtype, local_quantization)
     set_few_shot_enabled(few_shot_mode == "on")
 
     total_runs = len(eval_rows)
@@ -506,6 +513,7 @@ def main():
             few_shot_mode=args.few_shot,
             local_device=args.local_device,
             local_dtype=args.local_dtype,
+            local_quantization="4bit",
         )
         print(f"Wrote predictions to {output_path}")
         print(f"Wrote summary to {summary_path}")
@@ -550,6 +558,7 @@ def main():
                 few_shot_mode=few_shot_mode,
                 local_device=args.local_device,
                 local_dtype=args.local_dtype,
+                local_quantization="4bit",
             )
             run_counter += len(eval_rows)
             ablation_summary["runs"].append(

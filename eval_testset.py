@@ -56,8 +56,11 @@ def _read_json(path):
 
 
 def _write_json(path, payload):
-    with open(path, "w", encoding="utf-8") as f:
+    path = Path(path)
+    tmp_path = path.with_name(path.name + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
+    os.replace(tmp_path, path)
 
 
 def _sha256_file(path):
@@ -71,6 +74,24 @@ def _sha256_file(path):
 def _slug(value):
     value = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value))
     return value.strip("_") or "item"
+
+
+def _config_fingerprint(config):
+    safe = dict(config or {})
+    safe.pop("resume_from", None)
+    safe.pop("dry_run", None)
+    return hashlib.sha256(json.dumps(safe, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _record_key(case_id, config_id, repeat):
+    return f"{case_id}:{config_id}:{repeat}"
+
+
+def _load_json_if_exists(path):
+    path = Path(path)
+    if not path.exists():
+        return None
+    return _read_json(path)
 
 
 def _log_phase(phase, message):
@@ -255,6 +276,7 @@ def _configure_backend(model_cfg, global_cfg):
     hf_token = model_cfg.get("hf_token") or global_cfg.get("hf_token")
     local_device = model_cfg.get("local_device") or global_cfg.get("local_device")
     local_dtype = model_cfg.get("local_dtype") or global_cfg.get("local_dtype")
+    local_quantization = model_cfg.get("local_quantization") or global_cfg.get("local_quantization") or "4bit"
 
     if backend == "local-gpu":
         set_local_gpu_client(
@@ -262,6 +284,7 @@ def _configure_backend(model_cfg, global_cfg):
             token=hf_token or None,
             device=local_device,
             dtype=local_dtype,
+            quantization=local_quantization,
         )
     else:
         set_hf_client(
@@ -375,8 +398,15 @@ def run_evaluation(config_path_or_config):
         raise FileNotFoundError(f"Testset not found: {testset_abs}")
 
     run_id = time.strftime("eval_run_%Y%m%d_%H%M%S")
-    run_dir = output_dir / run_id
-    run_dir.mkdir(parents=True, exist_ok=False)
+    resume_from = config.get("resume_from")
+    if resume_from:
+        resume_path = Path(resume_from)
+        run_dir = resume_path.parent if resume_path.is_file() else resume_path
+        if not run_dir.exists():
+            raise FileNotFoundError(f"Resume directory not found: {run_dir}")
+    else:
+        run_dir = output_dir / run_id
+        run_dir.mkdir(parents=True, exist_ok=False)
 
     global_cfg = {
         "backend": config.get("backend", "local-gpu"),
@@ -384,6 +414,7 @@ def run_evaluation(config_path_or_config):
         "hf_token": config.get("hf_token", os.getenv("HF_TOKEN", "")),
         "local_device": config.get("local_device", "cuda"),
         "local_dtype": config.get("local_dtype", "auto"),
+        "local_quantization": config.get("local_quantization", "4bit"),
         "temperature": config.get("temperature", 0.0),
     }
 
@@ -408,6 +439,7 @@ def run_evaluation(config_path_or_config):
     ]
     testset_hash = _sha256_file(testset_abs)
     total_runs = _compute_total_runs(len(valid_testset), len(models), len(prompt_strategies), len(schema_enforced_values), repeats)
+    config_fingerprint = _config_fingerprint(config)
 
     if dry_run:
         print(f"Dry run: loaded {len(valid_testset)} valid test cases from {testset_abs}.")
@@ -416,11 +448,36 @@ def run_evaluation(config_path_or_config):
         print(f"Dry run: schema_validation_when_no_schema = {schema_validation_when_no_schema}")
         return None
 
+    checkpoint_path = None
+    checkpoint_state = {}
+    if resume_from:
+        resume_path = Path(resume_from)
+        if resume_path.is_file():
+            checkpoint_path = resume_path
+            run_dir = resume_path.parent
+        else:
+            run_dir = resume_path
+            checkpoint_path = run_dir / "checkpoint.json"
+        if not run_dir.exists():
+            raise FileNotFoundError(f"Resume directory not found: {run_dir}")
+        existing_manifest = _load_json_if_exists(run_dir / "config_resolved.json")
+        if existing_manifest and existing_manifest.get("run_id"):
+            run_id = existing_manifest["run_id"]
+        if existing_manifest and existing_manifest.get("config_fingerprint") != config_fingerprint:
+            raise ValueError("Resume config does not match the existing run directory.")
+        checkpoint_state = _load_json_if_exists(checkpoint_path) or {}
+        existing_records = _load_json_if_exists(run_dir / "predictions.json") or checkpoint_state.get("records") or []
+    else:
+        checkpoint_state = {}
+        existing_records = []
+
     manifest = {
         "run_id": run_id,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "testset_path": str(testset_abs),
         "testset_hash": testset_hash,
+        "config_fingerprint": config_fingerprint,
+        "resume_from": str(resume_from) if resume_from else None,
         "records": len(valid_testset),
         "loaded_records": len(testset),
         "skipped_records": len(testset) - len(valid_testset),
@@ -435,12 +492,19 @@ def run_evaluation(config_path_or_config):
     _write_json(run_dir / "config_resolved.json", manifest)
 
     ground_truth_cache = {}
-    records = []
+    records = list(existing_records)
+    completed_keys = {
+        _record_key(rec.get("case_id"), rec.get("config_id"), rec.get("repeat"))
+        for rec in records
+        if rec.get("case_id") is not None and rec.get("config_id") and rec.get("repeat") is not None
+    }
     total_cases = len(valid_testset)
-    evaluation_start_time = time.time()
+    completed_runs = len(records)
+    elapsed_before_resume = float(checkpoint_state.get("elapsed_sec") or 0.0)
+    evaluation_start_time = time.time() - elapsed_before_resume
 
     _log_phase("generation", f"Starting evaluation run {run_id} with {total_cases} valid test cases.")
-    run_counter = 0
+    run_counter = completed_runs
 
     for case_idx, row in enumerate(valid_testset, start=1):
         nl_query = row.get("nl_query", "")
@@ -488,6 +552,10 @@ def run_evaluation(config_path_or_config):
                     )
 
                     for repeat_idx in range(1, repeats + 1):
+                        current_key = _record_key(case_idx, config_id, repeat_idx)
+                        if current_key in completed_keys:
+                            continue
+
                         run_counter += 1
                         reset_llm_call_stats()
                         reset_query_exec_stats()
@@ -612,8 +680,33 @@ def run_evaluation(config_path_or_config):
                         }
 
                         records.append(record)
+                        completed_keys.add(current_key)
+                        completed_runs = len(records)
+                        checkpoint_payload = {
+                            "run_id": run_id,
+                            "config_fingerprint": config_fingerprint,
+                            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "elapsed_sec": round(time.time() - evaluation_start_time, 4),
+                            "completed_runs": completed_runs,
+                            "total_runs": total_runs,
+                            "records": records,
+                        }
+                        _write_json(run_dir / "predictions.json", records)
+                        _write_json(run_dir / "checkpoint.json", checkpoint_payload)
 
     _write_json(run_dir / "predictions.json", records)
+    _write_json(
+        run_dir / "checkpoint.json",
+        {
+            "run_id": run_id,
+            "config_fingerprint": config_fingerprint,
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "elapsed_sec": round(time.time() - evaluation_start_time, 4),
+            "completed_runs": len(records),
+            "total_runs": total_runs,
+            "records": records,
+        },
+    )
 
     _log_phase("consistency", "Aggregating repeat consistency metrics.")
     summary = _build_summary(records, repeats)
@@ -772,6 +865,7 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate NLxOCPQ against a handcrafted testset.")
     parser.add_argument("--config", required=True, help="Path to evaluation config JSON.")
     parser.add_argument("--dry-run", action="store_true", help="Print the planned run counts and exit without running evaluations.")
+    parser.add_argument("--resume-from", default="", help="Resume an interrupted run from an existing run directory or checkpoint.json.")
     args = parser.parse_args()
 
     if args.dry_run:
@@ -781,7 +875,12 @@ def main():
         print("Dry run complete.")
         return
 
-    run_dir = run_evaluation(args.config)
+    if args.resume_from:
+        config = _read_json(args.config)
+        config["resume_from"] = args.resume_from
+        run_dir = run_evaluation(config)
+    else:
+        run_dir = run_evaluation(args.config)
     print(f"Evaluation complete. Outputs saved in {run_dir}")
 
 

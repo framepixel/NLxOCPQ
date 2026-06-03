@@ -4,6 +4,7 @@
   "backend": "local-gpu",
   "local_device": "cuda",
   "local_dtype": "auto",
+  "local_quantization": "4bit",
   "temperature": 0.0,
   "repeats": 3,
   "limit": 0,

@@ -93,6 +93,7 @@ local_tokenizer = None
 local_model_key = None
 local_gpu_device = "cuda"
 local_gpu_dtype = "auto"
+local_gpu_quantization = "4bit"
 
 def set_hf_client(
     token=None,
@@ -102,6 +103,7 @@ def set_hf_client(
     backend_mode=None,
     local_device="cuda",
     local_dtype="auto",
+    local_quantization="4bit",
 ):
     global hf_client
     global openai_client
@@ -115,6 +117,7 @@ def set_hf_client(
     global local_model_key
     global local_gpu_device
     global local_gpu_dtype
+    global local_gpu_quantization
 
     selected_provider = provider or hf_provider
     selected_model = model_name or hf_model
@@ -134,6 +137,7 @@ def set_hf_client(
         hf_base_url = None
         local_gpu_device = local_device or "cuda"
         local_gpu_dtype = local_dtype or "auto"
+        local_gpu_quantization = (local_quantization or "4bit").strip().lower()
         local_model = None
         local_tokenizer = None
         local_model_key = None
@@ -193,7 +197,8 @@ def get_few_shot_enabled():
 
 def get_hf_backend_description():
     if hf_backend == "local-gpu":
-        return f"Local GPU ({hf_model})"
+        quant = f", {local_gpu_quantization}" if local_gpu_quantization else ""
+        return f"Local GPU ({hf_model}{quant})"
     if hf_backend == "custom-endpoint":
         return f"Custom endpoint ({hf_base_url or 'unset'})"
     if hf_backend == "hf-provider":
@@ -201,13 +206,14 @@ def get_hf_backend_description():
     return "HF default"
 
 
-def set_local_gpu_client(model_name=None, token=None, device="cuda", dtype="auto"):
+def set_local_gpu_client(model_name=None, token=None, device="cuda", dtype="auto", quantization="4bit"):
     set_hf_client(
         token=token,
         model_name=model_name,
         backend_mode="local-gpu",
         local_device=device,
         local_dtype=dtype,
+        local_quantization=quantization,
     )
 
 def set_hf_model(model_name):
@@ -413,12 +419,38 @@ def _build_local_prompt(messages):
     return "\n\n".join(parts)
 
 
+def _bitsandbytes_quantization_config(torch_module, quantization_mode, resolved_dtype):
+    mode = (quantization_mode or "").strip().lower()
+    if mode in ("", "none", "fp16", "float16", "bfloat16", "bf16", "auto"):
+        return None
+
+    try:
+        from transformers import BitsAndBytesConfig
+    except Exception as exc:
+        raise RuntimeError(
+            "4-bit local inference requires the 'bitsandbytes' package."
+        ) from exc
+
+    if mode in ("4bit", "4-bit", "bnb4", "bnb-4bit", "nf4"):
+        compute_dtype = resolved_dtype or torch_module.bfloat16
+        return BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=compute_dtype,
+        )
+
+    raise ValueError(
+        f"Unsupported local quantization mode '{quantization_mode}'. Use 4bit or none."
+    )
+
+
 def _ensure_local_gpu_model_loaded():
     global local_model
     global local_tokenizer
     global local_model_key
 
-    model_key = (hf_model, hf_token, local_gpu_device, local_gpu_dtype)
+    model_key = (hf_model, hf_token, local_gpu_device, local_gpu_dtype, local_gpu_quantization)
     if local_model is not None and local_tokenizer is not None and local_model_key == model_key:
         return
 
@@ -451,6 +483,9 @@ def _ensure_local_gpu_model_loaded():
     resolved_dtype = _dtype_from_name(torch, local_gpu_dtype)
     if resolved_dtype is not None:
         model_kwargs["torch_dtype"] = resolved_dtype
+    quantization_config = _bitsandbytes_quantization_config(torch, local_gpu_quantization, resolved_dtype)
+    if quantization_config is not None:
+        model_kwargs["quantization_config"] = quantization_config
 
     # If the provided model string refers to an existing local directory, attempt adapter-aware loading
     if os.path.isdir(hf_model):

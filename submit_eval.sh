@@ -3,9 +3,9 @@
 #SBATCH --output=nlxocpq-eval-%J.out
 #SBATCH --partition=c23g
 #SBATCH --gres=gpu:1
-#SBATCH --mem=16G
+#SBATCH --mem=32G
 #SBATCH --cpus-per-task=2
-#SBATCH --time=02:00:00
+#SBATCH --time=20:00:00
 
 cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"
 
