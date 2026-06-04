@@ -552,6 +552,11 @@ def _ensure_local_gpu_model_loaded():
 
     local_model = model
     local_tokenizer = tokenizer
+    if hasattr(local_model, "generation_config") and local_model.generation_config is not None:
+        try:
+            local_model.generation_config.max_length = None
+        except Exception:
+            pass
     local_model_key = model_key
 
 
@@ -1036,8 +1041,7 @@ def validate_and_normalize_ocpq_json(ocpq_json):
         ocpq_json = _normalize_constraints_shape(ocpq_json)
         validated = BindingBoxTree.model_validate(ocpq_json)
         return validated.model_dump(by_alias=True)
-    except ValidationError as e:
-        print(f"Pydantic validation failed:\n{e}")
+    except ValidationError:
         return None
 
 
@@ -1136,7 +1140,6 @@ def verify_ocpq_json(ocpq_json, model_name, messages, query=None, schema_enforce
                 "missing_o2e": missing_o2e,
             },
         )
-        print("Generated OCPQ JSON is invalid, has disconnected nodes, empty nodes, missing O2E filters, or hallucinated entities. Asking LLM to fix it...")
         prompt = f"""
 The following JSON is invalid, incomplete, contains disconnected nodes, contains completely empty nodes, misses O2E filters, or has hallucinated entities (events/objects not provided).
 
@@ -1181,7 +1184,6 @@ JSON:
             )
         return fixed_json
     else:
-        print("Generated OCPQ JSON is valid.")
         return normalized
 
 
@@ -1424,8 +1426,6 @@ def _run_pipeline_grammar_guided(
         # Auto-fix using the chat history context block
         # Only try to fix if an actual execution error (stderr from a crash/panic) occurred
         if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
-            print("Query execution error output:\n", query_stderr)
-
             prompt_4 = f"The generated JSON query caused this execution error:\n{query_stderr}\n\nPlease fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
             fixed_json, fixed_content = schema_fix_with_llm(
                 model_name=selected_model,
@@ -1578,7 +1578,6 @@ JSON:
         )
 
         if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
-            print("Query execution error output:\n", query_stderr)
             prompt_4 = (
                 f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
                 "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
@@ -1723,7 +1722,6 @@ Query:
         )
 
         if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
-            print("Query execution error output:\n", query_stderr)
             prompt_fix = (
                 f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
                 "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
@@ -1944,7 +1942,6 @@ ONLY output valid JSON.
         )
 
         if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
-            print("Query execution error output:\n", query_stderr)
             prompt_4 = (
                 f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
                 "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
@@ -2258,7 +2255,6 @@ Return JSON:
         )
 
         if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
-            print("Query execution error output:\n", query_stderr)
             prompt_6 = (
                 f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
                 "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
