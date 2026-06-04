@@ -80,12 +80,11 @@ def run_ocpq_query(ocel_path, query_result_file):
         
     cargo_cmd = _find_cargo_command()
         
-    # The -q (quiet) flag restricts cargo build output, only showing program output
-    # Include the `evaluate` subcommand so the CLI receives the correct command
-    # and explicitly target the `ocpq_cli` package to avoid ambiguity.
+    # The -q (quiet) flag restricts cargo build output, only showing program output.
+    # The binary itself accepts `--ocel` and `--bbox-tree` directly, so do not
+    # inject an extra subcommand here.
     cmd = [
         cargo_cmd, "run", "-q", "--release", "-p", "ocpq_cli", "--",
-        "evaluate",
         "--ocel", ocel_abs,
         "--bbox-tree", query_abs,
     ]
