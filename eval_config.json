@@ -12,15 +12,15 @@
   "shuffle": false,
   "auto_expand_finetuned": true,
   "fine_tune_map": {
-    "meta-llama/Meta-Llama-3-8B-Instruct": {
+    "unsloth/llama-3-8b-Instruct-bnb-4bit": {
       "name": "adapters/llama-3-8b-instruct-bnb-4bit-fine-tuned-quantized",
       "label": "llama3-8b-finetuned"
     },
-    "openai/gpt-oss-20b": {
+    "unsloth/gpt-oss-20b-unsloth-bnb-4bit": {
       "name": "adapters/gpt-oss-20b-fine-tuned-quantized",
       "label": "gpt-oss-20b-finetuned"
     },
-    "google/gemma-3-4B-it": {
+    "unsloth/gemma-3-4b-it-unsloth-bnb-4bit": {
       "name": "adapters/gemma-3-4b-it-fine-tuned-quantized",
       "label": "gemma3-4b-finetuned"
     }
@@ -35,15 +35,15 @@
   ],
   "models": [
     {
-      "name": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "name": "unsloth/llama-3-8b-Instruct-bnb-4bit",
       "label": "llama3-8b-base"
     },
     {
-      "name": "openai/gpt-oss-20b",
+      "name": "unsloth/gpt-oss-20b-unsloth-bnb-4bit",
       "label": "gpt-oss-20b"
     },
     {
-      "name": "google/gemma-3-4B-it",
+      "name": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
       "label": "gemma3-4b"
     }
   ]

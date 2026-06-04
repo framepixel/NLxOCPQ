@@ -479,7 +479,7 @@ def _ensure_local_gpu_model_loaded():
     # 1) A HF hub id or local model dir with full pretrained weights
     # 2) A local directory that contains a merged/converted model (pytorch_model.bin, etc.)
     # 3) A LoRA adapter directory (PEFT) such as lora_model_ocpq* containing adapter_config.json
-    model_kwargs = {"device_map": "auto"}
+    model_kwargs = {"device_map": "auto", "trust_remote_code": True}
     resolved_dtype = _dtype_from_name(torch, local_gpu_dtype)
     if resolved_dtype is not None:
         model_kwargs["torch_dtype"] = resolved_dtype
@@ -522,12 +522,12 @@ def _ensure_local_gpu_model_loaded():
 
             # Load base model, then attach the adapter
             base = AutoModelForCausalLM.from_pretrained(base_model_name, **auth_kwargs, **model_kwargs)
-            tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True, **auth_kwargs)
+            tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True, trust_remote_code=True, **auth_kwargs)
             model = PeftModel.from_pretrained(base, hf_model)
 
         elif merged_weights:
             # Directory appears to contain merged weights; load directly from the directory
-            tokenizer = AutoTokenizer.from_pretrained(hf_model, use_fast=True, **auth_kwargs)
+            tokenizer = AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs)
             if tokenizer.pad_token is None and tokenizer.eos_token is not None:
                 tokenizer.pad_token = tokenizer.eos_token
             model = AutoModelForCausalLM.from_pretrained(hf_model, **auth_kwargs, **model_kwargs)
@@ -539,7 +539,7 @@ def _ensure_local_gpu_model_loaded():
 
     else:
         # Normal HF hub id or remote model
-        tokenizer = AutoTokenizer.from_pretrained(hf_model, use_fast=True, **auth_kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs)
         if tokenizer.pad_token is None and tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
         model = AutoModelForCausalLM.from_pretrained(hf_model, **auth_kwargs, **model_kwargs)

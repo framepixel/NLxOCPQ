@@ -11,44 +11,38 @@
   "shuffle": false,
   "auto_expand_finetuned": true,
   "fine_tune_map": {
-    "meta-llama/Meta-Llama-3-8B-Instruct": {
+    "unsloth/llama-3-8b-Instruct-bnb-4bit": {
       "name": "lora_model_ocpq",
-      "label": "meta-llama-3-8b-instruct-fine-tuned-quantized"
+      "label": "llama3-8b-finetuned"
     },
-    "mistralai/Mixtral-8x7B-Instruct-v0.1": {
-      "name": "mixtral-8x7b-lora",
-      "label": "mixtral-8x7b-instruct-v0.1-fine-tuned-quantized"
-    },
-    "openai/gpt-oss-20b": {
+    "unsloth/gpt-oss-20b-unsloth-bnb-4bit": {
       "name": "gpt-oss-20b-lora",
-      "label": "gpt-oss-20b-fine-tuned-quantized"
+      "label": "gpt-oss-20b-finetuned"
     },
-    "google/gemma-4-31B-it": {
-      "name": "gemma-4-31b-lora",
-      "label": "gemma-4-31b-it-fine-tuned-quantized"
+    "unsloth/gemma-3-4b-it-unsloth-bnb-4bit": {
+      "name": "gemma-3-4b-it-fine-tuned-quantized",
+      "label": "gemma3-4b-finetuned"
     }
   },
   "schema_enforced": [true, false],
   "schema_validation": true,
   "schema_validation_when_no_schema": false,
   "prompt_strategies": [
-    "schema-grammar-guided",
     "schema-allowed-entities-only",
-    "schema-few-shot",
-    "schema-chain-of-thought-plus",
-    "schema-least-to-most"
+    "schema-grammar-guided",
+    "schema-chain-of-thought-plus"
   ],
   "models": [
     {
-      "name": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "name": "unsloth/llama-3-8b-Instruct-bnb-4bit",
       "label": "llama3-8b-base"
     },
     {
-      "name": "openai/gpt-oss-20b",
+      "name": "unsloth/gpt-oss-20b-unsloth-bnb-4bit",
       "label": "gpt-oss-20b"
     },
     {
-      "name": "google/gemma-3-4B-it",
+      "name": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
       "label": "gemma3-4b"
     }
   ]
