@@ -411,7 +411,12 @@ def run_evaluation(config_path_or_config):
     if not testset_abs.exists():
         raise FileNotFoundError(f"Testset not found: {testset_abs}")
 
-    run_id = time.strftime("eval_run_%Y%m%d_%H%M%S")
+    model_idx_filter = config.get("_model_idx")
+    run_id = (
+        f"shard_m{model_idx_filter}_{time.strftime('%Y%m%d_%H%M%S')}"
+        if model_idx_filter is not None
+        else time.strftime("eval_run_%Y%m%d_%H%M%S")
+    )
     resume_from = config.get("resume_from")
     if resume_from:
         resume_path = Path(resume_from)
@@ -435,6 +440,14 @@ def run_evaluation(config_path_or_config):
     models = config.get("models") or []
     if not models:
         raise ValueError("Config must include a non-empty 'models' list.")
+
+    if model_idx_filter is not None:
+        if model_idx_filter < 0 or model_idx_filter >= len(models):
+            raise ValueError(
+                f"--model-idx {model_idx_filter} is out of range "
+                f"(0–{len(models) - 1} for this config)."
+            )
+        models = [models[model_idx_filter]]
 
     prompt_strategies = config.get("prompt_strategies") or DEFAULT_PROMPT_STRATEGIES
     schema_enforced_values = config.get("schema_enforced", [True])
@@ -876,26 +889,71 @@ def _build_summary(records, repeats):
     return summary
 
 
+def _merge_shards(shard_dirs, output_dir):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    all_records = []
+    repeats = 1
+    for shard_dir in shard_dirs:
+        shard_path = Path(shard_dir)
+        predictions_path = shard_path / "predictions.json"
+        if not predictions_path.exists():
+            print(f"Warning: no predictions.json in {shard_dir}, skipping.")
+            continue
+        shard_records = _read_json(predictions_path)
+        all_records.extend(shard_records)
+        cfg_path = shard_path / "config_resolved.json"
+        if cfg_path.exists():
+            manifest = _read_json(cfg_path)
+            repeats = manifest.get("config", {}).get("repeats", repeats)
+
+    if not all_records:
+        print("No records found across shards. Nothing to merge.")
+        return
+
+    _write_json(output_dir / "predictions.json", all_records)
+    summary = _build_summary(all_records, repeats)
+    summary["evaluation_phases"] = EVALUATION_PHASES
+    _write_json(output_dir / "summary.json", summary)
+    print(f"Merged {len(all_records)} records from {len(shard_dirs)} shard(s) into {output_dir}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate NLxOCPQ against a handcrafted testset.")
-    parser.add_argument("--config", required=True, help="Path to evaluation config JSON.")
+    parser.add_argument("--config", help="Path to evaluation config JSON.")
     parser.add_argument("--dry-run", action="store_true", help="Print the planned run counts and exit without running evaluations.")
     parser.add_argument("--resume-from", default="", help="Resume an interrupted run from an existing run directory or checkpoint.json.")
+    parser.add_argument("--model-idx", type=int, default=None,
+        help="0-based index into the expanded models list. Restricts this job to that model only (for Slurm array parallelism).")
+    parser.add_argument("--merge-shards", nargs="+", metavar="DIR",
+        help="Merge predictions.json files from multiple shard run-dirs into a combined summary.")
+    parser.add_argument("--merge-output", metavar="DIR", default="eval_runs/merged",
+        help="Output directory for merged results (default: eval_runs/merged).")
     args = parser.parse_args()
+
+    if args.merge_shards:
+        _merge_shards(args.merge_shards, args.merge_output)
+        return
+
+    if not args.config:
+        parser.error("--config is required unless --merge-shards is used.")
 
     if args.dry_run:
         config = _read_json(args.config)
         config["dry_run"] = True
+        if args.model_idx is not None:
+            config["_model_idx"] = args.model_idx
         run_evaluation(config)
         print("Dry run complete.")
         return
 
+    config = _read_json(args.config)
+    if args.model_idx is not None:
+        config["_model_idx"] = args.model_idx
     if args.resume_from:
-        config = _read_json(args.config)
         config["resume_from"] = args.resume_from
-        run_dir = run_evaluation(config)
-    else:
-        run_dir = run_evaluation(args.config)
+    run_dir = run_evaluation(config)
     print(f"Evaluation complete. Outputs saved in {run_dir}")
 
 
