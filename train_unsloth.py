@@ -144,6 +144,9 @@ def _choose_training_mode():
     }
 
 # 1. Configuration
+_gc_env = os.getenv("OCPQ_GRADIENT_CHECKPOINTING", "unsloth")
+gradient_checkpointing_mode = False if _gc_env == "false" else (True if _gc_env == "true" else _gc_env)
+
 max_seq_length = 2048 # Good size for JSON generation
 random_seed = int(os.getenv("OCPQ_RANDOM_SEED", "3407"))
 validation_split = float(os.getenv("OCPQ_VALIDATION_SPLIT", "0.1"))
@@ -336,7 +339,7 @@ model = FastLanguageModel.get_peft_model(
     lora_alpha = 16,
     lora_dropout = 0,
     bias = "none",
-    use_gradient_checkpointing = "unsloth", # CRITICAL for 11GB GPU (slashes VRAM by 30%)
+    use_gradient_checkpointing = gradient_checkpointing_mode,
     random_state = random_seed,
     use_rslora = False,
     loftq_config = None,
