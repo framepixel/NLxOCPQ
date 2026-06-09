@@ -605,7 +605,6 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
         "do_sample": do_sample,
         "pad_token_id": local_tokenizer.pad_token_id or local_tokenizer.eos_token_id,
         "eos_token_id": local_tokenizer.eos_token_id,
-        "repetition_penalty": 1.15,
     }
     if temperature is not None and temperature > 0:
         generate_kwargs["temperature"] = float(temperature)
@@ -660,6 +659,11 @@ def _extract_usage_from_response(response):
 
 def _record_llm_call(response, duration_sec, model_name=None, response_format=None):
     usage = _extract_usage_from_response(response)
+    content = ""
+    try:
+        content = response.choices[0].message.content or ""
+    except Exception:
+        pass
     entry = {
         "model": model_name,
         "backend": hf_backend,
@@ -667,6 +671,7 @@ def _record_llm_call(response, duration_sec, model_name=None, response_format=No
         "prompt_tokens": usage.get("prompt_tokens") if usage else None,
         "completion_tokens": usage.get("completion_tokens") if usage else None,
         "total_tokens": usage.get("total_tokens") if usage else None,
+        "completion_chars": len(content),
     }
     if isinstance(response_format, dict):
         entry["response_format"] = response_format.get("type")

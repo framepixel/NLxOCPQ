@@ -170,9 +170,6 @@ selected_model_name = training_mode["model_name"]
 precision_label = training_mode["precision_label"]
 run_label = training_mode["run_label"]
 attention_implementation = os.getenv("OCPQ_ATTENTION_IMPLEMENTATION")
-if not attention_implementation and "gpt-oss" in selected_model_name.lower():
-    attention_implementation = "eager"
-is_gpt_oss_model = "gpt-oss" in selected_model_name.lower()
 
 output_dir = os.getenv("OCPQ_OUTPUT_DIR") or os.path.join("outputs", run_label)
 adapter_output_dir = os.getenv("OCPQ_ADAPTER_OUTPUT_DIR") or os.path.join("adapters", run_label)
@@ -361,12 +358,20 @@ if resume_checkpoint and Path(resume_checkpoint).is_dir() and (Path(resume_check
     model.set_adapter("default")
 
 # 4. Format Dataset
-# Unsloth applies the exact Llama-3 special tokens (<|start_header_id|>user<|end_header_id|>)
-tokenizer = get_chat_template(
-    tokenizer,
-    chat_template = os.getenv("OCPQ_CHAT_TEMPLATE", "llama-3"),
-    mapping = {"role" : "role", "content" : "content", "user": "user", "assistant": "assistant"},
-)
+# OCPQ_CHAT_TEMPLATE controls how the tokenizer formats chat turns.
+# Use "auto" to trust the model's own built-in chat_template (required for models
+# like Phi-4 whose template is not one of unsloth's named presets).
+_chat_template_key = os.getenv("OCPQ_CHAT_TEMPLATE", "llama-3")
+if _chat_template_key == "auto":
+    # The HuggingFace tokenizer already has the correct Jinja template embedded;
+    # calling get_chat_template would overwrite it with a wrong preset.
+    pass
+else:
+    tokenizer = get_chat_template(
+        tokenizer,
+        chat_template = _chat_template_key,
+        mapping = {"role" : "role", "content" : "content", "user": "user", "assistant": "assistant"},
+    )
 
 def formatting_prompts_func(examples):
     # Applies the Llama 3 chat template to our converted JSONL strings
@@ -383,6 +388,13 @@ eval_dataset = dataset_split["test"].map(formatting_prompts_func, batched=True)
 print(f"Loaded {len(raw_dataset)} supervised rows from {finetune_dataset_path}")
 print(f"Train rows: {len(train_dataset)}")
 print(f"Validation rows: {len(eval_dataset)}")
+
+_preview_n = int(os.getenv("OCPQ_PREVIEW_EXAMPLES", "0"))
+if _preview_n > 0:
+    print(f"\n=== Formatted example preview (OCPQ_PREVIEW_EXAMPLES={_preview_n}) ===")
+    for i, text in enumerate(train_dataset["text"][:_preview_n]):
+        print(f"\n--- Example {i} ---\n{text}")
+    print("=== End of preview ===")
 
 # 5. Configure the Trainer
 trainer = SFTTrainer(
@@ -465,10 +477,8 @@ def _manual_eval_loss(model, tokenizer, texts, batch_size=2):
             return_tensors="pt",
         )
         batch = {key: value.to(device) for key, value in batch.items()}
-        if is_gpt_oss_model:
-            batch["attention_mask"] = batch["attention_mask"].unsqueeze(1).unsqueeze(2)
         labels = batch["input_ids"].clone()
-        padding_mask = batch["attention_mask"] == 0 if batch["attention_mask"].dim() == 2 else batch["attention_mask"].squeeze(1).squeeze(1) == 0
+        padding_mask = batch["attention_mask"] == 0
         labels[padding_mask] = -100
 
         with torch.no_grad():

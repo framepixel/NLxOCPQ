@@ -8,7 +8,7 @@ import random
 import re
 import time
 import traceback
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 from ocpq_schema import BindingBoxTree
@@ -44,7 +44,6 @@ EVALUATION_PHASES = [
     "schema_check",
     "execution",
     "similarity",
-    "consistency",
     "summary",
 ]
 RUN_PHASE_TRACE = ["generation", "schema_check", "execution", "similarity"]
@@ -229,6 +228,7 @@ def _summarize_llm_stats(stats):
     total_prompt = 0
     total_completion = 0
     total_tokens = 0
+    total_chars = 0
     total_duration = 0.0
     has_token_data = False
 
@@ -242,6 +242,7 @@ def _summarize_llm_stats(stats):
         total_prompt += int(prompt_tokens or 0)
         total_completion += int(completion_tokens or 0)
         total_tokens += int(total_tokens_entry or 0)
+        total_chars += int(entry.get("completion_chars") or 0)
 
     return {
         "calls": len(stats),
@@ -249,6 +250,7 @@ def _summarize_llm_stats(stats):
         "prompt_tokens": total_prompt if has_token_data else None,
         "completion_tokens": total_completion if has_token_data else None,
         "total_tokens": total_tokens if has_token_data else None,
+        "completion_chars": total_chars,
     }
 
 
@@ -736,7 +738,6 @@ def run_evaluation(config_path_or_config):
         },
     )
 
-    _log_phase("consistency", "Aggregating repeat consistency metrics.")
     summary = _build_summary(records, repeats)
     summary["evaluation_phases"] = EVALUATION_PHASES
     summary["evaluation_phase_trace"] = EVALUATION_PHASES
@@ -750,36 +751,6 @@ def _build_summary(records, repeats):
     by_config = defaultdict(list)
     for rec in records:
         by_config[rec["config_id"]].append(rec)
-
-    consistency_by_config = defaultdict(list)
-    by_case_config = defaultdict(list)
-    for rec in records:
-        by_case_config[(rec["case_id"], rec["config_id"])].append(rec)
-
-    for (case_id, config_id), recs in by_case_config.items():
-        json_keys = []
-        f1_values = []
-        exec_success = []
-        for rec in recs:
-            pred = rec.get("prediction")
-            if pred is None:
-                json_keys.append("null")
-            else:
-                json_keys.append(json.dumps(pred, sort_keys=True, separators=(",", ":")))
-            combined = (rec.get("similarity") or {}).get("combined")
-            f1_values.append(combined.get("f1") if combined else None)
-            exec_success.append(bool((rec.get("execution") or {}).get("success")))
-
-        counts = Counter(json_keys)
-        mode_rate = max(counts.values()) / max(len(json_keys), 1)
-        consistency_by_config[config_id].append(
-            {
-                "case_id": case_id,
-                "json_mode_rate": mode_rate,
-                "result_f1_std": _std([v for v in f1_values if v is not None]),
-                "execution_success_rate": sum(exec_success) / max(len(exec_success), 1),
-            }
-        )
 
     summary = {
         "total_records": len(records),
@@ -797,6 +768,8 @@ def _build_summary(records, repeats):
         prompt_tokens = _mean([r["llm"].get("prompt_tokens") for r in recs])
         completion_tokens = _mean([r["llm"].get("completion_tokens") for r in recs])
         total_tokens = _mean([r["llm"].get("total_tokens") for r in recs])
+        avg_completion_chars = _mean([r["llm"].get("completion_chars") for r in recs])
+        avg_llm_calls = _mean([r["llm"].get("calls") for r in recs])
         llm_duration = _mean([r["llm"].get("duration_sec") for r in recs])
         exec_duration = _mean([r["execution"].get("duration_sec") for r in recs])
         total_duration = _mean([r.get("total_duration_sec") for r in recs])
@@ -847,7 +820,6 @@ def _build_summary(records, repeats):
             if r.get("similarity")
         ])
 
-        consistency = consistency_by_config.get(config_id, [])
         summary["by_config"][config_id] = {
             "meta": {
                 "model_label": recs[0].get("model_label"),
@@ -872,17 +844,14 @@ def _build_summary(records, repeats):
                 "combined_f1": combined_f1,
                 "combined_precision": combined_precision,
                 "combined_recall": combined_recall,
+                "avg_completion_chars": avg_completion_chars,
+                "avg_llm_calls": avg_llm_calls,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
                 "llm_duration_sec": llm_duration,
                 "exec_duration_sec": exec_duration,
                 "total_duration_sec": total_duration,
-            },
-            "consistency": {
-                "json_mode_rate": _mean([c["json_mode_rate"] for c in consistency]) if consistency else None,
-                "result_f1_std": _mean([c["result_f1_std"] for c in consistency]) if consistency else None,
-                "execution_success_rate": _mean([c["execution_success_rate"] for c in consistency]) if consistency else None,
             },
         }
 

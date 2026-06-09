@@ -6,7 +6,7 @@
   "local_dtype": "auto",
   "local_quantization": "4bit",
   "temperature": 0.0,
-  "repeats": 3,
+  "repeats": 1,
   "limit": 0,
   "seed": 3407,
   "shuffle": false,
@@ -16,9 +16,9 @@
       "name": "adapters/llama-3-8b-instruct-bnb-4bit-fine-tuned-quantized",
       "label": "llama3-8b-finetuned"
     },
-    "unsloth/gpt-oss-20b-unsloth-bnb-4bit": {
-      "name": "adapters/gpt-oss-20b-fine-tuned-quantized",
-      "label": "gpt-oss-20b-finetuned"
+    "unsloth/phi-4-unsloth-bnb-4bit": {
+      "name": "adapters/phi4-14b-fine-tuned-quantized",
+      "label": "phi4-14b-finetuned"
     },
     "unsloth/gemma-3-4b-it-unsloth-bnb-4bit": {
       "name": "adapters/gemma-3-4b-it-fine-tuned-quantized",
@@ -39,8 +39,8 @@
       "label": "llama3-8b-base"
     },
     {
-      "name": "unsloth/gpt-oss-20b-unsloth-bnb-4bit",
-      "label": "gpt-oss-20b"
+      "name": "unsloth/phi-4-unsloth-bnb-4bit",
+      "label": "phi4-14b-base"
     },
     {
       "name": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
