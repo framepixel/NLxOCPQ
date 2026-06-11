@@ -56,6 +56,27 @@ def _import_training_stack():
 
 FastLanguageModel, torch, TrainingArguments, TrainerCallback, SFTTrainer, load_dataset, get_chat_template = _import_training_stack()
 
+# Unsloth's exec()-compiled _fast_inner_training_loop changes the class identity
+# of trl.trainer.sft_config.SFTConfig in sys.modules as a side effect of its
+# patching. This makes torch.save(self.args) fail with PicklingError during
+# checkpoint saves. Patch torch.save to skip training_args.bin silently — it is
+# metadata-only and not needed to load or use the saved LoRA adapter. Model
+# weights are always saved via safetensors and are unaffected.
+import pickle as _pickle
+
+_orig_torch_save = torch.save
+
+def _torch_save_patched(obj, f, *args, **kwargs):
+    try:
+        _orig_torch_save(obj, f, *args, **kwargs)
+    except _pickle.PicklingError as _e:
+        if "not the same object" in str(_e):
+            print(f"[train_unsloth] Skipping {os.path.basename(str(f))} — SFTConfig identity mismatch (known unsloth/trl compat issue)")
+        else:
+            raise
+
+torch.save = _torch_save_patched
+
 
 def _slugify(value):
     value = str(value).strip().lower()
