@@ -120,7 +120,13 @@ class SizeFilterNumChilds(BaseModel):
     min: Optional[int] = None
     max: Optional[int] = None
 
-QuerySizeFilter = Annotated[Union[SizeFilterNumChilds], Field(discriminator="type")]
+class SizeFilterAdvancedCEL(BaseModel):
+    type: Literal["AdvancedCEL"]
+    cel: str
+
+QuerySizeFilter = Annotated[Union[
+    SizeFilterNumChilds, SizeFilterAdvancedCEL
+], Field(discriminator="type")]
 
 # --- OCPQ CONSTRAINTS ---
 
@@ -157,6 +163,12 @@ QueryConstraint = Annotated[Union[
     ConstraintANY, ConstraintNOT, ConstraintOR, ConstraintAND
 ], Field(discriminator="type")]
 
+# --- CEL LABELS ---
+
+class CELLabel(BaseModel):
+    label: str
+    cel: str
+
 # --- TREE NODES ---
 
 class BindingBoxData(BaseModel):
@@ -167,6 +179,7 @@ class BindingBoxData(BaseModel):
     constraints: List[QueryConstraint]
     evVarLabels: Dict[str, FilterLabel]
     obVarLabels: Dict[str, FilterLabel]
+    labels: List[CELLabel] = Field(default_factory=list)
 
 class BindingBoxTreeNodeBox(BaseModel):
     Box: Tuple[BindingBoxData, List[int]]

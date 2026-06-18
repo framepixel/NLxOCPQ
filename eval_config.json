@@ -13,7 +13,7 @@
   "auto_expand_finetuned": true,
   "fine_tune_map": {
     "unsloth/llama-3-8b-Instruct-bnb-4bit": {
-      "name": "adapters/llama-3-8b-instruct-bnb-4bit-fine-tuned-quantized",
+      "name": "adapters/llama3-8b-fine-tuned-quantized",
       "label": "llama3-8b-finetuned"
     },
     "unsloth/phi-4-unsloth-bnb-4bit": {

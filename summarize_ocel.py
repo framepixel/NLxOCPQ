@@ -31,20 +31,20 @@ def load_ocel(ocel_path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]
         with open(ocel_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        # events
-        if 'eventTypes' in data:
-            # OCEL 2.0: eventTypes may be a dict or list
+        # events — prefer actual instances over type-schema definitions
+        ev_raw = data.get('ocel:events') or data.get('events')
+        if ev_raw is not None:
+            if isinstance(ev_raw, dict):
+                events = [dict(v, id=k) for k, v in ev_raw.items()]
+            else:
+                events = list(ev_raw) or []
+        elif 'eventTypes' in data:
+            # fall back to type schema if no instance list exists
             et = data['eventTypes']
             if isinstance(et, dict):
                 events = [dict(v, id=k) for k, v in et.items()]
             else:
-                events = et
-        else:
-            ev = data.get('ocel:events') or data.get('events') or {}
-            if isinstance(ev, dict):
-                events = [dict(v, id=k) for k, v in ev.items()]
-            else:
-                events = ev or []
+                events = list(et) or []
 
         # objects
         if 'objectTypes' in data:
@@ -86,16 +86,34 @@ def load_ocel(ocel_path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]
 def summarize(events: List[Dict[str, Any]], objects: List[Dict[str, Any]]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
 
-    # Events: collect activity/name/type values and counts
+    # Events: collect activity/name/type values, counts, and attribute keys per type
+    _EVENT_META_KEYS = {'name', 'type', 'activity', 'ocel:activity', 'id', 'ocel:id',
+                        'timestamp', 'ocel:timestamp', 'time', 'ocel:time',
+                        'relationships', 'ocel:omap', 'ocel:vmap', 'attributes'}
     event_names = []
+    event_attrs: Dict[str, set] = defaultdict(set)
     for e in events:
         name = e.get('name') or e.get('type') or e.get('activity') or e.get('ocel:activity')
         if name is not None:
-            event_names.append(str(name))
+            name = str(name)
+            event_names.append(name)
+            # unwrap nested "attributes" list (OCEL 2.0: [{name, value}, ...])
+            nested = e.get('attributes') or e.get('ocel:vmap')
+            if isinstance(nested, list):
+                for item in nested:
+                    if isinstance(item, dict) and 'name' in item:
+                        event_attrs[name].add(item['name'])
+            elif isinstance(nested, dict):
+                event_attrs[name].update(nested.keys())
+            # also collect any flat keys not in meta
+            for k in e:
+                if k not in _EVENT_META_KEYS:
+                    event_attrs[name].add(k)
     ev_counter = Counter(event_names)
     out['events'] = {
         'unique_names': sorted(list(ev_counter.keys())),
         'counts': dict(ev_counter),
+        'attributes': {n: sorted(list(ks)) for n, ks in event_attrs.items()},
         'total_event_definitions': len(events),
     }
 
@@ -132,8 +150,11 @@ def pretty_print(summary: Dict[str, Any], stream=sys.stdout) -> None:
     ev = summary['events']
     print(f"Total event definitions: {ev.get('total_event_definitions', 0)}", file=stream)
     print(f"Unique event names ({len(ev['unique_names'])}):", file=stream)
+    attrs_map = ev.get('attributes', {})
     for name, cnt in sorted(ev['counts'].items(), key=lambda x: (-x[1], x[0])):
-        print(f"  - {name}: {cnt}", file=stream)
+        attr_keys = attrs_map.get(name, [])
+        attr_str = f"  [attrs: {', '.join(attr_keys)}]" if attr_keys else ''
+        print(f"  - {name}: {cnt}{attr_str}", file=stream)
     print('', file=stream)
 
     # Objects

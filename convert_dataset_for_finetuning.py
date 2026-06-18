@@ -57,11 +57,27 @@ def _resolve_allowed_entities(item):
     return allowed_events, allowed_objects
 
 
-def _make_user_prompt(query_nl, allowed_events, allowed_objects, include_reasoning=False):
+def _make_user_prompt(query_nl, allowed_events, allowed_objects, include_reasoning=False,
+                      object_attributes=None):
     prompt = f"""Convert this natural language query to an OCPQ JSON graph.
 
 ALLOWED EVENTS: {json.dumps(allowed_events, ensure_ascii=True)}
-ALLOWED OBJECTS: {json.dumps(allowed_objects, ensure_ascii=True)}
+ALLOWED OBJECTS: {json.dumps(allowed_objects, ensure_ascii=True)}"""
+
+    if object_attributes:
+        lines = []
+        for obj_type, attrs in object_attributes.items():
+            parts = []
+            for a in attrs:
+                part = f"{a['name']} ({a['type']}"
+                if a.get("values"):
+                    part += f": {', '.join(str(v) for v in a['values'])}"
+                part += ")"
+                parts.append(part)
+            lines.append(f"  {obj_type}: {', '.join(parts)}")
+        prompt += "\nOBJECT ATTRIBUTES:\n" + "\n".join(lines)
+
+    prompt += f"""
 
 Rules:
 - Output ONLY raw JSON matching the OCPQ schema.
@@ -88,11 +104,13 @@ def _make_training_rows(item):
     query_nl = item["nl"]
     reasoning = item.get("reasoning", "")
     ocpq_json = item["query"]
+    object_attributes = item.get("object_attributes")
     allowed_events, allowed_objects = _resolve_allowed_entities(item)
     assistant_response = json.dumps(ocpq_json, ensure_ascii=True, indent=2)
 
     rows = []
-    base_prompt = _make_user_prompt(query_nl, allowed_events, allowed_objects, include_reasoning=False)
+    base_prompt = _make_user_prompt(query_nl, allowed_events, allowed_objects,
+                                    include_reasoning=False, object_attributes=object_attributes)
     rows.append(
         {
             "messages": [
@@ -103,7 +121,8 @@ def _make_training_rows(item):
         }
     )
 
-    reasoning_prompt = _make_user_prompt(query_nl, allowed_events, allowed_objects, include_reasoning=True)
+    reasoning_prompt = _make_user_prompt(query_nl, allowed_events, allowed_objects,
+                                         include_reasoning=True, object_attributes=object_attributes)
     rows.append(
         {
             "messages": [
@@ -115,7 +134,8 @@ def _make_training_rows(item):
     )
 
     negative_prompt = (
-        _make_user_prompt(query_nl, allowed_events, allowed_objects, include_reasoning=False)
+        _make_user_prompt(query_nl, allowed_events, allowed_objects,
+                          include_reasoning=False, object_attributes=object_attributes)
         + f"""
 
 Bad output patterns to avoid for this query:
@@ -146,7 +166,9 @@ The correct answer must avoid those mistakes and still represent this query exac
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {
                             "role": "user",
-                            "content": _make_user_prompt(rewrite_text, allowed_events, allowed_objects, include_reasoning=False),
+                            "content": _make_user_prompt(rewrite_text, allowed_events, allowed_objects,
+                                                         include_reasoning=False,
+                                                         object_attributes=object_attributes),
                         },
                         {"role": "assistant", "content": assistant_response},
                     ]
