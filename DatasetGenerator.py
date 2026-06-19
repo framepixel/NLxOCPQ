@@ -1658,6 +1658,8 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
 
             updated_example["events"] = ex["events"]
             updated_example["objects"] = ex["objects"]
+            if "object_attributes" in ex:
+                updated_example["object_attributes"] = ex["object_attributes"]
             updated_example["query"] = ex["query"]
             updated_example["reasoning"] = ex["reasoning"]
             dataset.append(updated_example)
