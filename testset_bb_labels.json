@@ -1,0 +1,1270 @@
+[
+  {
+    "nl_query": "no payment reminder should be sent out after payment has been made",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F4",
+      "C1",
+      "T1"
+    ]
+  },
+  {
+    "nl_query": "What are the customers that received at least 50 payment reminders for their orders?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F2",
+      "S1",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "orders with at most 10 items should be paid within three weeks after placement",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F2",
+      "F5",
+      "S1",
+      "S2",
+      "C2",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "Which orders were fully delivered within 3.5 weeks?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F2",
+      "F5",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Which customers had at least 5 orders for which at least two payment reminder had to be sent out?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "S2",
+      "C2",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "What is the total order volume of customers, i.e. the sum of all order prices for which payment has been recorded, where all customers with a total order volume below \u20ac300,000 are shown as having violated the terms?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F2",
+      "S1",
+      "S3",
+      "C2",
+      "L1",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "There are at least three items per package.",
+    "bb_labels": [
+      "V2",
+      "F2",
+      "S1",
+      "C2",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Every item that is picked must be either sent in a package or marked as out of stock afterwards.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C6",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "Customers who place an order must have at least one payment event associated with one of their orders.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F2",
+      "S1",
+      "C2",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Orders must not remain unpaid for more than 21 days after placement.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F5",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Borrower information must be verified before the file is submitted to the underwriter.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "A person whose loan was denied must not sign a loan agreement afterwards.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C5",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Every signed loan agreement must be preceded by a submitted underwriting file.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Appointment denial must only occur after a request appointment event.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Every handed-in credit application must eventually lead to either a signed loan agreement, a rejected application, or a denied loan.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Loan agreements should be signed within 30 days after handing in the credit application.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F5",
+      "C1",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Persons marked with skipped examination must not have their loan approved directly afterwards.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F18",
+      "C1",
+      "C5",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Every patient arrival must be preceded by a completed registration.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Initial evaluation must not occur before insurance verification has been completed.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Every admitted patient must eventually receive a bed assignment.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Every performed diagnostic test must have a corresponding prior diagnostic test order.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Diagnostic equipment should not be used simultaneously for more than one diagnostic test.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F7",
+      "C1",
+      "C5",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Every assigned bed must belong to the same room in which the patient receives care.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V6",
+      "F1",
+      "S2",
+      "C2",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Diagnostic tests should be performed within 48 hours after being ordered.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F5",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Patients receiving diagnostic tests must have undergone an initial evaluation beforehand.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Every submitted application must eventually be either rejected or progress to an initial interview.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Every completed assessment must have been previously sent to the candidate.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "No candidate should proceed to a panel interview before their assessment has been reviewed.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Candidates receiving an offer letter must have completed a background check beforehand.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Candidates who rejected an offer must not start onboarding afterwards.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C5",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Every candidate who accepted an offer should complete HR paperwork before attending orientation training.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Job openings must not be posted before the corresponding job requisition has been approved.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Vehicles must be booked before containers are loaded onto them.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Rescheduled containers must not depart before being reassigned to a vehicle.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C5",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Containers with more than 50 handling units should require at least two loading operations.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F10",
+      "F15",
+      "S1",
+      "C2",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Every backtracking step should eventually be followed by either new hypothesis generation or abductive reasoning.",
+    "bb_labels": [
+      "V3",
+      "V4",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Pattern recognition should precede inductive reasoning in successful reasoning paths.",
+    "bb_labels": [
+      "V1",
+      "V4",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Counterfactual reasoning must be validated before producing a correct conclusion.",
+    "bb_labels": [
+      "V1",
+      "V3",
+      "V4",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "C5",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "Ethical or moral reasoning should not directly produce wrong conclusions.",
+    "bb_labels": [
+      "V1",
+      "V3",
+      "V4",
+      "F1",
+      "F4",
+      "C1",
+      "C5",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "Every reasoning sequence ending in a partially correct conclusion must contain at least one validation event.",
+    "bb_labels": [
+      "V1",
+      "V3",
+      "V4",
+      "V5",
+      "F1",
+      "F4",
+      "S1",
+      "C1",
+      "C2",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Abductive reasoning followed by counterfactual reasoning should eventually lead to either validation or backtracking.",
+    "bb_labels": [
+      "V3",
+      "V4",
+      "V5",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Every feature implementation should eventually be followed by at least one test activity on the affected files.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Performance optimization activities should not directly introduce subsequent bug-fix events on the same files within 48 hours.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F5",
+      "C1",
+      "C5",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Only items that are linked to an order via the 'comprises' qualifier must be counted as part of that order",
+    "bb_labels": [
+      "V2",
+      "F3",
+      "S1",
+      "C2",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "A 'pay order' event must be related to the order object via the 'order' qualifier",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F3",
+      "S1",
+      "C2",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "A container must only be counted as belonging to a transport document via the 'CR for TD' relationship.",
+    "bb_labels": [
+      "V2",
+      "F3",
+      "S1",
+      "C2",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "An offer letter must be sent at least 3 days (259,200 s) after the background check completes.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F6",
+      "C1",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "A co-signer request must be made at least 2 days (172,800 s) before the loan agreement is signed.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F6",
+      "C1",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "When checking for simultaneous equipment usage, the two diagnostic test events must be distinct.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F7",
+      "F18",
+      "C1",
+      "C5",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "A vehicle that is booked twice must involve two distinct booking events.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F18",
+      "C1",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Backtracking events whose text equals 'failed' must be followed by hypothesis generation.",
+    "bb_labels": [
+      "V3",
+      "V4",
+      "F1",
+      "F4",
+      "F9",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Application events that were accepted must be followed by an offer creation event.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F9",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "A container must be 'full' before it can be loaded onto a vehicle.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F17",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Containers that were at some point empty must not depart",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F16",
+      "C5",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Persons marked as non-citizens (isCitizen='0') must submit their file to the underwriter before signing the loan agreement.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F13",
+      "F15",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "An order must have at least one item that was delivered within 3 weeks of placement",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F2",
+      "F5",
+      "C1",
+      "C4",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "An item must be both picked and sent in a package to be considered fulfilled",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C7",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "A container that was at some point marked as 'full' must have a 'Load to Vehicle' event recorded.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F16",
+      "S1",
+      "C2",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "At the time of loading, the container's status must be 'full'.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F17",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "At the time of shipping, the order price must be at least \u20ac100",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V6",
+      "F1",
+      "F2",
+      "F10",
+      "F17",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "A candidate must both pass the background check AND complete the assessment before receiving an offer letter.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "C7",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "A patient may only be discharged if both the diagnostic test is complete AND the treatment is successful.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "C7",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "A package must be both created AND sent before it can be marked as delivered.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "C7",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "For any container departure, the vehicle used to load the container must have been booked beforehand",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "T5"
+    ]
+  },
+  {
+    "nl_query": "For any loan approval, there must exist at least one prior submission to the underwriter by the applicant.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "C4",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "For every patient, each of their diagnostic test orders must be followed by at least one diagnostic test being performed.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "A candidate who progresses to onboarding must have either accepted an offer OR completed a background check beforehand.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "C6",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "After an abductive reasoning step, the next event must be either validation or counterfactual reasoning.",
+    "bb_labels": [
+      "V3",
+      "V4",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "C6",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "Retrieve the payment events for all orders that received at least one reminder.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C7",
+      "L2",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "List all diagnostic test events for patients who had a prior initial evaluation.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F4",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "L2",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Retrieve all containers that were rescheduled and subsequently reloaded.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C1",
+      "C2",
+      "C4",
+      "L3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "List all candidates who accepted an offer and completed onboarding.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C7",
+      "L3",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "Application \u2192 initial interview \u2192 assessment review \u2192 panel interview \u2192 offer letter must form a valid 5-step sequence.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C3",
+      "T5"
+    ]
+  },
+  {
+    "nl_query": "A container load event and its departure event must share the same object relationships within a single session.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F4",
+      "C1",
+      "T1"
+    ]
+  },
+  {
+    "nl_query": "A backtracking event whose text contains 'failed' must not be followed by a conclusion event within one hour.",
+    "bb_labels": [
+      "V3",
+      "V4",
+      "F1",
+      "F5",
+      "F18",
+      "C1",
+      "C3",
+      "C5",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "A reasoning module must not produce a wrong conclusion whose text is identical to a preceding correct conclusion's text.",
+    "bb_labels": [
+      "V1",
+      "V4",
+      "F1",
+      "F4",
+      "F18",
+      "C1",
+      "C3",
+      "C5",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Show each candidate's total number of panel interviews, flagging those with fewer than 1.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S3",
+      "C2",
+      "C3",
+      "L1",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Show vehicles with total handling units across all containers, marking those exceeding 100.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S3",
+      "C2",
+      "L1",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Vehicles must not depart without having at least one container loaded.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "A rescheduled container must be reloaded within 48 hours.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F5",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "At the time of loading, a container must not have more than 5 handling units.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F10",
+      "F17",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Transport documents must be created before containers are loaded.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F2",
+      "F4",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Each handling unit must be linked to exactly one container.",
+    "bb_labels": [
+      "V2",
+      "F2",
+      "S1",
+      "S2",
+      "C2",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Containers marked 'empty' at departure time must be flagged.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F17",
+      "C5",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "A vehicle that departs must have been previously booked, and the booking must reference the same transport document.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Containers with more than 5 handling units must not depart.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F10",
+      "F17",
+      "C5",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Any container loaded to a vehicle more than once must have a Weigh event between the two loading operations.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F8",
+      "C3",
+      "T5"
+    ]
+  },
+  {
+    "nl_query": "A documentation commit must follow any feature commit on the same file within 7 days.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F5",
+      "S1",
+      "C1",
+      "C2",
+      "C3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "No refactoring commit should introduce a new bug fix on the same file within 24 hours.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F5",
+      "C3",
+      "C5",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "Any file touched by a feature commit must have at least 3 test commits on the same file.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "A build-breaking commit must be immediately followed by a fix commit on the same file.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "A person may not apply for a viewing appointment more than 3 times in the same process.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S2",
+      "C2",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "Non-citizen persons must have their paperwork checked before being screened as a prospective tenant.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F13",
+      "F15",
+      "C1",
+      "C3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "A container that was at some point marked as 'full' must have at least one load-to-vehicle event.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F16",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "A container must be marked as 'full' at the time it is loaded to a vehicle.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F17",
+      "C1",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "A container that is placed in stock must then be brought to the loading bay and subsequently loaded to a vehicle.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ]
+  },
+  {
+    "nl_query": "A candidate must complete both the panel interview and the background check before receiving an offer letter.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C3",
+      "C7",
+      "T4"
+    ]
+  },
+  {
+    "nl_query": "For any vehicle departure, at least one container must have been loaded onto the vehicle beforehand.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C4",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "A container must remain in stock for at least 6 hours before being brought to the loading bay.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F6",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ]
+  },
+  {
+    "nl_query": "List all panel interview events for candidates who subsequently received an offer letter.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "L2",
+      "T2"
+    ]
+  }
+]
