@@ -32,6 +32,9 @@ unset PYTHONHOME PYTHONPATH
 source "$HOME/envs/nlxocpq-venv/bin/activate"
 export LD_LIBRARY_PATH="/cvmfs/software.hpc.rwth.de/Linux/RH8/x86_64/intel/skylake_avx512/software/intel-compilers/2024.2.0/compiler/2024.2/lib:$HOME/envs/nlxocpq-venv/lib:${LD_LIBRARY_PATH:-}"
 
+# SLURM does not source ~/.bashrc — load the token explicitly.
+[ -f "$HOME/.hf_token" ] && export HF_TOKEN="$(cat "$HOME/.hf_token")"
+
 if [ -z "${HF_TOKEN:-}" ]; then
   echo "HF_TOKEN not set — ensure HF provider runs are disabled or token provided in config."
 fi
