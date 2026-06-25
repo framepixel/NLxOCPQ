@@ -20,7 +20,7 @@
       "name": "adapters/phi4-14b-fine-tuned-quantized",
       "label": "phi4-14b-finetuned"
     },
-    "unsloth/gemma-3-4b-it-unsloth-bnb-4bit": {
+    "google/gemma-3-4b-it": {
       "name": "adapters/gemma-3-4b-it-fine-tuned-quantized",
       "label": "gemma3-4b-finetuned"
     }
@@ -43,7 +43,7 @@
       "label": "phi4-14b-base"
     },
     {
-      "name": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
+      "name": "google/gemma-3-4b-it",
       "label": "gemma3-4b"
     }
   ]

@@ -646,7 +646,6 @@ def run_evaluation(config_path_or_config):
                         gold_events, gold_objects = _extract_query_entities(gold_query)
                         hallucinated = bool(pred_events - gold_events or pred_objects - gold_objects)
                         unsupported = _contains_unsupported_filter(ocpq_json)
-                        semantic_match = ocpq_json == gold_query
                         final_status = _classify_run_status(
                             pipeline_status,
                             error,
@@ -698,7 +697,6 @@ def run_evaluation(config_path_or_config):
                                 "schema_valid": schema_valid,
                                 "hallucinated_entities": hallucinated,
                                 "unsupported_filters": unsupported,
-                                "semantic_match": semantic_match,
                             },
                             "similarity": similarity,
                             "ground_truth": {
@@ -743,8 +741,24 @@ def run_evaluation(config_path_or_config):
     summary["evaluation_phase_trace"] = EVALUATION_PHASES
     _log_phase("summary", "Writing summary.json and completing the run.")
     _write_json(run_dir / "summary.json", summary)
+    _run_bb_analysis(run_dir)
 
     return run_dir
+
+
+def _run_bb_analysis(run_dir: Path) -> None:
+    """Write bb_breakdown.json alongside predictions.json if BB labels file is present."""
+    labels_path = Path(__file__).parent / "testset_bb_labels.json"
+    predictions_path = run_dir / "predictions.json"
+    if not labels_path.exists() or not predictions_path.exists():
+        return
+    from slice_results_by_bb import _build_bb_index, slice_by_bb
+    predictions = _read_json(predictions_path)
+    labels_data = _read_json(labels_path)
+    bb_index = _build_bb_index(labels_data)
+    breakdown = slice_by_bb(predictions, bb_index)
+    _write_json(run_dir / "bb_breakdown.json", breakdown)
+    _log_phase("bb_analysis", f"wrote bb_breakdown.json ({len(breakdown)} config(s))")
 
 
 def _build_summary(records, repeats):
@@ -760,7 +774,6 @@ def _build_summary(records, repeats):
 
     for config_id, recs in by_config.items():
         schema_valid_rate = _mean([1 if r["metrics"]["schema_valid"] else 0 for r in recs])
-        semantic_match_rate = _mean([1 if r["metrics"]["semantic_match"] else 0 for r in recs])
         hallucinated_rate = _mean([1 if r["metrics"]["hallucinated_entities"] else 0 for r in recs])
         unsupported_rate = _mean([1 if r["metrics"]["unsupported_filters"] else 0 for r in recs])
         exec_success_rate = _mean([1 if (r.get("execution") or {}).get("success") else 0 for r in recs])
@@ -831,7 +844,6 @@ def _build_summary(records, repeats):
             },
             "metrics": {
                 "schema_valid_rate": schema_valid_rate,
-                "semantic_match_rate": semantic_match_rate,
                 "hallucinated_entity_rate": hallucinated_rate,
                 "unsupported_filter_rate": unsupported_rate,
                 "execution_success_rate": exec_success_rate,
@@ -842,6 +854,7 @@ def _build_summary(records, repeats):
                 "object_precision": object_precision,
                 "object_recall": object_recall,
                 "combined_f1": combined_f1,
+                "semantic_accuracy": combined_f1,
                 "combined_precision": combined_precision,
                 "combined_recall": combined_recall,
                 "avg_completion_chars": avg_completion_chars,
@@ -885,6 +898,7 @@ def _merge_shards(shard_dirs, output_dir):
     summary = _build_summary(all_records, repeats)
     summary["evaluation_phases"] = EVALUATION_PHASES
     _write_json(output_dir / "summary.json", summary)
+    _run_bb_analysis(output_dir)
     print(f"Merged {len(all_records)} records from {len(shard_dirs)} shard(s) into {output_dir}")
 
 

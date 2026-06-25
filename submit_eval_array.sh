@@ -9,9 +9,9 @@
 #SBATCH --array=0-5
 
 # One task per expanded model:
-#   0 = llama3-8b-base       1 = llama3-8b-finetuned
-#   2 = gpt-oss-20b          3 = gpt-oss-20b-finetuned
-#   4 = gemma3-4b            5 = gemma3-4b-finetuned
+# 0 = llama3-8b-base       1 = llama3-8b-finetuned
+# 2 = phi4-14b-base        3 = phi4-14b-finetuned
+# 4 = gemma3-4b            5 = gemma3-4b-finetuned
 
 cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"
 

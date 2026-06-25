@@ -58,7 +58,7 @@ def slice_by_bb(
           config_id: {
             bb_label: {
               "n": int,
-              "semantic_match_rate": float,
+              "combined_f1": float,
               "schema_valid_rate": float,
               "execution_success_rate": float,
             }
@@ -92,9 +92,10 @@ def slice_by_bb(
                 continue
             result[cid][bb] = {
                 "n": len(recs),
-                "semantic_match_rate": _mean(
-                    [1 if r["metrics"]["semantic_match"] else 0 for r in recs]
-                ),
+                "combined_f1": _mean([
+                    (r.get("similarity") or {}).get("combined", {}).get("f1")
+                    for r in recs
+                ]),
                 "schema_valid_rate": _mean(
                     [1 if r["metrics"]["schema_valid"] else 0 for r in recs]
                 ),
@@ -105,7 +106,7 @@ def slice_by_bb(
     return result
 
 
-def _print_ascii_table(breakdown: dict, primary_metric: str = "semantic_match_rate") -> None:
+def _print_ascii_table(breakdown: dict, primary_metric: str = "combined_f1") -> None:
     config_ids = sorted(breakdown.keys())
     if not config_ids:
         print("No data.")
@@ -214,7 +215,7 @@ def main() -> None:
             bb_counts[bb] += 1
     print(f"Configs: {config_count}  |  BB labels covered: {len(bb_counts)}/{len(BB_ORDER)}")
 
-    _print_ascii_table(breakdown, primary_metric="semantic_match_rate")
+    _print_ascii_table(breakdown, primary_metric="combined_f1")
 
 
 if __name__ == "__main__":

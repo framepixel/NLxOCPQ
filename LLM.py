@@ -1220,7 +1220,6 @@ def run_subproblem_1_extract_entities(query, event_names, object_names, messages
     structure_text = response_1.choices[0].message.content
     messages.append({"role": "assistant", "content": structure_text})
     print("Sub-problem 1 completed: Entities extracted.")
-    time.sleep(3)
     return structure_text
 
 
@@ -1263,7 +1262,6 @@ def run_subproblem_2_plan_tree(messages, model_name):
     tree_text = response_2.choices[0].message.content
     messages.append({"role": "assistant", "content": tree_text})
     print("Sub-problem 2 completed: Tree structure planned.")
-    time.sleep(3)
     return tree_text
 
 
@@ -1348,7 +1346,6 @@ def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_n
         )
     messages.append({"role": "assistant", "content": content})
     print("Sub-problem 3 completed: OCPQ JSON generated.")
-    time.sleep(3)
     return ocpq_json
 
 # Use a single continuous chat context with Grammar-Guided Prompting
@@ -1530,7 +1527,6 @@ JSON:
         )
     messages.append({"role": "assistant", "content": content})
     print("Sub-problem 3 completed: OCPQ JSON generated.")
-    time.sleep(3)
 
     if schema_validation:
         normalized = validate_and_normalize_ocpq_json(ocpq_json)
@@ -1685,7 +1681,6 @@ Query:
         )
     messages.append({"role": "assistant", "content": content})
     print("Direct generation completed: OCPQ JSON generated.")
-    time.sleep(3)
 
     # Reuse the same message position the verifier expects for allowed-entity extraction.
     extracted_structure_stub = json.dumps(
@@ -1813,7 +1808,6 @@ Query:
     structure_text = response_1.choices[0].message.content
     messages.append({"role": "assistant", "content": structure_text})
     print("Sub-problem 1 completed: Entities extracted.")
-    time.sleep(3)
 
     prompt_2 = f"""
 You are designing an OCPQ query tree.
@@ -1849,7 +1843,6 @@ Return ONLY JSON:
     tree_text = response_2.choices[0].message.content
     messages.append({"role": "assistant", "content": tree_text})
     print("Sub-problem 2 completed: Tree structure planned.")
-    time.sleep(3)
 
     few_shot_string = build_few_shot_examples(query, dataset, embeddings)
     prompt_3 = f"""
@@ -1914,7 +1907,6 @@ ONLY output valid JSON.
         )
     messages.append({"role": "assistant", "content": content})
     print("Sub-problem 3 completed: OCPQ JSON generated.")
-    time.sleep(3)
 
     if schema_validation:
         ocpq_json = verify_ocpq_json(
@@ -2033,7 +2025,6 @@ Query:
     structure_text = response_1.choices[0].message.content
     messages.append({"role": "assistant", "content": structure_text})
     print("Sub-problem 1 completed: Entities extracted.")
-    time.sleep(3)
 
     prompt_2 = f"""
 You are formalizing a process query.
@@ -2070,7 +2061,6 @@ Return ONLY JSON:
     formal_tree = response_2.choices[0].message.content
     messages.append({"role": "assistant", "content": formal_tree})
     print("Sub-problem 2 completed: Tree structure planned.")
-    time.sleep(3)
 
     prompt_3 = f"""
 You are designing an OCPQ query tree.
@@ -2106,7 +2096,6 @@ Return ONLY JSON:
     tree_text = response_3.choices[0].message.content
     messages.append({"role": "assistant", "content": tree_text})
     print("Sub-problem 3 completed: Query tree designed.")
-    time.sleep(3)
 
     few_shot_string = build_few_shot_examples(query, dataset, embeddings)
     prompt_4 = f"""
@@ -2171,7 +2160,6 @@ ONLY output valid JSON.
         )
     messages.append({"role": "assistant", "content": content})
     print("Sub-problem 4 completed: OCPQ JSON generated.")
-    time.sleep(3)
 
     if schema_validation:
         ocpq_json = verify_ocpq_json(
@@ -2234,7 +2222,6 @@ Return JSON:
     verification_text = response_5.choices[0].message.content or ""
     messages.append({"role": "assistant", "content": verification_text})
     print("Sub-problem 5 completed: Query tree verified.")
-    time.sleep(3)
 
     verification_json = parse_llm_json(verification_text)
     if not isinstance(verification_json, dict):

@@ -634,19 +634,6 @@
     ]
   },
   {
-    "nl_query": "A container must be 'full' before it can be loaded onto a vehicle.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F13",
-      "F17",
-      "C1",
-      "C3",
-      "T2"
-    ]
-  },
-  {
     "nl_query": "Containers that were at some point empty must not depart",
     "bb_labels": [
       "V1",
@@ -1265,6 +1252,22 @@
       "C3",
       "L2",
       "T2"
+    ]
+  },
+  {
+    "nl_query": "Materials whose delivery date falls before 2022 must have had a purchase order created before the goods were received.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F2",
+      "F4",
+      "F14",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
     ]
   }
 ]
