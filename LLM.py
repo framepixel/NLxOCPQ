@@ -528,8 +528,14 @@ def _ensure_local_gpu_model_loaded():
                     "Include 'base_model_name_or_path' in adapter_config.json or specify the base model explicitly."
                 )
 
-            # Load base model, then attach the adapter
-            base = AutoModelForCausalLM.from_pretrained(base_model_name, **auth_kwargs, **model_kwargs)
+            # Load base model WITHOUT 4-bit quantization, then attach the adapter.
+            # Loading the base in 4-bit and then calling PeftModel.from_pretrained triggers
+            # a bitsandbytes version-mismatch error ("Parameter has no attribute
+            # compress_statistics") when the adapter was saved with a different bitsandbytes
+            # version (e.g. unsloth training env vs. inference env). LoRA weights are tiny
+            # and don't need quantization themselves; the H100 has ample VRAM for fp16.
+            model_kwargs_base = {k: v for k, v in model_kwargs.items() if k != "quantization_config"}
+            base = AutoModelForCausalLM.from_pretrained(base_model_name, **auth_kwargs, **model_kwargs_base)
             tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True, trust_remote_code=True, **auth_kwargs)
             model = PeftModel.from_pretrained(base, hf_model)
 
@@ -575,12 +581,15 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
 
     normalized_messages = list(messages)
     if response_format is not None:
-        normalized_messages = [
-            {
-                "role": "system",
-                "content": "Return only valid JSON. Do not include markdown fences or commentary.",
-            }
-        ] + normalized_messages
+        json_instruction = "Return only valid JSON. Do not include markdown fences or commentary."
+        if normalized_messages and normalized_messages[0]["role"] == "system":
+            # Merge into the existing system message to avoid consecutive system turns,
+            # which Gemma's chat template rejects with a role-alternation error.
+            normalized_messages = [
+                {"role": "system", "content": normalized_messages[0]["content"] + "\n" + json_instruction}
+            ] + normalized_messages[1:]
+        else:
+            normalized_messages = [{"role": "system", "content": json_instruction}] + normalized_messages
 
     if hasattr(local_tokenizer, "apply_chat_template"):
         input_ids = local_tokenizer.apply_chat_template(
