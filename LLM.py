@@ -135,12 +135,20 @@ def set_hf_client(
         openai_client = None
         hf_provider = None
         hf_base_url = None
-        local_gpu_device = local_device or "cuda"
-        local_gpu_dtype = local_dtype or "auto"
-        local_gpu_quantization = (local_quantization or "4bit").strip().lower()
-        local_model = None
-        local_tokenizer = None
-        local_model_key = None
+        new_device = local_device or "cuda"
+        new_dtype = local_dtype or "auto"
+        new_quantization = (local_quantization or "4bit").strip().lower()
+        local_gpu_device = new_device
+        local_gpu_dtype = new_dtype
+        local_gpu_quantization = new_quantization
+        # Only evict the cached model when the configuration actually changes.
+        # Without this guard, calling set_local_gpu_client() in every eval loop
+        # iteration resets local_model to None each case, forcing a full reload.
+        new_key = (hf_model, hf_token, new_device, new_dtype, new_quantization)
+        if local_model_key != new_key:
+            local_model = None
+            local_tokenizer = None
+            local_model_key = None
         return
 
     if selected_base_url:

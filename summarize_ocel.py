@@ -2,7 +2,7 @@
 # coding: utf-8
 """summarize_ocel.py
 
-Reads an OCEL file (JSON/JSONOCEL or XML/XMLOCEL) and prints a summary:
+Reads an OCEL file (JSON/JSONOCEL, XML/XMLOCEL, or SQLite) and prints a summary:
 - event names and counts
 - object types, counts, and combined attribute keys
 
@@ -77,8 +77,108 @@ def load_ocel(ocel_path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]
             for obj in objects_node.findall('object'):
                 objects.append(dict(obj.attrib))
 
+    elif ocel_path.endswith(('.sqlite', '.db', '.sqlite3')):
+        import sqlite3
+
+        con = sqlite3.connect(ocel_path)
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+
+        # Discover all tables
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = {row[0].lower(): row[0] for row in cur.fetchall()}
+
+        # ── Events ──────────────────────────────────────────────────────────
+        # OCEL 2.0 (pm4py) stores events in an 'event' table with ocel_id /
+        # ocel_type / ocel_time columns, plus per-type 'event_<type>' tables.
+        # A 'event_map_type' table maps type names to their table-name suffix.
+        event_tbl = tables.get('event')
+        if event_tbl:
+            # Detect id column name
+            cur.execute(f'PRAGMA table_info("{event_tbl}")')
+            ev_cols = {r['name'].lower(): r['name'] for r in cur.fetchall()}
+            id_col = ev_cols.get('ocel_id') or ev_cols.get('event_id') or ev_cols.get('id')
+            type_col = ev_cols.get('ocel_type') or ev_cols.get('event_type') or ev_cols.get('type') or ev_cols.get('activity')
+
+            cur.execute(f'SELECT * FROM "{event_tbl}"')
+            for row in cur.fetchall():
+                d = dict(row)
+                ev: Dict[str, Any] = {}
+                if id_col:
+                    ev['id'] = d.get(id_col)
+                if type_col:
+                    ev['type'] = d.get(type_col)
+                ev.update({k: v for k, v in d.items() if k not in (id_col, type_col)})
+                events.append(ev)
+
+            # Pull per-type attributes from event_map_type + event_<suffix> tables
+            if 'event_map_type' in tables:
+                cur.execute(f'SELECT * FROM "{tables["event_map_type"]}"')
+                for row in cur.fetchall():
+                    d = dict(row)
+                    etype = d.get('ocel_type') or d.get('event_type')
+                    suffix = d.get('ocel_type_map') or d.get('table_name')
+                    if not suffix:
+                        continue
+                    attr_tbl = f'event_{suffix}'
+                    if attr_tbl.lower() not in tables:
+                        continue
+                    cur.execute(f'PRAGMA table_info("{tables[attr_tbl.lower()]}")')
+                    attr_cols = [r['name'] for r in cur.fetchall() if r['name'].lower() not in ('ocel_id', 'event_id')]
+                    # attach attribute keys to each event with this type
+                    for ev in events:
+                        if ev.get('type') == etype:
+                            for c in attr_cols:
+                                ev.setdefault(c, None)
+
+        # ── Objects ─────────────────────────────────────────────────────────
+        obj_tbl = tables.get('object')
+        if obj_tbl:
+            cur.execute(f'PRAGMA table_info("{obj_tbl}")')
+            ob_cols = {r['name'].lower(): r['name'] for r in cur.fetchall()}
+            id_col = ob_cols.get('ocel_id') or ob_cols.get('object_id') or ob_cols.get('id')
+            type_col = ob_cols.get('ocel_type') or ob_cols.get('object_type') or ob_cols.get('type')
+
+            cur.execute(f'SELECT * FROM "{obj_tbl}"')
+            for row in cur.fetchall():
+                d = dict(row)
+                ob: Dict[str, Any] = {}
+                if id_col:
+                    ob['id'] = d.get(id_col)
+                if type_col:
+                    ob['type'] = d.get(type_col)
+                ob.update({k: v for k, v in d.items() if k not in (id_col, type_col)})
+                objects.append(ob)
+
+            # Pull per-type attributes from object_map_type + object_<suffix> tables
+            if 'object_map_type' in tables:
+                cur.execute(f'SELECT * FROM "{tables["object_map_type"]}"')
+                for row in cur.fetchall():
+                    d = dict(row)
+                    otype = d.get('ocel_type') or d.get('object_type')
+                    suffix = d.get('ocel_type_map') or d.get('table_name')
+                    if not suffix:
+                        continue
+                    attr_tbl = f'object_{suffix}'
+                    if attr_tbl.lower() not in tables:
+                        continue
+                    cur.execute(f'PRAGMA table_info("{tables[attr_tbl.lower()]}")')
+                    attr_cols = [r['name'] for r in cur.fetchall() if r['name'].lower() not in ('ocel_id', 'object_id')]
+                    for ob in objects:
+                        if ob.get('type') == otype:
+                            for c in attr_cols:
+                                ob.setdefault(c, None)
+
+        con.close()
+
+        if not events and not objects:
+            raise ValueError(
+                f'No OCEL event/object tables found in {ocel_path}. '
+                f'Available tables: {sorted(tables.keys())}'
+            )
+
     else:
-        raise ValueError('Unsupported file extension; provide .json/.jsonocel or .xml/.xmlocel')
+        raise ValueError('Unsupported file extension; provide .json/.jsonocel, .xml/.xmlocel, or .sqlite/.db/.sqlite3')
 
     return events, objects
 
@@ -176,7 +276,7 @@ def pretty_print(summary: Dict[str, Any], stream=sys.stdout) -> None:
 
 def build_arg_parser():
     p = argparse.ArgumentParser(description='Summarize an OCEL log (events and objects)')
-    p.add_argument('ocel_path', help='Path to the OCEL file (.json, .jsonocel, .xml, .xmlocel)')
+    p.add_argument('ocel_path', help='Path to the OCEL file (.json, .jsonocel, .xml, .xmlocel, .sqlite, .db, .sqlite3)')
     p.add_argument('--json', action='store_true', help='Emit machine-readable JSON summary')
     return p
 
