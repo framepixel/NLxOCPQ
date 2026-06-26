@@ -528,21 +528,17 @@ def _ensure_local_gpu_model_loaded():
                     "Include 'base_model_name_or_path' in adapter_config.json or specify the base model explicitly."
                 )
 
-            # Load base model WITHOUT 4-bit quantization, then attach the adapter.
-            # Loading the base in 4-bit and then calling PeftModel.from_pretrained triggers
-            # a bitsandbytes version-mismatch error ("Parameter has no attribute
-            # compress_statistics") when the adapter was saved with a different bitsandbytes
-            # version (e.g. unsloth training env vs. inference env). LoRA weights are tiny
-            # and don't need quantization themselves; the H100 has ample VRAM for fp16.
-            model_kwargs_base = {k: v for k, v in model_kwargs.items() if k != "quantization_config"}
-            base = AutoModelForCausalLM.from_pretrained(base_model_name, **auth_kwargs, **model_kwargs_base)
+            # Load the base model WITH 4-bit quantization so Params4bit layers are
+            # correctly initialised before the adapter is attached. Loading without
+            # quantization causes bitsandbytes to emit LinearFP4 layers without a
+            # quantization state, making every inference call fail silently.
+            base = AutoModelForCausalLM.from_pretrained(base_model_name, **auth_kwargs, **model_kwargs)
             tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True, trust_remote_code=True, **auth_kwargs)
             # Compatibility shim: adapters saved by unsloth's patched bitsandbytes trigger
             # AttributeError when PeftModel.from_pretrained accesses Params4bit-specific
-            # attributes (compress_statistics, quant_type, quant_state, …) on plain
-            # nn.Parameter objects. We add class-level defaults for all known Params4bit
-            # attrs so the access returns a benign value instead of raising. Real Params4bit
-            # instances shadow these with their own instance attributes, so they are unaffected.
+            # attributes on plain nn.Parameter objects (the LoRA A/B delta matrices).
+            # Params4bit instances (base model layers) have their own instance-level attrs
+            # that shadow these class-level defaults, so they are unaffected.
             _bnb_compat = {
                 "compress_statistics": None,
                 "quant_type": "nf4",
