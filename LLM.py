@@ -528,6 +528,19 @@ def _ensure_local_gpu_model_loaded():
                     "Include 'base_model_name_or_path' in adapter_config.json or specify the base model explicitly."
                 )
 
+            # Gemma-3 is multimodal (Gemma3ForConditionalGeneration). The unsloth pre-
+            # quantized base (`unsloth/gemma-3-4b-it-unsloth-bnb-4bit`) ships with one
+            # vision-tower layer whose saved quant_state is missing, which surfaces as
+            # "FP4 quantization state not initialized" and an empty AssertionError on every
+            # forward pass. Loading the official full-precision base and quantizing it
+            # freshly with our nf4 config gives every layer a valid quant_state. The
+            # architecture is identical, so the LoRA adapter keys still match, and this
+            # keeps gemma3-4b-finetuned consistent with the gemma3-4b base condition.
+            if "gemma-3-4b" in base_model_name.lower() and "unsloth" in base_model_name.lower():
+                print(f"[adapter load] redirecting gemma base "
+                      f"'{base_model_name}' -> 'google/gemma-3-4b-it' for valid quant_state")
+                base_model_name = "google/gemma-3-4b-it"
+
             # Load the base model with 4-bit quantization so its Params4bit layers are
             # properly initialised. The adapter's LoRA A/B weights are then injected
             # manually below, bypassing PeftModel.from_pretrained entirely.
