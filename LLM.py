@@ -528,50 +528,45 @@ def _ensure_local_gpu_model_loaded():
                     "Include 'base_model_name_or_path' in adapter_config.json or specify the base model explicitly."
                 )
 
-            # Load the base model WITH 4-bit quantization so Params4bit layers are
-            # correctly initialised before the adapter is attached. Loading without
-            # quantization causes bitsandbytes to emit LinearFP4 layers without a
-            # quantization state, making every inference call fail silently.
+            # Load the base model with 4-bit quantization so its Params4bit layers are
+            # properly initialised. The adapter's LoRA A/B weights are then injected
+            # manually below, bypassing PeftModel.from_pretrained entirely.
+            # Background: unsloth saves adapters in a format that embeds quantized base-
+            # model layers alongside the LoRA deltas. PeftModel.from_pretrained restores
+            # those quantized layers via bitsandbytes but with quant_state=None (version
+            # mismatch between training and inference bitsandbytes), causing every forward
+            # pass to raise a bare AssertionError with empty message. Loading only the
+            # LoRA A/B tensors (keys containing "lora_") sidesteps the issue entirely.
             base = AutoModelForCausalLM.from_pretrained(base_model_name, **auth_kwargs, **model_kwargs)
             tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True, trust_remote_code=True, **auth_kwargs)
-            # Compatibility shim: adapters saved by unsloth's patched bitsandbytes trigger
-            # AttributeError when PeftModel.from_pretrained accesses Params4bit-specific
-            # attributes on plain nn.Parameter objects (the LoRA A/B delta matrices).
-            # Params4bit instances (base model layers) have their own instance-level attrs
-            # that shadow these class-level defaults, so they are unaffected.
-            _bnb_compat = {
-                "compress_statistics": None,
-                "quant_type": "nf4",
-                "quant_state": None,
-                "blocksize": 64,
-                "quant_storage": None,
-            }
-            _added_compat_attrs = [a for a in _bnb_compat if a not in torch.nn.Parameter.__dict__]
-            for _a in _added_compat_attrs:
-                setattr(torch.nn.Parameter, _a, _bnb_compat[_a])
+
+            # Build a PeftModel structure from the adapter config, then load only LoRA weights.
             try:
+                from peft import PeftConfig, get_peft_model
+                from safetensors.torch import load_file as _st_load
+
+                _peft_cfg = PeftConfig.from_pretrained(hf_model)
+                model = get_peft_model(base, _peft_cfg)
+
+                _adapter_sf = os.path.join(hf_model, "adapter_model.safetensors")
+                _adapter_bin = os.path.join(hf_model, "adapter_model.bin")
+                if os.path.exists(_adapter_sf):
+                    _raw = _st_load(_adapter_sf, device=str(next(iter(base.parameters())).device))
+                elif os.path.exists(_adapter_bin):
+                    _raw = torch.load(_adapter_bin, map_location=next(iter(base.parameters())).device)
+                else:
+                    raise FileNotFoundError("No adapter_model.safetensors or adapter_model.bin found.")
+
+                # Keep only LoRA delta weights; discard any quantized base-layer tensors
+                # that unsloth may have embedded in the checkpoint.
+                _lora_sd = {k: v for k, v in _raw.items() if "lora_" in k}
+                missing, unexpected = model.load_state_dict(_lora_sd, strict=False)
+                if unexpected:
+                    print(f"[adapter load] ignored {len(unexpected)} non-LoRA keys from checkpoint")
+            except Exception as _e:
+                # Fall back to PeftModel.from_pretrained if the manual path fails.
+                print(f"[adapter load] manual LoRA load failed ({_e}), falling back to PeftModel.from_pretrained")
                 model = PeftModel.from_pretrained(base, hf_model)
-            finally:
-                for _a in _added_compat_attrs:
-                    if _a in torch.nn.Parameter.__dict__:
-                        try:
-                            delattr(torch.nn.Parameter, _a)
-                        except Exception:
-                            pass
-            # After PEFT loads the adapter, any LinearFP4/NF4 layers deserialized
-            # from the checkpoint may have quant_state=None. A forward pass through
-            # such a layer raises a bare AssertionError (empty message) inside
-            # bitsandbytes. Moving these layers to the correct device triggers
-            # bitsandbytes' on-device quantization and initialises quant_state.
-            try:
-                _target_device = next(iter(base.parameters())).device
-                for _module in model.modules():
-                    if type(_module).__name__ in ("LinearFP4", "LinearNF4"):
-                        _w = getattr(_module, "weight", None)
-                        if _w is not None and getattr(_w, "quant_state", None) is None:
-                            _module.to(_target_device)
-            except Exception:
-                pass
 
         elif merged_weights:
             # Directory appears to contain merged weights; load directly from the directory
