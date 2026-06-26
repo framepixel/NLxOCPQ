@@ -537,19 +537,31 @@ def _ensure_local_gpu_model_loaded():
             model_kwargs_base = {k: v for k, v in model_kwargs.items() if k != "quantization_config"}
             base = AutoModelForCausalLM.from_pretrained(base_model_name, **auth_kwargs, **model_kwargs_base)
             tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True, trust_remote_code=True, **auth_kwargs)
-            # Compatibility shim: adapters saved by unsloth's patched bitsandbytes may cause
-            # PeftModel.from_pretrained to access param.compress_statistics on plain nn.Parameter
-            # objects (not Params4bit), raising AttributeError. Adding the attribute as a class-
-            # level default (None) lets the access succeed; Params4bit instances shadow it with
-            # their own instance attribute, so quantized parameters are unaffected.
-            _added_compat_attr = not hasattr(torch.nn.Parameter, "compress_statistics")
-            if _added_compat_attr:
-                torch.nn.Parameter.compress_statistics = None
+            # Compatibility shim: adapters saved by unsloth's patched bitsandbytes trigger
+            # AttributeError when PeftModel.from_pretrained accesses Params4bit-specific
+            # attributes (compress_statistics, quant_type, quant_state, …) on plain
+            # nn.Parameter objects. We add class-level defaults for all known Params4bit
+            # attrs so the access returns a benign value instead of raising. Real Params4bit
+            # instances shadow these with their own instance attributes, so they are unaffected.
+            _bnb_compat = {
+                "compress_statistics": None,
+                "quant_type": "nf4",
+                "quant_state": None,
+                "blocksize": 64,
+                "quant_storage": None,
+            }
+            _added_compat_attrs = [a for a in _bnb_compat if a not in torch.nn.Parameter.__dict__]
+            for _a in _added_compat_attrs:
+                setattr(torch.nn.Parameter, _a, _bnb_compat[_a])
             try:
                 model = PeftModel.from_pretrained(base, hf_model)
             finally:
-                if _added_compat_attr and "compress_statistics" in torch.nn.Parameter.__dict__:
-                    del torch.nn.Parameter.compress_statistics
+                for _a in _added_compat_attrs:
+                    if _a in torch.nn.Parameter.__dict__:
+                        try:
+                            delattr(torch.nn.Parameter, _a)
+                        except Exception:
+                            pass
 
         elif merged_weights:
             # Directory appears to contain merged weights; load directly from the directory
