@@ -540,9 +540,27 @@ def _ensure_local_gpu_model_loaded():
             base = AutoModelForCausalLM.from_pretrained(base_model_name, **auth_kwargs, **model_kwargs)
             tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True, trust_remote_code=True, **auth_kwargs)
 
-            # Build a PeftModel structure from the adapter config, then load only LoRA weights.
+            # Compatibility shim: get_peft_model / load_state_dict inspect Params4bit-
+            # specific attributes (compress_statistics, quant_type, …) on the freshly
+            # created plain nn.Parameter LoRA matrices, raising AttributeError. Adding
+            # class-level defaults makes those accesses return a benign value. Real
+            # Params4bit base layers shadow these with instance attributes, unaffected.
+            _bnb_compat = {
+                "compress_statistics": None,
+                "quant_type": "nf4",
+                "quant_state": None,
+                "blocksize": 64,
+                "quant_storage": None,
+            }
+            _added_compat_attrs = [a for a in _bnb_compat if a not in torch.nn.Parameter.__dict__]
+            for _a in _added_compat_attrs:
+                setattr(torch.nn.Parameter, _a, _bnb_compat[_a])
             try:
                 from peft import PeftConfig, get_peft_model
+                try:
+                    from peft import set_peft_model_state_dict
+                except ImportError:
+                    from peft.utils import set_peft_model_state_dict
                 from safetensors.torch import load_file as _st_load
 
                 _peft_cfg = PeftConfig.from_pretrained(hf_model)
@@ -558,15 +576,24 @@ def _ensure_local_gpu_model_loaded():
                     raise FileNotFoundError("No adapter_model.safetensors or adapter_model.bin found.")
 
                 # Keep only LoRA delta weights; discard any quantized base-layer tensors
-                # that unsloth may have embedded in the checkpoint.
+                # that unsloth may have embedded in the checkpoint. set_peft_model_state_dict
+                # handles the key remapping (including the "default" adapter-name insertion)
+                # between the saved checkpoint and the live get_peft_model() structure.
                 _lora_sd = {k: v for k, v in _raw.items() if "lora_" in k}
-                missing, unexpected = model.load_state_dict(_lora_sd, strict=False)
-                if unexpected:
-                    print(f"[adapter load] ignored {len(unexpected)} non-LoRA keys from checkpoint")
-            except Exception as _e:
-                # Fall back to PeftModel.from_pretrained if the manual path fails.
-                print(f"[adapter load] manual LoRA load failed ({_e}), falling back to PeftModel.from_pretrained")
-                model = PeftModel.from_pretrained(base, hf_model)
+                _result = set_peft_model_state_dict(model, _lora_sd, adapter_name="default")
+                _unexpected = list(getattr(_result, "unexpected_keys", []) or [])
+                _loaded = len(_lora_sd) - len(_unexpected)
+                print(f"[adapter load] injected {_loaded}/{len(_lora_sd)} LoRA tensors "
+                      f"({len(_unexpected)} unexpected)")
+                if _loaded <= 0:
+                    raise RuntimeError("No LoRA tensors matched the model's parameter names.")
+            finally:
+                for _a in _added_compat_attrs:
+                    if _a in torch.nn.Parameter.__dict__:
+                        try:
+                            delattr(torch.nn.Parameter, _a)
+                        except Exception:
+                            pass
 
         elif merged_weights:
             # Directory appears to contain merged weights; load directly from the directory
