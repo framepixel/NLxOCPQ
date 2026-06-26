@@ -558,6 +558,20 @@ def _ensure_local_gpu_model_loaded():
                             delattr(torch.nn.Parameter, _a)
                         except Exception:
                             pass
+            # After PEFT loads the adapter, any LinearFP4/NF4 layers deserialized
+            # from the checkpoint may have quant_state=None. A forward pass through
+            # such a layer raises a bare AssertionError (empty message) inside
+            # bitsandbytes. Moving these layers to the correct device triggers
+            # bitsandbytes' on-device quantization and initialises quant_state.
+            try:
+                _target_device = next(iter(base.parameters())).device
+                for _module in model.modules():
+                    if type(_module).__name__ in ("LinearFP4", "LinearNF4"):
+                        _w = getattr(_module, "weight", None)
+                        if _w is not None and getattr(_w, "quant_state", None) is None:
+                            _module.to(_target_device)
+            except Exception:
+                pass
 
         elif merged_weights:
             # Directory appears to contain merged weights; load directly from the directory
