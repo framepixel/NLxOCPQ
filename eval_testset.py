@@ -114,6 +114,8 @@ def _extract_query_entities(ocpq_json):
         return events, objects
 
     for node in ocpq_json.get("nodes", []):
+        if not isinstance(node, dict):
+            continue
         box = node.get("Box", [])
         if not isinstance(box, list) or not box:
             continue
@@ -414,11 +416,17 @@ def run_evaluation(config_path_or_config):
         raise FileNotFoundError(f"Testset not found: {testset_abs}")
 
     model_idx_filter = config.get("_model_idx")
-    run_id = (
-        f"shard_m{model_idx_filter}_{time.strftime('%Y%m%d_%H%M%S')}"
-        if model_idx_filter is not None
-        else time.strftime("eval_run_%Y%m%d_%H%M%S")
-    )
+    strategy_idx_filter = config.get("_strategy_idx")
+    schema_idx_filter = config.get("_schema_idx")
+    if model_idx_filter is not None:
+        shard_tag = f"shard_m{model_idx_filter}"
+        if strategy_idx_filter is not None:
+            shard_tag += f"_s{strategy_idx_filter}"
+        if schema_idx_filter is not None:
+            shard_tag += f"_e{schema_idx_filter}"
+        run_id = f"{shard_tag}_{time.strftime('%Y%m%d_%H%M%S')}"
+    else:
+        run_id = time.strftime("eval_run_%Y%m%d_%H%M%S")
     resume_from = config.get("resume_from")
     if resume_from:
         resume_path = Path(resume_from)
@@ -453,6 +461,25 @@ def run_evaluation(config_path_or_config):
 
     prompt_strategies = config.get("prompt_strategies") or DEFAULT_PROMPT_STRATEGIES
     schema_enforced_values = config.get("schema_enforced", [True])
+
+    # Optional finer sharding: restrict this job to a single prompt strategy and/or
+    # schema setting so the full conditions matrix can be split across more Slurm
+    # array tasks (model x strategy x schema), each finishing well within the wall-
+    # time limit. Results are recombined afterwards via --merge-shards.
+    if strategy_idx_filter is not None:
+        if strategy_idx_filter < 0 or strategy_idx_filter >= len(prompt_strategies):
+            raise ValueError(
+                f"--strategy-idx {strategy_idx_filter} is out of range "
+                f"(0–{len(prompt_strategies) - 1} for this config)."
+            )
+        prompt_strategies = [prompt_strategies[strategy_idx_filter]]
+    if schema_idx_filter is not None:
+        if schema_idx_filter < 0 or schema_idx_filter >= len(schema_enforced_values):
+            raise ValueError(
+                f"--schema-idx {schema_idx_filter} is out of range "
+                f"(0–{len(schema_enforced_values) - 1} for this config)."
+            )
+        schema_enforced_values = [schema_enforced_values[schema_idx_filter]]
     schema_validation = bool(config.get("schema_validation", True))
     schema_validation_when_no_schema = bool(config.get("schema_validation_when_no_schema", False))
     repeats = int(config.get("repeats", 1))
@@ -747,18 +774,23 @@ def run_evaluation(config_path_or_config):
 
 
 def _run_bb_analysis(run_dir: Path) -> None:
-    """Write bb_breakdown.json alongside predictions.json if BB labels file is present."""
+    """Write per-BB and per-category breakdowns if the BB labels file is present."""
     labels_path = Path(__file__).parent / "testset_bb_labels.json"
     predictions_path = run_dir / "predictions.json"
     if not labels_path.exists() or not predictions_path.exists():
         return
-    from slice_results_by_bb import _build_bb_index, slice_by_bb
+    from slice_results_by_bb import _build_bb_index, slice_by_bb, slice_by_category
     predictions = _read_json(predictions_path)
     labels_data = _read_json(labels_path)
     bb_index = _build_bb_index(labels_data)
     breakdown = slice_by_bb(predictions, bb_index)
+    category_breakdown = slice_by_category(predictions, bb_index)
     _write_json(run_dir / "bb_breakdown.json", breakdown)
-    _log_phase("bb_analysis", f"wrote bb_breakdown.json ({len(breakdown)} config(s))")
+    _write_json(run_dir / "bb_category_breakdown.json", category_breakdown)
+    _log_phase(
+        "bb_analysis",
+        f"wrote bb_breakdown.json + bb_category_breakdown.json ({len(breakdown)} config(s))",
+    )
 
 
 def _build_summary(records, repeats):
@@ -909,6 +941,10 @@ def main():
     parser.add_argument("--resume-from", default="", help="Resume an interrupted run from an existing run directory or checkpoint.json.")
     parser.add_argument("--model-idx", type=int, default=None,
         help="0-based index into the expanded models list. Restricts this job to that model only (for Slurm array parallelism).")
+    parser.add_argument("--strategy-idx", type=int, default=None,
+        help="0-based index into prompt_strategies. Restricts this job to that strategy only (finer Slurm sharding).")
+    parser.add_argument("--schema-idx", type=int, default=None,
+        help="0-based index into schema_enforced. Restricts this job to that schema setting only (finer Slurm sharding).")
     parser.add_argument("--merge-shards", nargs="+", metavar="DIR",
         help="Merge predictions.json files from multiple shard run-dirs into a combined summary.")
     parser.add_argument("--merge-output", metavar="DIR", default="eval_runs/merged",
@@ -922,18 +958,24 @@ def main():
     if not args.config:
         parser.error("--config is required unless --merge-shards is used.")
 
+    def _apply_shard_filters(cfg):
+        if args.model_idx is not None:
+            cfg["_model_idx"] = args.model_idx
+        if args.strategy_idx is not None:
+            cfg["_strategy_idx"] = args.strategy_idx
+        if args.schema_idx is not None:
+            cfg["_schema_idx"] = args.schema_idx
+
     if args.dry_run:
         config = _read_json(args.config)
         config["dry_run"] = True
-        if args.model_idx is not None:
-            config["_model_idx"] = args.model_idx
+        _apply_shard_filters(config)
         run_evaluation(config)
         print("Dry run complete.")
         return
 
     config = _read_json(args.config)
-    if args.model_idx is not None:
-        config["_model_idx"] = args.model_idx
+    _apply_shard_filters(config)
     if args.resume_from:
         config["resume_from"] = args.resume_from
     run_dir = run_evaluation(config)

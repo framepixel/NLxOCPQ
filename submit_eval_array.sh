@@ -5,13 +5,18 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
-#SBATCH --time=20:00:00
-#SBATCH --array=0-5
+#SBATCH --time=10:00:00
+#SBATCH --array=0-35
 
-# One task per expanded model:
-# 0 = llama3-8b-base       1 = llama3-8b-finetuned
-# 2 = phi4-14b-base        3 = phi4-14b-finetuned
-# 4 = gemma3-4b            5 = gemma3-4b-finetuned
+# 36 tasks = 6 models x 3 prompt strategies x 2 schema settings.
+# Each task evaluates ONE (model, strategy, schema) cell over all test cases,
+# so even the heaviest model finishes within the wall-time limit. Recombine the
+# per-shard run dirs afterwards with:  eval_testset.py --merge-shards <dirs...>
+#
+# Task -> (model, strategy, schema) mapping:
+#   MODEL_IDX    = TASK / 6      (0..5)  0,1=llama base/ft  2,3=phi base/ft  4,5=gemma base/ft
+#   STRATEGY_IDX = (TASK % 6) / 2 (0..2) per eval_config.prompt_strategies order
+#   SCHEMA_IDX   = TASK % 2       (0..1) per eval_config.schema_enforced order
 
 cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"
 
@@ -46,14 +51,22 @@ if [ -d "$OCPQ_CLI_DIR" ]; then
   cargo build -q --release --manifest-path "$OCPQ_CLI_DIR/Cargo.toml"
 fi
 
-echo "Starting shard model-idx=${SLURM_ARRAY_TASK_ID} at: $(date)"
+TASK="${SLURM_ARRAY_TASK_ID}"
+MODEL_IDX=$(( TASK / 6 ))
+REM=$(( TASK % 6 ))
+STRATEGY_IDX=$(( REM / 2 ))
+SCHEMA_IDX=$(( REM % 2 ))
+
+echo "Starting shard task=${TASK} (model=${MODEL_IDX} strategy=${STRATEGY_IDX} schema=${SCHEMA_IDX}) at: $(date)"
 echo "Python: $(which python)"; python --version
 
 set -e
 python -u "$PROJECT_DIR/eval_testset.py" \
     --config "$PROJECT_DIR/eval_config.json" \
-    --model-idx "${SLURM_ARRAY_TASK_ID}" \
-    2>&1 | tee "nlxocpq-eval-shard${SLURM_ARRAY_TASK_ID}.log"
+    --model-idx "${MODEL_IDX}" \
+    --strategy-idx "${STRATEGY_IDX}" \
+    --schema-idx "${SCHEMA_IDX}" \
+    2>&1 | tee "nlxocpq-eval-shard${TASK}.log"
 rc=${PIPESTATUS[0]:-0}
-echo "Shard ${SLURM_ARRAY_TASK_ID} exit code: $rc"
+echo "Shard ${TASK} exit code: $rc"
 exit $rc
