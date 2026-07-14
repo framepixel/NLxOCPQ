@@ -9,6 +9,12 @@
       "F4",
       "C1",
       "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -20,6 +26,12 @@
       "F2",
       "S1",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "T"
     ]
   },
   {
@@ -34,6 +46,13 @@
       "S2",
       "C2",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -47,6 +66,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -59,6 +84,13 @@
       "S2",
       "C2",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -73,6 +105,14 @@
       "C2",
       "L1",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
     ]
   },
   {
@@ -83,6 +123,13 @@
       "S1",
       "C2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -94,6 +141,12 @@
       "F4",
       "C6",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -106,6 +159,13 @@
       "S1",
       "C2",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -116,6 +176,11 @@
       "F1",
       "F5",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "T"
     ]
   },
   {
@@ -127,6 +192,12 @@
       "F4",
       "C1",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -139,6 +210,12 @@
       "C1",
       "C5",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -150,6 +227,12 @@
       "F4",
       "C1",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -161,6 +244,12 @@
       "F4",
       "C1",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -173,6 +262,12 @@
       "F4",
       "C1",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -184,6 +279,12 @@
       "F5",
       "C1",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -197,6 +298,12 @@
       "C1",
       "C5",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -208,6 +315,12 @@
       "F4",
       "C1",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -219,6 +332,12 @@
       "F4",
       "C1",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -232,6 +351,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -244,6 +369,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -257,6 +388,12 @@
       "C1",
       "C5",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -269,6 +406,13 @@
       "S2",
       "C2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -281,6 +425,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -293,6 +443,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -306,6 +462,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -318,6 +480,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -330,6 +498,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -342,6 +516,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -354,6 +534,12 @@
       "C1",
       "C5",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -366,6 +552,12 @@
       "C1",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -378,6 +570,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -391,6 +589,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -403,6 +607,12 @@
       "C1",
       "C5",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -416,6 +626,13 @@
       "S1",
       "C2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -428,6 +645,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -440,6 +663,12 @@
       "C1",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -454,6 +683,12 @@
       "C3",
       "C5",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -467,6 +702,12 @@
       "C1",
       "C5",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -482,6 +723,13 @@
       "C1",
       "C2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -495,6 +743,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -509,6 +763,13 @@
       "C2",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -521,6 +782,12 @@
       "C1",
       "C5",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -531,6 +798,13 @@
       "S1",
       "C2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -542,6 +816,13 @@
       "S1",
       "C2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -552,6 +833,13 @@
       "S1",
       "C2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -563,6 +851,12 @@
       "F6",
       "C1",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -575,6 +869,12 @@
       "F6",
       "C1",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -589,6 +889,12 @@
       "C1",
       "C5",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -601,6 +907,12 @@
       "F18",
       "C1",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -616,6 +928,13 @@
       "C2",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -631,6 +950,13 @@
       "C2",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -643,6 +969,12 @@
       "F16",
       "C5",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -659,6 +991,13 @@
       "C2",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -672,6 +1011,12 @@
       "C1",
       "C4",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -684,6 +1029,13 @@
       "C2",
       "C7",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -697,6 +1049,13 @@
       "S1",
       "C2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -710,6 +1069,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -725,6 +1090,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -740,6 +1111,13 @@
       "C3",
       "C7",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -755,6 +1133,13 @@
       "C3",
       "C7",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -770,6 +1155,13 @@
       "C3",
       "C7",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -785,6 +1177,13 @@
       "C3",
       "C4",
       "T5"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -798,6 +1197,12 @@
       "C3",
       "C4",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -813,6 +1218,13 @@
       "C3",
       "C4",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -826,6 +1238,12 @@
       "C3",
       "C6",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -839,6 +1257,12 @@
       "C3",
       "C6",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -852,6 +1276,14 @@
       "C7",
       "L2",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
     ]
   },
   {
@@ -868,6 +1300,14 @@
       "C3",
       "L2",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
     ]
   },
   {
@@ -883,6 +1323,14 @@
       "C4",
       "L3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
     ]
   },
   {
@@ -896,6 +1344,14 @@
       "C7",
       "L3",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
     ]
   },
   {
@@ -908,6 +1364,12 @@
       "C1",
       "C3",
       "T5"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -920,6 +1382,12 @@
       "F4",
       "C1",
       "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -934,6 +1402,12 @@
       "C3",
       "C5",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -948,6 +1422,12 @@
       "C3",
       "C5",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -961,6 +1441,14 @@
       "C3",
       "L1",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
     ]
   },
   {
@@ -973,6 +1461,14 @@
       "C2",
       "L1",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
     ]
   },
   {
@@ -985,6 +1481,13 @@
       "C2",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -999,6 +1502,13 @@
       "C2",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1012,6 +1522,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -1027,6 +1543,13 @@
       "C2",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1038,6 +1561,13 @@
       "S2",
       "C2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1050,6 +1580,12 @@
       "F17",
       "C5",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -1063,6 +1599,13 @@
       "C2",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1075,6 +1618,12 @@
       "F17",
       "C5",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -1087,6 +1636,12 @@
       "F8",
       "C3",
       "T5"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -1101,6 +1656,13 @@
       "C2",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1113,6 +1675,12 @@
       "C3",
       "C5",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -1125,6 +1693,13 @@
       "C2",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1138,6 +1713,13 @@
       "C2",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1149,6 +1731,13 @@
       "S2",
       "C2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1163,6 +1752,12 @@
       "C1",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -1177,6 +1772,13 @@
       "C2",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1190,6 +1792,12 @@
       "C1",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -1202,6 +1810,13 @@
       "C2",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1214,6 +1829,12 @@
       "C3",
       "C7",
       "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -1225,6 +1846,12 @@
       "F4",
       "C4",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
     ]
   },
   {
@@ -1238,6 +1865,13 @@
       "C2",
       "C3",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
     ]
   },
   {
@@ -1252,6 +1886,14 @@
       "C3",
       "L2",
       "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
     ]
   },
   {
@@ -1268,6 +1910,835 @@
       "C2",
       "C3",
       "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which applicants older than 40 were rejected as prospective tenants?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F11",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which married applicants signed a contract before moving in?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F12",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Persons aged 25 or younger who missed a rent payment at least twice.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F11",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "List every married person who was eventually evicted.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F12",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Unmarried persons who missed a rent payment more than once.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F12",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Show all persons older than 60 who paid rent at least once.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F11",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A person who cancelled the apartment must not have moved in afterwards.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "C5",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Married applicants older than 35 must have had their paperwork checked before signing the contract.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F11",
+      "F12",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every purchase order must be approved before a payment is executed for it.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Materials with a net price above 500 must have their purchase requisition submitted before it is approved",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F11",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Purchase requisitions must be approved before a request for quotation is created.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which invoice receipts were paid after a two-way match was performed?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "L2",
+      "L3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Materials with a quantity of at least 50 should be linked to at least one goods receipt.",
+    "bb_labels": [
+      "V2",
+      "F2",
+      "F11",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every purchase order must be linked to at least one invoice receipt",
+    "bb_labels": [
+      "V2",
+      "F2",
+      "S1",
+      "C2",
+      "C3",
+      "L3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which approval events occurred for purchase requisitions that were later linked to a request for quotation?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "L2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "List all materials with a scheduled delivery date after October 15, 2023 that have no associated goods receipt.",
+    "bb_labels": [
+      "V2",
+      "F2",
+      "F14",
+      "F16",
+      "C5",
+      "L3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every purchase requisition must have its approval delegated and must subsequently lead to a request for quotation.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every accepted application must subsequently go through a validation step.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "An offer that was created must eventually be either accepted or refused.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "An application must not be accepted before it has been validated.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C3",
+      "C5",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which applications were denied without ever being validated?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "C5",
+      "L3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every offer must have been sent and must be linked to exactly one application.",
+    "bb_labels": [
+      "V2",
+      "V3",
+      "F1",
+      "F2",
+      "S1",
+      "S2",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "An application must not be both accepted and denied.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "C5",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which applications with more than two linked offers were eventually cancelled or denied?",
+    "bb_labels": [
+      "V2",
+      "V3",
+      "F1",
+      "F2",
+      "S1",
+      "C2",
+      "C3",
+      "L3",
+      "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every application must be submitted, then accepted, and then validated in that order.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T5"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "List all offers that were returned and later refused.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "L3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every treatment must eventually result in either a 'Treatment successful' or 'Treatment unsuccessful' event.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A diagnosis must always be preceded by an examination.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A patient must not be discharged without a prior treatment outcome.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every expert examination must eventually be followed by a thorough examination.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Patients with private insurance must receive an expert examination.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A patient must not be diagnosed more than once.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S2",
+      "C2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Patients with an underlying condition must receive a thorough examination.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F15",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "List all patients who received a successful treatment.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "L3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A patient must receive treatment within 2 days of their examination.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F5",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Patients registered at the ER must receive a thorough examination.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every bug-fix commit must be associated with at least one file.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which feature commits touched more than five files?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "L2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Documentation commits should not modify build-configuration files in the same commit.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "C5",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "List all commits that were applied to more than one branch.",
+    "bb_labels": [
+      "V2",
+      "V3",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "L2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
     ]
   }
 ]

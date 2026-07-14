@@ -216,6 +216,17 @@ def detect_bb_labels(query: dict) -> list[str]:
     return sorted(labels, key=lambda x: order.get(x, 999))
 
 
+# Canonical category order matching taxonomy: V, F, S, C, L, T
+CATEGORY_ORDER = ["V", "F", "S", "C", "L", "T"]
+
+
+def detect_category_labels(bb_labels: list[str]) -> list[str]:
+    """Return the sorted set of BB categories (e.g. "F1" -> "F") present in *bb_labels*."""
+    categories = {bb[0] for bb in bb_labels}
+    order = {c: i for i, c in enumerate(CATEGORY_ORDER)}
+    return sorted(categories, key=lambda c: order.get(c, 999))
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -231,6 +242,7 @@ def main() -> None:
 
     results = []
     bb_coverage: Counter = Counter()
+    category_coverage: Counter = Counter()
 
     for entry in testset:
         nl = entry["nl_query"]
@@ -238,9 +250,12 @@ def main() -> None:
         if isinstance(query, str):
             query = json.loads(query)
         bbs = detect_bb_labels(query)
-        results.append({"nl_query": nl, "bb_labels": bbs})
+        categories = detect_category_labels(bbs)
+        results.append({"nl_query": nl, "bb_labels": bbs, "category_labels": categories})
         for bb in bbs:
             bb_coverage[bb] += 1
+        for cat in categories:
+            category_coverage[cat] += 1
 
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
@@ -268,6 +283,19 @@ def main() -> None:
     missing = [bb for bb in all_bbs if bb_coverage.get(bb, 0) == 0]
     print(f"\nMissing BBs ({len(missing)}): {missing}")
     print(f"Total BBs covered: {len(all_bbs) - len(missing)}/{len(all_bbs)}")
+
+    # Category coverage table
+    category_names = {
+        "V": "Variables", "F": "Filters", "S": "Size Filters",
+        "C": "Constraints", "L": "Labels", "T": "Tree Structure",
+    }
+    print(f"\n{'Cat':<6} {'Name':<14} {'Count':>5}  {'Bar'}")
+    print("-" * 50)
+    for cat in CATEGORY_ORDER:
+        count = category_coverage.get(cat, 0)
+        bar = "#" * count
+        flag = "  <- MISSING" if count == 0 else ""
+        print(f"{cat:<6} {category_names[cat]:<14} {count:>5}  {bar}{flag}")
 
 
 if __name__ == "__main__":
