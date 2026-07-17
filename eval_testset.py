@@ -11,6 +11,7 @@ import traceback
 from collections import defaultdict
 from pathlib import Path
 
+from LogEvents import extract_ocel_schema
 from ocpq_schema import BindingBoxTree
 from QueryExecutor import run_ocpq_query
 try:
@@ -23,6 +24,7 @@ from LLM import (
     nl_to_ocpq_pipeline,
     set_few_shot_enabled,
     set_generation_temperature,
+    set_schema_level,
     set_hf_client,
     set_local_gpu_client,
     reset_llm_call_stats,
@@ -47,6 +49,31 @@ EVALUATION_PHASES = [
     "summary",
 ]
 RUN_PHASE_TRACE = ["generation", "schema_check", "execution", "similarity"]
+
+# Evaluation logs whose event/object vocabulary was present in the pre-de-leak training
+# domains (container_logistics, hiring, hospital, lending, renting in DatasetGenerator).
+# Cases on these logs are tagged domain_seen=True so results can be split seen vs unseen:
+# a fine-tuning gain that survives on unseen logs is real skill, not memorised vocabulary.
+# After de-leaking + retraining this set is expected to make no difference; the split is
+# what proves that and contrasts against the older leaky adapters. Kept as a static set
+# (matched on log basename) so no OCEL log has to be re-parsed at evaluation time.
+_PRE_DELEAK_SEEN_LOGS = frozenset({
+    "container_logistics.json",
+    "03_hiring.xml",
+    "04_hospital.xml",
+    "lending_log_high.json",
+    "renting_log_high.json",
+})
+
+
+def _is_domain_seen(ocel_path):
+    """True if the log's vocabulary was in the pre-de-leak training data.
+
+    Testset paths are stored Windows-style (``..\\Logs\\x.json``); normalise both
+    separators so the basename resolves correctly on Linux (the cluster) too.
+    """
+    basename = str(ocel_path).replace("\\", "/").rsplit("/", 1)[-1]
+    return basename in _PRE_DELEAK_SEEN_LOGS
 
 
 def _read_json(path):
@@ -129,6 +156,83 @@ def _extract_query_entities(ocpq_json):
             if isinstance(values, list):
                 objects.update(v for v in values if isinstance(v, str))
     return events, objects
+
+
+def _extract_query_attribute_names(ocpq_json):
+    """Attribute names referenced by any attribute-value filter in the query."""
+    names = set()
+    if not isinstance(ocpq_json, dict):
+        return names
+    for match in re.finditer(r'"attribute_name"\s*:\s*"([^"]+)"', json.dumps(ocpq_json)):
+        names.add(match.group(1))
+    return names
+
+
+def _schema_grounding_errors(ocpq_json, ocel_path):
+    """Count references to attributes / relations that do not exist in the log's schema.
+
+    These are *post-hoc metrics only*. They are deliberately NOT fed back into the
+    repair pass: doing so would hand the model schema information that the lower
+    ablation levels intentionally withhold, contaminating the grounding ablation.
+
+    Returns:
+        (bad_attributes, bad_relations) as sets. Empty when the schema cannot be read.
+    """
+    try:
+        schema = extract_ocel_schema(str(ocel_path))
+    except Exception:
+        return set(), set()
+
+    known_attributes = {
+        a.get("name")
+        for attrs in (schema.get("object_attributes") or {}).values()
+        for a in attrs
+        if a.get("name")
+    }
+    known_attributes |= {
+        a.get("name")
+        for attrs in (schema.get("event_attributes") or {}).values()
+        for a in attrs
+        if a.get("name")
+    }
+    used_attributes = _extract_query_attribute_names(ocpq_json)
+    # Only judge attribute names when the log actually declares some.
+    bad_attributes = (used_attributes - known_attributes) if known_attributes else set()
+
+    # Relations: the query names object/event types; check the pairs it links exist.
+    known_e2o = {(e, o) for e, o, _q in (schema.get("e2o") or [])}
+    known_o2o = {(a, b) for a, b, _q in (schema.get("o2o") or [])}
+    bad_relations = set()
+    if isinstance(ocpq_json, dict) and (known_e2o or known_o2o):
+        for node in ocpq_json.get("nodes", []) or []:
+            if not isinstance(node, dict):
+                continue
+            box = node.get("Box", [])
+            if not isinstance(box, list) or not box or not isinstance(box[0], dict):
+                continue
+            data = box[0]
+            ev_types = {
+                v for vs in (data.get("newEventVars") or {}).values()
+                if isinstance(vs, list) for v in vs if isinstance(v, str)
+            }
+            ob_types = {
+                v for vs in (data.get("newObjectVars") or {}).values()
+                if isinstance(vs, list) for v in vs if isinstance(v, str)
+            }
+            for f in (data.get("filters") or []):
+                if not isinstance(f, dict):
+                    continue
+                if f.get("type") == "O2E" and known_e2o:
+                    for e in ev_types:
+                        for o in ob_types:
+                            if (e, o) not in known_e2o:
+                                bad_relations.add(f"O2E:{e}->{o}")
+                elif f.get("type") == "O2O" and known_o2o:
+                    pairs = [(a, b) for a in ob_types for b in ob_types if a != b]
+                    for a, b in pairs:
+                        if (a, b) not in known_o2o and (b, a) not in known_o2o:
+                            bad_relations.add(f"O2O:{a}->{b}")
+    return bad_attributes, bad_relations
 
 
 def _contains_unsupported_filter(ocpq_json):
@@ -418,12 +522,15 @@ def run_evaluation(config_path_or_config):
     model_idx_filter = config.get("_model_idx")
     strategy_idx_filter = config.get("_strategy_idx")
     schema_idx_filter = config.get("_schema_idx")
+    case_shard = config.get("_case_shard")  # (index, total), 0-based index
     if model_idx_filter is not None:
         shard_tag = f"shard_m{model_idx_filter}"
         if strategy_idx_filter is not None:
             shard_tag += f"_s{strategy_idx_filter}"
         if schema_idx_filter is not None:
             shard_tag += f"_e{schema_idx_filter}"
+        if case_shard is not None:
+            shard_tag += f"_c{case_shard[0]}of{case_shard[1]}"
         run_id = f"{shard_tag}_{time.strftime('%Y%m%d_%H%M%S')}"
     else:
         run_id = time.strftime("eval_run_%Y%m%d_%H%M%S")
@@ -464,8 +571,8 @@ def run_evaluation(config_path_or_config):
 
     # Optional finer sharding: restrict this job to a single prompt strategy and/or
     # schema setting so the full conditions matrix can be split across more Slurm
-    # array tasks (model x strategy x schema), each finishing well within the wall-
-    # time limit. Results are recombined afterwards via --merge-shards.
+    # array tasks (model x level x strategy x schema), each finishing well within the
+    # wall-time limit. Results are recombined afterwards via --merge-shards.
     if strategy_idx_filter is not None:
         if strategy_idx_filter < 0 or strategy_idx_filter >= len(prompt_strategies):
             raise ValueError(
@@ -494,12 +601,35 @@ def run_evaluation(config_path_or_config):
         if row.get("nl_query", "") and row.get("ocel_path") and row.get("ocpq_query")
     ]
     testset_hash = _sha256_file(testset_abs)
-    total_runs = _compute_total_runs(len(valid_testset), len(models), len(prompt_strategies), len(schema_enforced_values), repeats)
+
+    # Optional case-range sharding. With 3 schema levels the matrix reaches 108 conditions;
+    # a full 140-case shard would push the slowest model past the wall-time limit, so cases
+    # can additionally be split across jobs. Contiguous slices keep case_idx stable.
+    if case_shard is not None:
+        shard_index, shard_total = case_shard
+        if shard_total < 1 or not (0 <= shard_index < shard_total):
+            raise ValueError(f"--case-shard must be i/n with 0 <= i < n (got {shard_index}/{shard_total}).")
+        chunk = math.ceil(len(valid_testset) / shard_total)
+        start = shard_index * chunk
+        valid_testset = valid_testset[start:start + chunk]
+        _log_phase(
+            "generation",
+            f"case shard {shard_index + 1}/{shard_total}: {len(valid_testset)} case(s) "
+            f"(offset {start})",
+        )
+    total_runs = _compute_total_runs(
+        len(valid_testset), len(models), len(prompt_strategies), len(schema_enforced_values),
+        repeats,
+    )
     config_fingerprint = _config_fingerprint(config)
 
     if dry_run:
         print(f"Dry run: loaded {len(valid_testset)} valid test cases from {testset_abs}.")
-        print(f"Dry run: {len(models)} models x {len(prompt_strategies)} prompt strategies x {len(schema_enforced_values)} schema settings x {repeats} repeats = {total_runs} planned runs.")
+        print(
+            f"Dry run: {len(models)} models x {len(prompt_strategies)} prompt strategies "
+            f"x {len(schema_enforced_values)} schema settings x {repeats} repeats "
+            f"= {total_runs} planned runs."
+        )
         print(f"Dry run: schema enforcement values = {schema_enforced_values}")
         print(f"Dry run: schema_validation_when_no_schema = {schema_validation_when_no_schema}")
         return None
@@ -595,6 +725,9 @@ def run_evaluation(config_path_or_config):
             resolved_model = _resolve_model_config(model_cfg, global_cfg)
             _configure_backend(resolved_model, global_cfg)
             set_few_shot_enabled(True)
+            # Per supervisor guidance the model always receives the complete schema
+            # (entities + attributes + relations); schema richness is not a design variable.
+            set_schema_level("full")
             set_generation_temperature(resolved_model.get("temperature", global_cfg.get("temperature")))
 
             for strategy_idx, prompt_strategy in enumerate(prompt_strategies, start=1):
@@ -673,6 +806,12 @@ def run_evaluation(config_path_or_config):
                         gold_events, gold_objects = _extract_query_entities(gold_query)
                         hallucinated = bool(pred_events - gold_events or pred_objects - gold_objects)
                         unsupported = _contains_unsupported_filter(ocpq_json)
+                        # Grounding metrics: did the model invent an attribute name (the
+                        # `isMarried` -> `is_Married` failure) or link two entity types that
+                        # the log never relates? Post-hoc only; never fed back to the model.
+                        bad_attributes, bad_relations = _schema_grounding_errors(
+                            ocpq_json, ocel_path
+                        )
                         final_status = _classify_run_status(
                             pipeline_status,
                             error,
@@ -698,6 +837,7 @@ def run_evaluation(config_path_or_config):
                             "case_id": case_idx,
                             "nl_query": nl_query,
                             "ocel_path": ocel_path,
+                            "domain_seen": _is_domain_seen(ocel_path),
                             "gold_query": gold_query,
                             "model": resolved_model["name"],
                             "model_label": resolved_model["label"],
@@ -724,6 +864,8 @@ def run_evaluation(config_path_or_config):
                                 "schema_valid": schema_valid,
                                 "hallucinated_entities": hallucinated,
                                 "unsupported_filters": unsupported,
+                                "hallucinated_attributes": sorted(bad_attributes),
+                                "invalid_relations": sorted(bad_relations),
                             },
                             "similarity": similarity,
                             "ground_truth": {
@@ -798,9 +940,45 @@ def _build_summary(records, repeats):
     for rec in records:
         by_config[rec["config_id"]].append(rec)
 
+    def _metric_bundle(recs):
+        return {
+            "n": len(recs),
+            "combined_f1": _mean([
+                (r.get("similarity") or {}).get("combined", {}).get("f1") for r in recs
+            ]),
+            "schema_valid_rate": _mean([1 if r["metrics"]["schema_valid"] else 0 for r in recs]),
+            "execution_success_rate": _mean(
+                [1 if (r.get("execution") or {}).get("success") else 0 for r in recs]
+            ),
+            "hallucinated_attribute_rate": _mean(
+                [1 if r["metrics"].get("hallucinated_attributes") else 0 for r in recs]
+            ),
+            "invalid_relation_rate": _mean(
+                [1 if r["metrics"].get("invalid_relations") else 0 for r in recs]
+            ),
+        }
+
+    # Leakage split: seen vs unseen domains, overall and per model. If the fine-tuning gain
+    # holds on unseen logs it is a real skill; if it only shows on seen logs it was memorised
+    # vocabulary. After de-leaking + retraining, seen and unseen should be comparable.
+    seen_recs = [r for r in records if r.get("domain_seen")]
+    unseen_recs = [r for r in records if not r.get("domain_seen")]
+    by_domain_seen = {
+        "seen": _metric_bundle(seen_recs) if seen_recs else None,
+        "unseen": _metric_bundle(unseen_recs) if unseen_recs else None,
+        "by_model": {},
+    }
+    for model_label in sorted({r.get("model_label") for r in records}):
+        m_recs = [r for r in records if r.get("model_label") == model_label]
+        by_domain_seen["by_model"][model_label] = {
+            "seen": _metric_bundle([r for r in m_recs if r.get("domain_seen")]),
+            "unseen": _metric_bundle([r for r in m_recs if not r.get("domain_seen")]),
+        }
+
     summary = {
         "total_records": len(records),
         "by_config": {},
+        "by_domain_seen": by_domain_seen,
         "evaluation_phase": "summary",
     }
 
@@ -808,6 +986,13 @@ def _build_summary(records, repeats):
         schema_valid_rate = _mean([1 if r["metrics"]["schema_valid"] else 0 for r in recs])
         hallucinated_rate = _mean([1 if r["metrics"]["hallucinated_entities"] else 0 for r in recs])
         unsupported_rate = _mean([1 if r["metrics"]["unsupported_filters"] else 0 for r in recs])
+        # Grounding: fraction of queries inventing an attribute name / an unlinked relation.
+        hallucinated_attribute_rate = _mean(
+            [1 if r["metrics"].get("hallucinated_attributes") else 0 for r in recs]
+        )
+        invalid_relation_rate = _mean(
+            [1 if r["metrics"].get("invalid_relations") else 0 for r in recs]
+        )
         exec_success_rate = _mean([1 if (r.get("execution") or {}).get("success") else 0 for r in recs])
 
         prompt_tokens = _mean([r["llm"].get("prompt_tokens") for r in recs])
@@ -877,6 +1062,8 @@ def _build_summary(records, repeats):
             "metrics": {
                 "schema_valid_rate": schema_valid_rate,
                 "hallucinated_entity_rate": hallucinated_rate,
+                "hallucinated_attribute_rate": hallucinated_attribute_rate,
+                "invalid_relation_rate": invalid_relation_rate,
                 "unsupported_filter_rate": unsupported_rate,
                 "execution_success_rate": exec_success_rate,
                 "event_jaccard": event_jaccard,
@@ -945,6 +1132,8 @@ def main():
         help="0-based index into prompt_strategies. Restricts this job to that strategy only (finer Slurm sharding).")
     parser.add_argument("--schema-idx", type=int, default=None,
         help="0-based index into schema_enforced. Restricts this job to that schema setting only (finer Slurm sharding).")
+    parser.add_argument("--case-shard", default=None, metavar="I/N",
+        help="Evaluate only case slice I of N (0-based), e.g. 0/2. Splits the testset across jobs.")
     parser.add_argument("--merge-shards", nargs="+", metavar="DIR",
         help="Merge predictions.json files from multiple shard run-dirs into a combined summary.")
     parser.add_argument("--merge-output", metavar="DIR", default="eval_runs/merged",
@@ -965,6 +1154,12 @@ def main():
             cfg["_strategy_idx"] = args.strategy_idx
         if args.schema_idx is not None:
             cfg["_schema_idx"] = args.schema_idx
+        if args.case_shard:
+            try:
+                index_str, total_str = str(args.case_shard).split("/")
+                cfg["_case_shard"] = (int(index_str), int(total_str))
+            except ValueError:
+                parser.error(f"--case-shard must look like I/N (got {args.case_shard!r}).")
 
     if args.dry_run:
         config = _read_json(args.config)

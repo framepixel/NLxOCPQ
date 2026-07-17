@@ -212,3 +212,5 @@ uploaded_logs/
 results/
 output/
 output_2/
+# Derived OCEL schema cache (rebuilt per machine; keyed by abspath+mtime)
+.schema_cache/

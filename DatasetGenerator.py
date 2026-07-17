@@ -66,7 +66,27 @@ domains = {
         "objects": ["issues", "pull requests", "commits"]
     },
 
-    # Domains from actual log files
+    # De-leaked replacement domains (invented; vocabulary intentionally disjoint from
+    # every evaluation log so the fine-tuned models cannot memorise eval entity names).
+    # Attribute naming conventions are varied on purpose (camelCase, snake_case, is-prefix)
+    # so the model learns to copy the attribute name from the schema rather than guess.
+    "library_circulation": {
+        "events": ["Reserve Book", "Borrow Book", "Renew Loan", "Return Book",
+                   "Pay Late Fee", "Report Book Lost"],
+        "objects": ["Member", "Book", "Loan", "Branch"]
+    },
+    "restaurant_service": {
+        "events": ["Place Reservation", "Seat Guests", "Take Order", "Serve Dish",
+                   "Split Bill", "Process Payment"],
+        "objects": ["Guest", "Table", "Order", "Dish", "Bill"]
+    },
+    "insurance_claims": {
+        "events": ["File Claim", "Assign Adjuster", "Inspect Damage", "Approve Claim",
+                   "Deny Claim", "Issue Settlement"],
+        "objects": ["Policyholder", "Claim", "Policy", "Adjuster"]
+    },
+
+    # Domains from actual log files (verified NOT to overlap any evaluation log's vocabulary)
     "distribution": {
         "events": ["Apply Discount", "Apply Payment", "Approve Order", "Approve Return", "Generate Invoice", 
                    "Generate Pick List", "Generate Shipping Label", "Handle Payment Discrepancy", 
@@ -88,40 +108,6 @@ domains = {
                    "Three-way Match - Successful"],
         "objects": ["Goods Receipt", "Invoice", "Payment", "Purchase Order", "Purchase Requisition", "Supplier"]
     },
-    "hiring": {
-        "events": ['Approve Job Requisition', 'Attend Orientation Training', 'Candidate Accept Offer', 'Candidate Reject Offer', 
-                   'Complete Assessment', 'Complete Background Check', 'Complete HR Paperwork', 'Complete Onboarding', 
-                   'Conduct Initial Interview', 'Conduct Panel Interview', 'Create Job Requisition', 'Evaluate Interview', 
-                   'Initiate Background Check', 'Post Job Opening', 'Prepare Offer Letter', 'Review Assessment', 
-                   'Schedule Initial Interview', 'Schedule Panel Interview', 'Screen Resume', 'Send Assessment', 
-                   'Send Offer Letter', 'Send Rejection Letter', 'Start Onboarding', 'Submit Application'],
-        "objects": ['Interviewer', 'HiringManager', 'Recruiter', 'Assessment', 'Candidate', 'JobRequisition']
-    },
-    "hospital": {
-        "events": ['Appointment Scheduling', 'Assign Bed', 'Diagnostic Test Order', 'Initial Evaluation', 
-                   'Insurance Verification', 'Patient Arrival', 'Perform Diagnostic Test', 'Pre-Admission Consultation', 
-                   'Registration'],
-        "objects": ['Patient', 'InsuranceCompany', 'Physician', 'LabTechnician', 'Nurse', 'DiagnosticEquipment', 'Room', 'Bed']
-    },
-    "container_logistics": {
-        "events": ['Book Vehicles', 'Bring to Loading Bay', 'Collect Goods', 'Create Transport Document', 'Depart', 
-                   'Drive to Terminal', 'Load Truck', 'Load to Vehicle', 'Order Empty Containers', 'Pick Up Empty Container', 
-                   'Place in Stock', 'Register Customer Order', 'Reschedule Container', 'Weigh'],
-        "objects": ['Container', 'Customer Order', 'Forklift', 'Handling Unit', 'Transport Document', 'Truck', 'Vehicle']
-    },
-    "lending": {
-        "events": ['Application Rejected', 'Appointment Denied', 'Hand In Credit Appliaction', 'Loan Denied', 
-                   'Make Visit to Assess Colatteral', 'Request Appointment', 'Request Co-Signer On Loan', 
-                   'Set Appointment', 'Sign Loan Agreement', 'Submit File to Underwriter', 'Verify Borrowers Information', 
-                   'skipped_examination'],
-        "objects": ['Person']
-    },
-    "renting": {
-        "events": ["Accept Late Payment", "Apply for Viewing Appointment", "Check Paperwork", "Evict Tenant", "Extensive Screening",
-                   "Hand In The Paperwork", "Issue Warning", "Miss Rent Payment", "Move In", "Pay Rent", "Reject Prospective Tenant",
-                   "Screen Prospective Tenant", "Set Appointment", "Sign Contract", "Tenant Cancels Appartment", "View The Property"],
-        "objects": ["Person"]
-    }
 }
 
 # In[4b]:
@@ -154,18 +140,22 @@ OBJECT_ATTRIBUTES = {
     "distribution":        [("Order", "totalAmount", "Float"), ("Product", "weight", "Float")],
     "procurement":         [("Purchase Order", "amount", "Float")],
     "02_p2p":              [("Purchase Order", "amount", "Float")],
-    "hiring":              [("Candidate", "yearsExperience", "Integer"),
-                            ("JobRequisition", "openings", "Integer")],
-    "hospital":            [("Patient", "age", "Integer"), ("Patient", "isInpatient", "Boolean")],
-    "container_logistics": [("Container", "AmountofHandlingUnits", "Float"),
-                            ("Container", "Status", "String", ["full", "empty"])],
-    "lending":             [("Person", "Creditscore", "Integer"), ("Person", "Age", "Integer"),
-                            ("Person", "Yearsofeducation", "Integer"),
-                            ("Person", "hasGuarantor", "Boolean"),
-                            ("Person", "registrationDate", "Time")],
-    "renting":             [("Person", "monthlyIncome", "Integer")],
     "recruitment":         [("candidates", "yearsExperience", "Integer")],
     "software_dev":        [("pull requests", "linesChanged", "Integer")],
+    # De-leaked replacement domains. Naming conventions are intentionally mixed
+    # (camelCase / snake_case / is-prefix) to teach schema-copying over guessing.
+    "library_circulation": [("Member", "membershipYears", "Integer"),
+                            ("Member", "is_student", "Boolean"),
+                            ("Book", "page_count", "Integer"),
+                            ("Loan", "fineAmount", "Float")],
+    "restaurant_service":  [("Guest", "partySize", "Integer"),
+                            ("Guest", "isVip", "Boolean"),
+                            ("Bill", "total_amount", "Float"),
+                            ("Order", "prepMinutes", "Integer")],
+    "insurance_claims":    [("Policyholder", "age", "Integer"),
+                            ("Policyholder", "has_prior_claims", "Boolean"),
+                            ("Claim", "claimAmount", "Float"),
+                            ("Policy", "coverage_limit", "Integer")],
 }
 
 # Event attributes used for EventAttributeValueFilter (F9) and attribute-comparison CEL.
@@ -200,6 +190,54 @@ def _detect_domain(example_events: list) -> str:
         if ev_set == dom_evs:
             return dom
     return None
+
+
+def _query_relations(query: dict) -> dict:
+    """Derive the E2O and O2O relations a query actually uses, as name-level triples.
+
+    O2E/O2O filters reference variables by index into a node's newEventVars /
+    newObjectVars; this resolves those indices back to the event/object type names.
+    The result is used to show the model exactly the relations (and their qualifiers)
+    its target query relies on, so it learns to read relation names from the schema
+    instead of inventing them. Because the graph is derived from the gold query, the
+    gold can never reference a relation absent from the shown schema.
+
+    Returns:
+        {"e2o": [[event, object, qualifier], ...], "o2o": [[object, object, qualifier], ...]}
+        with qualifiers as strings or null, sorted and de-duplicated.
+    """
+    e2o: set = set()
+    o2o: set = set()
+    for node in (query or {}).get("nodes", []):
+        if not isinstance(node, dict):
+            continue
+        box = node.get("Box")
+        if not isinstance(box, list) or not box or not isinstance(box[0], dict):
+            continue
+        data = box[0]
+        ev_vars = data.get("newEventVars", {}) or {}
+        ob_vars = data.get("newObjectVars", {}) or {}
+
+        def _names(vars_map, idx):
+            val = vars_map.get(str(idx), vars_map.get(idx, []))
+            return [v for v in val if isinstance(v, str)] if isinstance(val, list) else []
+
+        for f in data.get("filters", []) or []:
+            if not isinstance(f, dict):
+                continue
+            qualifier = f.get("qualifier")
+            if f.get("type") == "O2E":
+                for obj_name in _names(ob_vars, f.get("object")):
+                    for ev_name in _names(ev_vars, f.get("event")):
+                        e2o.add((ev_name, obj_name, qualifier))
+            elif f.get("type") == "O2O":
+                for a_name in _names(ob_vars, f.get("object")):
+                    for b_name in _names(ob_vars, f.get("other_object")):
+                        o2o.add((a_name, b_name, qualifier))
+    return {
+        "e2o": sorted([list(t) for t in e2o]),
+        "o2o": sorted([list(t) for t in o2o]),
+    }
 
 
 def _box(children, ev=None, ob=None, filters=None, size_filters=None,
@@ -1410,24 +1448,66 @@ def generate_example():
             "reasoning": reasoning}
 
 
+def _build_no_direct_path_examples():
+    """Examples where two named entities have NO direct relation and the gold query must
+    route through an unmentioned intermediary object.
+
+    This is the exact skill the pipeline was missing: the NL names A and C, the relation
+    graph links A->B and B->C but never A->C, so the model must introduce B. Because the
+    shown schema is derived from the gold (see _query_relations), the A->C edge is never
+    present, making the no-path premise explicit to the model.
+    """
+    # (domain, A, B_intermediary, C, verb phrase for the NL)
+    specs = [
+        ("library_circulation", "Member", "Loan", "Book", "borrowed"),
+        ("restaurant_service", "Guest", "Order", "Dish", "was served"),
+        ("insurance_claims", "Policyholder", "Claim", "Policy", "filed against"),
+    ]
+    examples = []
+    for domain, a, b, c, verb in specs:
+        dd = domains[domain]
+        node = _box(
+            children=[],
+            ob={"0": [a], "1": [b], "2": [c]},
+            filters=[_o2o(0, 1), _o2o(1, 2)],
+        )
+        query = {"nodes": [node], "edgeNames": []}
+        examples.append({
+            "nl": f"Find each {a.lower()} who {verb} a {c.lower()}.",
+            "nl_clean_1": f"List every {a.lower()} that {verb} a {c.lower()}.",
+            "nl_clean_2": f"Which {a.lower()}s {verb} a {c.lower()}?",
+            "events": dd["events"],
+            "objects": dd["objects"],
+            "query": query,
+            "reasoning": (
+                f"Step 1: The query names '{a}' and '{c}', but the relation graph has no direct "
+                f"'{a}' -> '{c}' link. Step 2: The graph does link '{a}' -> '{b}' and '{b}' -> '{c}', "
+                f"so '{b}' is the required (unmentioned) intermediary. Step 3: Bind all three object "
+                f"variables in one node and chain them with two O2O filters: ({a},{b}) and ({b},{c})."
+            ),
+        })
+    return examples
+
+
 def _build_targeted_curriculum_examples():
-    hospital_events = domains["hospital"]["events"]
-    hospital_objects = domains["hospital"]["objects"]
+    # Uses the de-leaked `insurance_claims` domain (vocabulary disjoint from every eval log).
+    claims_events = domains["insurance_claims"]["events"]
+    claims_objects = domains["insurance_claims"]["objects"]
 
     targeted_examples = [
         {
-            "nl": "For any person, the diagnosis happens exactly once.",
-            "nl_clean_1": "For any person, the diagnosis must happen exactly once.",
-            "nl_clean_2": "Each person should receive the diagnosis exactly one time.",
-            "events": hospital_events,
-            "objects": hospital_objects,
+            "nl": "For any policyholder, the claim is approved exactly once.",
+            "nl_clean_1": "For any policyholder, the claim must be approved exactly once.",
+            "nl_clean_2": "Each policyholder should have their claim approved exactly one time.",
+            "events": claims_events,
+            "objects": claims_objects,
             "query": {
                 "nodes": [
                     {
                         "Box": [
                             {
                                 "newEventVars": {},
-                                "newObjectVars": {"0": ["Patient"]},
+                                "newObjectVars": {"0": ["Policyholder"]},
                                 "filters": [],
                                 "sizeFilters": [],
                                 "constraints": [
@@ -1445,7 +1525,7 @@ def _build_targeted_curriculum_examples():
                     {
                         "Box": [
                             {
-                                "newEventVars": {"0": ["Initial Evaluation"]},
+                                "newEventVars": {"0": ["Approve Claim"]},
                                 "newObjectVars": {},
                                 "filters": [{"type": "O2E", "object": 0, "event": 0, "qualifier": None}],
                                 "sizeFilters": [],
@@ -1460,25 +1540,25 @@ def _build_targeted_curriculum_examples():
                 "edgeNames": [[[0, 1], "A"]],
             },
             "reasoning": (
-                "Step 1: Interpret the colloquial term 'person' as the allowed object 'Patient' and "
-                "'diagnosis' as the allowed event 'Initial Evaluation'. Step 2: The phrase 'exactly once' "
+                "Step 1: Interpret the colloquial term 'policyholder' as the allowed object 'Policyholder' "
+                "and 'approved' as the allowed event 'Approve Claim'. Step 2: The phrase 'exactly once' "
                 "must not introduce a custom filter type. Step 3: Represent it with a parent object node "
                 "and a SizeFilter min=1,max=1 on a child event node that is linked back with O2E."
             ),
         },
         {
-            "nl": "For any person, the diagnosis must be completed within 3 days after the registration at ER.",
-            "nl_clean_1": "For any person, diagnosis must be completed within 3 days after ER registration.",
-            "nl_clean_2": "Each person should complete diagnosis within 3 days after registering at the ER.",
-            "events": hospital_events,
-            "objects": hospital_objects,
+            "nl": "For any policyholder, the claim must be approved within 3 days after it is filed.",
+            "nl_clean_1": "For any policyholder, the claim must be approved within 3 days after filing.",
+            "nl_clean_2": "Each policyholder should have their claim approved within 3 days after filing it.",
+            "events": claims_events,
+            "objects": claims_objects,
             "query": {
                 "nodes": [
                     {
                         "Box": [
                             {
                                 "newEventVars": {},
-                                "newObjectVars": {"0": ["Patient"]},
+                                "newObjectVars": {"0": ["Policyholder"]},
                                 "filters": [],
                                 "sizeFilters": [],
                                 "constraints": [{"type": "SAT", "child_names": ["A"]}],
@@ -1491,7 +1571,7 @@ def _build_targeted_curriculum_examples():
                     {
                         "Box": [
                             {
-                                "newEventVars": {"0": ["Registration"], "1": ["Initial Evaluation"]},
+                                "newEventVars": {"0": ["File Claim"], "1": ["Approve Claim"]},
                                 "newObjectVars": {},
                                 "filters": [
                                     {"type": "O2E", "object": 0, "event": 0, "qualifier": None},
@@ -1520,14 +1600,15 @@ def _build_targeted_curriculum_examples():
                 "edgeNames": [[[0, 1], "A"]],
             },
             "reasoning": (
-                "Step 1: Interpret 'person' as 'Patient', 'registration at ER' as 'Registration', and "
-                "'diagnosis' as 'Initial Evaluation'. Step 2: The temporal constraint is 'within 3 days after', "
+                "Step 1: Interpret 'policyholder' as 'Policyholder', 'filed' as 'File Claim', and "
+                "'approved' as 'Approve Claim'. Step 2: The temporal constraint is 'within 3 days after', "
                 "so it must become a TimeBetweenEvents max_seconds of 259200. Step 3: Keep the tree connected "
                 "with a parent SAT node and child event node using O2E bindings for both events."
             ),
         },
     ]
 
+    targeted_examples.extend(_build_no_direct_path_examples())
     return targeted_examples
 
 # In[9]:
@@ -1610,6 +1691,7 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
             dom = _detect_domain(example.get("events", []))
             if dom:
                 example["object_attributes"] = _domain_attributes(dom)
+            example.setdefault("relations", _query_relations(example["query"]))
             raw_examples.append(example)
 
     # 2. Instantly generate the remaining unique logical sentences locally.
@@ -1627,6 +1709,7 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
         dom = _detect_domain(ex.get("events", []))
         if dom:
             ex["object_attributes"] = _domain_attributes(dom)
+        ex.setdefault("relations", _query_relations(ex["query"]))
         raw_examples.append(ex)
 
     # 3. Process the LLM rewrites in parallel batches
@@ -1660,6 +1743,8 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
             updated_example["objects"] = ex["objects"]
             if "object_attributes" in ex:
                 updated_example["object_attributes"] = ex["object_attributes"]
+            if "relations" in ex:
+                updated_example["relations"] = ex["relations"]
             updated_example["query"] = ex["query"]
             updated_example["reasoning"] = ex["reasoning"]
             dataset.append(updated_example)
