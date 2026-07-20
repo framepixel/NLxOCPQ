@@ -1575,6 +1575,10 @@ def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_n
         f"ALLOWED ENTITIES: {extracted_structure}\n\n"
         "3. You must follow the logical tree plan from your second subproblem.\n"
         f"LOGICAL PLAN: {logical_tree}\n\n"
+        "4. Every 'O2E' and 'O2O' filter you emit MUST correspond to a relation actually present in "
+        "ALLOWED ENTITIES ('object_event_links'/'object_object_links', when populated) or implied by the "
+        "LOGICAL PLAN's node descriptions. Do NOT invent an event-object or object-object link that isn't "
+        "grounded there.\n\n"
         "Output strictly and ONLY valid JSON matching the exact schema based entirely on these allowed entities and plan."
     )
     
