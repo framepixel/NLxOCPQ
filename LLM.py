@@ -1406,6 +1406,22 @@ JSON:
 
 
 def run_subproblem_1_extract_entities(query, schema_block, messages, model_name):
+    # Only ask for relation grounding when the schema block actually contains a relation
+    # graph (schema_level == "full"); at lower schema levels this section is absent and
+    # asking for it would just invite hallucinated relations.
+    relations_available = (
+        "EVENT-TO-OBJECT RELATIONS" in schema_block or "OBJECT-TO-OBJECT RELATIONS" in schema_block
+    )
+    relations_instruction = ""
+    if relations_available:
+        relations_instruction = (
+            "\nAlso copy which relations from the EVENT-TO-OBJECT RELATIONS and OBJECT-TO-OBJECT RELATIONS "
+            "lists above connect the events/objects you just mapped. Copy each relation VERBATIM as shown "
+            "(e.g. \"EventType -> ObjectType\") into 'object_event_links' (event-to-object) and "
+            "'object_object_links' (object-to-object). Do NOT invent relations that are not listed. If an "
+            "object you need is not directly related to any identified event, include the relation chain "
+            "through an intermediary object that IS listed, so the chain can be followed later.\n"
+        )
     prompt_1 = (
         "Given the user query, map the terms to the exact events and objects involved.\n\n"
         "CRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly "
@@ -1413,7 +1429,8 @@ def run_subproblem_1_extract_entities(query, schema_block, messages, model_name)
         f"{schema_block}\n\n"
         f"Query: {query}\n\n"
         "Output a clear mapping of the elements found in the query to the valid events and objects. "
-        "Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once'). "
+        "Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once').\n"
+        f"{relations_instruction}"
         "Return ONLY JSON matching the schema."
     )
     messages.append({"role": "user", "content": prompt_1})
@@ -1441,16 +1458,27 @@ def run_subproblem_2_plan_tree(messages, model_name):
 
     prompt_2 = (
         "Based on the mapped elements, plan the logical tree structure for the OCPQ query.\n\n"
-        "OCPQ PATTERN CHEAT SHEET:\n"
-        "- 'completed within TIME': Requires 2 nodes. Parent node has Event A, Object A, and a constraint "
-        "specifying 'SAT' on the child path. Child node has Event B and a 'TimeBetweenEvents' filter (max_seconds).\n"
-        "- 'exactly once': Requires 2 nodes. Root node has Object A and a 'SizeFilter' constraint on the child path (min:1, max:1). Connected child node has Event A and an 'O2E' filter linking Event A to Object A.\n"
-        "- 'at least once': Parent node with Event A, child node with Event B.\n"
-        "- 'must not occur': Single node with a 'NOT' constraint on a child path.\n\n"
+        "OCPQ PATTERN CHEAT SHEET (typical shapes, not fixed node counts -- add nodes if extra constraints require it):\n"
+        "- 'completed within TIME': Typically 2 nodes. Parent node has Event A and Object A. Child node has "
+        "Event B, an 'O2E' filter linking Event B to Object A, and a 'TimeBetweenEvents' filter (max_seconds) "
+        "bounding Event A -> Event B.\n"
+        "- Occurrence-count constraints ('at least once', 'more than once', 'exactly once', 'must not occur more "
+        "than N times'): Root node has Object A and BOTH a 'SAT' constraint AND a 'SizeFilter'/'NumChilds' "
+        "constraint pointing at the SAME child path (set min/max per the phrasing, e.g. min:1 for 'at least "
+        "once', min:1,max:1 for 'exactly once'). Connected child node has Event A and an 'O2E' filter linking "
+        "Event A to Object A.\n"
+        "- 'must not occur' / 'must not X' / 'should not X': Requires AT LEAST 2 nodes -- a 'NOT' constraint "
+        "always references a child path by name, so the forbidden pattern must live in a real child node. The "
+        "parent node holds the triggering event/object; the 'NOT' constraint's child_names point at the child "
+        "node(s) describing what must NOT happen.\n"
+        "- Simple, single-condition queries that need no nesting: a single root node with NO children is valid "
+        "-- put the events, objects, and filters/constraints directly in that one node.\n\n"
         "CRITICAL TO PREVENT SLOW QUERIES (OOM CRASHES):\n"
-        "1. DO NOT create orphaned/disconnected nodes. EVERY node must be linked as a child of another node via the child index arrays, except for the root node.\n"
+        "1. DO NOT create orphaned/disconnected nodes. EVERY node except the root must be reachable via some "
+        "parent's child index array.\n"
         "2. DO NOT create EMPTY nodes that don't contain any events or objects. Every node should have a clear purpose in the query plan.\n"
-        "3. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` MUST be placed inside connected child nodes, not isolated in disconnected nodes.\n"
+        "3. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` may live in the root node itself for simple, "
+        "non-nested queries, or in any node reachable from the root -- just never in a node that is unreachable.\n"
         "4. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.\n\n"
         "Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, "
         "and exact filters/constraints).\n\n"
@@ -1664,6 +1692,7 @@ def _run_pipeline_grammar_guided(
                     stage="grammar_guided_fix",
                 )
                 ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_4})
                 messages.append({"role": "assistant", "content": fixed_content})
 
     return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
@@ -1963,6 +1992,7 @@ Query:
                     stage="allowed_entities_only_fix",
                 )
                 ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_fix})
                 messages.append({"role": "assistant", "content": fixed_content})
 
     return None, None, ocpq_json, query_result, query_result_file_path
@@ -2021,7 +2051,15 @@ Query:
 {query}
 """
     messages.append({"role": "user", "content": prompt_1})
-    response_1 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    response_1 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "extracted_structure", "schema": EXTRACTED_STRUCTURE_SCHEMA, "strict": True},
+        },
+    )
     structure_text = response_1.choices[0].message.content
     messages.append({"role": "assistant", "content": structure_text})
     print("Sub-problem 1 completed: Entities extracted.")
@@ -2200,6 +2238,7 @@ ONLY output valid JSON.
                     stage="chain_of_thought_plus_fix",
                 )
                 ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_4})
                 messages.append({"role": "assistant", "content": fixed_content})
 
     return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
@@ -2258,7 +2297,15 @@ Query:
 {query}
 """
     messages.append({"role": "user", "content": prompt_1})
-    response_1 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    response_1 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "extracted_structure", "schema": EXTRACTED_STRUCTURE_SCHEMA, "strict": True},
+        },
+    )
     structure_text = response_1.choices[0].message.content
     messages.append({"role": "assistant", "content": structure_text})
     print("Sub-problem 1 completed: Entities extracted.")
@@ -2528,6 +2575,7 @@ Return JSON:
                     stage="least_to_most_fix",
                 )
                 ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_6})
                 messages.append({"role": "assistant", "content": fixed_content})
 
     return structure_text, verification_json, ocpq_json, query_result, query_result_file_path
