@@ -1457,35 +1457,61 @@ def run_subproblem_2_plan_tree(messages, model_name):
         extracted_structure = messages[2].get("content", "{}")
 
     prompt_2 = (
-        "Based on the mapped elements, plan the logical tree structure for the OCPQ query.\n\n"
-        "OCPQ PATTERN CHEAT SHEET (typical shapes, not fixed node counts -- add nodes if extra constraints require it):\n"
-        "- 'completed within TIME': Typically 2 nodes. Parent node has Event A and Object A. Child node has "
-        "Event B, an 'O2E' filter linking Event B to Object A, and a 'TimeBetweenEvents' filter (max_seconds) "
-        "bounding Event A -> Event B.\n"
-        "- Occurrence-count constraints ('at least once', 'more than once', 'exactly once', 'must not occur more "
-        "than N times'): Root node has Object A and BOTH a 'SAT' constraint AND a 'SizeFilter'/'NumChilds' "
-        "constraint pointing at the SAME child path (set min/max per the phrasing, e.g. min:1 for 'at least "
-        "once', min:1,max:1 for 'exactly once'). Connected child node has Event A and an 'O2E' filter linking "
-        "Event A to Object A.\n"
-        "- 'must not occur' / 'must not X' / 'should not X': Requires AT LEAST 2 nodes -- a 'NOT' constraint "
-        "always references a child path by name, so the forbidden pattern must live in a real child node. The "
-        "parent node holds the triggering event/object; the 'NOT' constraint's child_names point at the child "
-        "node(s) describing what must NOT happen.\n"
-        "- Simple, single-condition queries that need no nesting: a single root node with NO children is valid "
-        "-- put the events, objects, and filters/constraints directly in that one node.\n\n"
-        "CRITICAL TO PREVENT SLOW QUERIES (OOM CRASHES):\n"
-        "1. DO NOT create orphaned/disconnected nodes. EVERY node except the root must be reachable via some "
-        "parent's child index array.\n"
-        "2. DO NOT create EMPTY nodes that don't contain any events or objects. Every node should have a clear purpose in the query plan.\n"
-        "3. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` may live in the root node itself for simple, "
-        "non-nested queries, or in any node reachable from the root -- just never in a node that is unreachable.\n"
-        "4. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.\n\n"
-        "Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, "
-        "and exact filters/constraints).\n\n"
-        "CRITICAL: ONLY use the events and objects mapped here. DO NOT INVENT NEW ONES!\n"
-        f"{extracted_structure}\n\n"
-        "Return ONLY JSON matching the schema."
-    )
+        """Based on the mapped elements, plan the logical tree structure for the OCPQ query.
+
+        TREE FORMAT RULES:
+        - 'events' and 'objects' on each node list ONLY the events/objects newly introduced AT THAT NODE, not 
+        entities already introduced by an ancestor node (a child implicitly inherits its ancestors' bindings).
+        - 'description' is the ONLY place to record filters and constraints for that node -- state the EXACT 
+        type name and key parameters (e.g. "O2E: event 0 -> object 0", "TimeBetweenEvents:
+        max_seconds=259200", "SizeFilter/NumChilds: child A, min=1", "NOT: child A"). Do not leave
+        filters/constraints unstated in a node that needs them.
+        - 'id' values start at 0 and increase by node order. Every edge's 'from'/'to' MUST reference an 'id'
+        that exists in 'nodes' -- never invent or skip ids.
+
+        EXAMPLE (format only -- your actual events/objects/filters must come from the mapped elements below):
+        {
+          "nodes": [
+            {"id": 0, "description": "root: holds Object A, no filters", "events": [], "objects": ["Object A"]},
+            {"id": 1, "description": "O2E: event 0 -> object 0", "events": ["Event A"], "objects": []}
+          ],
+          "edges": [
+            {"from": 0, "to": 1, "label": "A"}
+          ]
+        }
+        OCPQ PATTERN CHEAT SHEET (typical shapes, not fixed node counts -- add nodes if extra constraints require it):
+        - 'completed within TIME': Typically 2 nodes. Parent node has Event A and Object A. Child node has
+        Event B, an 'O2E' filter linking Event B to Object A, and a 'TimeBetweenEvents' filter (max_seconds)
+        bounding Event A -> Event B.
+        - Occurrence-count constraints ('at least once', 'more than once', 'exactly once', 'must not occur more
+        than N times'): Root node has Object A and BOTH a 'SAT' constraint AND a 'SizeFilter'/'NumChilds'
+        constraint pointing at the SAME child path (set min/max per the phrasing, e.g. min:1 for 'at least once',
+        min:1,max:1 for 'exactly once'). Connected child node has Event A and an 'O2E' filter linking
+        Event A to Object A.
+        - 'must not occur' / 'must not X' / 'should not X': Requires AT LEAST 2 nodes -- a 'NOT' constraint
+        always references a child path by name, so the forbidden pattern must live in a real child node. The
+        parent node holds the triggering event/object; the 'NOT' constraint's child_names point at the child
+        node(s) describing what must NOT happen.
+        - Simple, single-condition queries that need no nesting: a single root node with NO children is valid
+        -- put the events, objects, and filters/constraints directly in that one node.
+
+        CRITICAL TO PREVENT SLOW QUERIES (OOM CRASHES):
+        1. DO NOT create orphaned/disconnected nodes. EVERY node except the root must be reachable via some
+        parent's child index array.
+        2. DO NOT create EMPTY nodes that don't contain any events or objects. Every node should have a clear purpose in the query plan.
+        3. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` may live in the root node itself for simple,
+        non-nested queries, or in any node reachable from the root -- just never in a node that is unreachable.
+        4. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.
+
+        Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, 
+        and exact filters/constraints).
+
+        CRITICAL: ONLY use the events and objects mapped here. DO NOT INVENT NEW ONES!
+
+        {extracted_structure}
+
+        Return ONLY JSON matching the schema."""
+    ).replace("{extracted_structure}", extracted_structure)
     messages.append({"role": "user", "content": prompt_2})
 
     response_2 = call_hf_with_retry(
