@@ -1448,6 +1448,15 @@ def generate_example():
             "reasoning": reasoning}
 
 
+def _plural_verb(verb):
+    """Agree a singular-subject verb phrase with a plural subject (only be-verbs change)."""
+    if verb.startswith("is "):
+        return "are " + verb[3:]
+    if verb.startswith("was "):
+        return "were " + verb[4:]
+    return verb
+
+
 def _build_no_direct_path_examples():
     """Examples where two named entities have NO direct relation and the gold query must
     route through an unmentioned intermediary object.
@@ -1457,14 +1466,28 @@ def _build_no_direct_path_examples():
     shown schema is derived from the gold (see _query_relations), the A->C edge is never
     present, making the no-path premise explicit to the model.
     """
-    # (domain, A, B_intermediary, C, verb phrase for the NL)
+    # (domain, A, B_intermediary, C, subject word "who"/"that", verb phrase,
+    #  NL-singular form of A, NL-singular form of C). The NL-singular forms are decoupled
+    # from the schema type strings (A/C) because some domains use plural type names
+    # (e.g. "customers", "issues") that would otherwise read ungrammatically in the sentence.
     specs = [
-        ("library_circulation", "Member", "Loan", "Book", "borrowed"),
-        ("restaurant_service", "Guest", "Order", "Dish", "was served"),
-        ("insurance_claims", "Policyholder", "Claim", "Policy", "filed against"),
+        ("library_circulation", "Member", "Loan", "Book", "who", "borrowed", "member", "book"),
+        ("restaurant_service", "Guest", "Order", "Dish", "who", "was served", "guest", "dish"),
+        ("insurance_claims", "Policyholder", "Claim", "Policy", "who", "filed against",
+         "policyholder", "policy"),
+        ("e-commerce", "customers", "orders", "products", "who", "purchased",
+         "customer", "product"),
+        ("software_dev", "commits", "pull requests", "issues", "that", "closed",
+         "commit", "issue"),
+        ("distribution", "Customer", "Order", "Shipment", "who", "received",
+         "customer", "shipment"),
+        ("procurement", "Supplier", "Purchase Order", "Invoice", "that", "is associated with",
+         "supplier", "invoice"),
+        ("02_p2p", "Supplier", "Purchase Order", "Invoice", "that", "is associated with",
+         "supplier", "invoice"),
     ]
     examples = []
-    for domain, a, b, c, verb in specs:
+    for domain, a, b, c, subj, verb, a_nl, c_nl in specs:
         dd = domains[domain]
         node = _box(
             children=[],
@@ -1472,10 +1495,11 @@ def _build_no_direct_path_examples():
             filters=[_o2o(0, 1), _o2o(1, 2)],
         )
         query = {"nodes": [node], "edgeNames": []}
+        article = "an" if c_nl[:1].lower() in "aeiou" else "a"
         examples.append({
-            "nl": f"Find each {a.lower()} who {verb} a {c.lower()}.",
-            "nl_clean_1": f"List every {a.lower()} that {verb} a {c.lower()}.",
-            "nl_clean_2": f"Which {a.lower()}s {verb} a {c.lower()}?",
+            "nl": f"Find each {a_nl} {subj} {verb} {article} {c_nl}.",
+            "nl_clean_1": f"List every {a_nl} that {verb} {article} {c_nl}.",
+            "nl_clean_2": f"Which {a_nl}s {_plural_verb(verb)} {article} {c_nl}?",
             "events": dd["events"],
             "objects": dd["objects"],
             "query": query,
