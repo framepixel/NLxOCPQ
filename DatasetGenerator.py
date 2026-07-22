@@ -53,9 +53,15 @@ patterns = [
 
 domains = {
     # Generic domains
+    # "e-commerce" vocabulary was previously customers/employees/items/orders/packages/
+    # products, which is a 100% object-vocabulary match (plus the "pay order" event) with
+    # Logs/order-management.json, a real evaluation log referenced by testset.json. Renamed
+    # to a disjoint vocabulary (verified against every log testset.json evaluates against)
+    # while keeping the plural/lowercase naming convention, for the same de-leaking reason
+    # as the three invented domains further below.
     "e-commerce": {
-        "events": ["create order", "add item", "pay order", "ship package", "cancel order"],
-        "objects": ["customers", "employees", "items", "orders", "packages", "products"]
+        "events": ["open cart", "add line item", "settle cart", "dispatch parcel", "void cart"],
+        "objects": ["shoppers", "workers", "line items", "carts", "parcels", "articles"]
     },
     "recruitment": {
         "events": ["submit application", "review application", "approve application", "reject application"],
@@ -135,8 +141,8 @@ domains = {
 # real OCEL logs where known (e.g. Container.AmountofHandlingUnits, Person.Creditscore)
 # and use plausible synthetic names elsewhere so each example stays internally consistent.
 OBJECT_ATTRIBUTES = {
-    "e-commerce":          [("orders", "price", "Float"), ("products", "weight", "Float"),
-                            ("orders", "orderDate", "Time")],
+    "e-commerce":          [("carts", "price", "Float"), ("articles", "weight", "Float"),
+                            ("carts", "cartDate", "Time")],
     "distribution":        [("Order", "totalAmount", "Float"), ("Product", "weight", "Float")],
     "procurement":         [("Purchase Order", "amount", "Float")],
     "02_p2p":              [("Purchase Order", "amount", "Float")],
@@ -170,8 +176,8 @@ OBJECT_ATTRIBUTES = {
 
 # domain -> [(object_a, object_b), ...] valid O2O pairs.
 OBJECT_RELATIONS = {
-    "e-commerce": [("orders", "customers"), ("orders", "items"), ("items", "products"),
-                   ("employees", "items"), ("orders", "packages"), ("employees", "packages")],
+    "e-commerce": [("carts", "shoppers"), ("carts", "line items"), ("line items", "articles"),
+                   ("workers", "line items"), ("carts", "parcels"), ("workers", "parcels")],
     "recruitment": [("applications", "candidates")],
     "software_dev": [("pull requests", "commits"), ("issues", "pull requests")],
     "library_circulation": [("Member", "Loan"), ("Loan", "Book"), ("Loan", "Branch")],
@@ -193,12 +199,13 @@ OBJECT_RELATIONS["02_p2p"] = OBJECT_RELATIONS["procurement"]  # same underlying 
 
 # domain -> [(event, object), ...] valid E2O pairs.
 EVENT_OBJECT_RELATIONS = {
-    "e-commerce": [("create order", "orders"), ("create order", "customers"),
-                   ("add item", "orders"), ("add item", "items"), ("add item", "products"),
-                   ("add item", "employees"), ("pay order", "orders"), ("pay order", "customers"),
-                   ("ship package", "orders"), ("ship package", "packages"),
-                   ("ship package", "employees"), ("cancel order", "orders"),
-                   ("cancel order", "customers")],
+    "e-commerce": [("open cart", "carts"), ("open cart", "shoppers"),
+                   ("add line item", "carts"), ("add line item", "line items"),
+                   ("add line item", "articles"), ("add line item", "workers"),
+                   ("settle cart", "carts"), ("settle cart", "shoppers"),
+                   ("dispatch parcel", "carts"), ("dispatch parcel", "parcels"),
+                   ("dispatch parcel", "workers"), ("void cart", "carts"),
+                   ("void cart", "shoppers")],
     "recruitment": [("submit application", "applications"), ("submit application", "candidates"),
                      ("review application", "applications"), ("review application", "candidates"),
                      ("approve application", "applications"), ("approve application", "candidates"),
@@ -278,8 +285,8 @@ EVENT_OBJECT_RELATIONS["02_p2p"] = EVENT_OBJECT_RELATIONS["procurement"]
 # the randomized no-direct-path generator, which has to phrase an NL sentence for any object
 # type the relation graph hands it, not just a hand-picked few.
 OBJECT_SINGULAR = {
-    "e-commerce": {"customers": "customer", "employees": "employee", "items": "item",
-                   "orders": "order", "packages": "package", "products": "product"},
+    "e-commerce": {"shoppers": "shopper", "workers": "worker", "line items": "line item",
+                   "carts": "cart", "parcels": "parcel", "articles": "article"},
     "recruitment": {"applications": "application", "candidates": "candidate"},
     "software_dev": {"issues": "issue", "pull requests": "pull request", "commits": "commit"},
     "library_circulation": {"Member": "member", "Book": "book", "Loan": "loan", "Branch": "branch"},
@@ -1791,8 +1798,8 @@ def _build_no_direct_path_examples():
         ("restaurant_service", "Guest", "Order", "Dish", "who", "was served", "guest", "dish"),
         ("insurance_claims", "Policyholder", "Claim", "Policy", "who", "filed against",
          "policyholder", "policy"),
-        ("e-commerce", "orders", "items", "products", "that", "included",
-         "order", "product"),
+        ("e-commerce", "carts", "line items", "articles", "that", "included",
+         "cart", "article"),
         ("software_dev", "commits", "pull requests", "issues", "that", "closed",
          "commit", "issue"),
         ("distribution", "Customer", "Order", "Shipment", "who", "received",
