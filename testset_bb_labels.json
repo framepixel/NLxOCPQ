@@ -2740,5 +2740,590 @@
       "L",
       "T"
     ]
+  },
+  {
+    "nl_query": "Persons whose throughput time was at some point above 5 days.",
+    "bb_labels": [
+      "V2",
+      "F10",
+      "F16",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every item must have been picked when its price was above 100.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F10",
+      "F17",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every container must have been loaded to a vehicle when it had more than three handling units.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F10",
+      "F17",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A patient must not register at the ER without private insurance.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F17",
+      "C5",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Patients who underwent two distinct examination events must eventually be discharged.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "V5",
+      "F1",
+      "F4",
+      "F8",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Patients who were diagnosed on two distinct occasions must eventually receive treatment.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "V5",
+      "F1",
+      "F4",
+      "F8",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Persons who paid rent on two separate occasions must not be evicted.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F4",
+      "F8",
+      "S1",
+      "C2",
+      "C3",
+      "C5",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Packages with two distinct failed delivery attempts must eventually be delivered.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F4",
+      "F8",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which persons are married?",
+    "bb_labels": [
+      "V2",
+      "F12",
+      "F15",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which items are priced above 100?",
+    "bb_labels": [
+      "V2",
+      "F10",
+      "F15",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which patients have an underlying condition?",
+    "bb_labels": [
+      "V2",
+      "F13",
+      "F15",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Containers loaded on a truck via the 'TR loads CR' relationship must eventually depart.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F3",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which vehicles have a departure date before July 2023?",
+    "bb_labels": [
+      "V2",
+      "F14",
+      "F15",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which vehicles have a scheduled departure date after June 2024?",
+    "bb_labels": [
+      "V2",
+      "F14",
+      "F15",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Patients must register at the ER, then undergo an examination, then receive a diagnosis, then be discharged.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T5"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which patients had a diagnostic test performed on them, and by which lab technician?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V6",
+      "F1",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which sales employees confirmed orders for which customers?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V6",
+      "F1",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which hiring managers reviewed assessments for which candidates?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V6",
+      "F1",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A package must not be delivered less than one hour (3,600 s) after it was sent.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F6",
+      "C1",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A viewing appointment must be set at least one day (86,400 s) after the application for it was filed.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F6",
+      "C1",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A physician must not conduct two different pre-admission consultations at the same time.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F7",
+      "F8",
+      "C5",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "An insurance company must not verify insurance for two different patients at the same moment.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F7",
+      "F8",
+      "C5",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "An employee must not send two different packages at the same time.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F7",
+      "F8",
+      "C5",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Candidates whose initial interview outcome was 'Pass' must eventually be scheduled for a panel interview.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F9",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which candidates had their background check come back flagged?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F9",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Candidates whose interview evaluation decision was 'Proceed' must eventually have an offer letter prepared.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F9",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Show persons together with their number of rent payments, flagging those with fewer than five.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S3",
+      "C2",
+      "L1",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Show packages together with the total weight of the items they contain, flagging those below 4 kg.",
+    "bb_labels": [
+      "V2",
+      "F3",
+      "S3",
+      "C2",
+      "L1",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every patient who receives a treatment must have that treatment recorded as either successful or unsuccessful.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C6",
+      "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every credit application handed in must end with either the loan agreement being signed or the loan being denied.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C6",
+      "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which transport documents are assigned to a vehicle scheduled to depart after June 2024?",
+    "bb_labels": [
+      "V2",
+      "V6",
+      "F2",
+      "F14",
+      "F15",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
   }
 ]
