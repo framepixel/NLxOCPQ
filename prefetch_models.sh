@@ -19,8 +19,11 @@ set -euo pipefail
 # --- same cache location the submit scripts use ---------------------------------------
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
-export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$HF_HOME/transformers}"
-mkdir -p "$HF_HOME" "$HF_HUB_CACHE" "$TRANSFORMERS_CACHE"
+# TRANSFORMERS_CACHE must stay unset. It is deprecated, and when set transformers uses it as
+# the hub cache *instead of* HF_HUB_CACHE — which previously pointed downloads at
+# $HF_HOME/hub while transformers looked in $HF_HOME/transformers.
+unset TRANSFORMERS_CACHE
+mkdir -p "$HF_HOME" "$HF_HUB_CACHE"
 
 # gemma-3 is a gated repo: this must be a token that has accepted its license.
 export HUGGINGFACE_HUB_TOKEN="${HUGGINGFACE_HUB_TOKEN:-${HF_TOKEN:-}}"
@@ -56,12 +59,22 @@ REPOS = [
 ]
 
 token = os.environ.get("HF_TOKEN") or None
+# VERIFY=1 resolves everything from the local cache only, exactly as a job with
+# HF_HUB_OFFLINE=1 would. Use it to confirm the cache is complete without burning GPU time.
+verify_only = os.environ.get("VERIFY", "0").strip().lower() in {"1", "true", "yes", "on"}
+if verify_only:
+    print("VERIFY=1 -> resolving from local cache only, downloading nothing.\n")
 failures = []
 
 for repo_id, label in REPOS:
     print(f"\n=== {label}: {repo_id} ===", flush=True)
     try:
-        path = snapshot_download(repo_id=repo_id, token=token, resume_download=True)
+        path = snapshot_download(
+            repo_id=repo_id,
+            token=token,
+            resume_download=not verify_only,
+            local_files_only=verify_only,
+        )
         total = sum(
             os.path.getsize(os.path.join(root, f))
             for root, _dirs, files in os.walk(path)
@@ -75,13 +88,23 @@ for repo_id, label in REPOS:
 
 print("\n" + "=" * 72)
 if failures:
-    print("Some downloads failed:")
+    verb = "could not be resolved from the cache" if verify_only else "failed to download"
+    print(f"Some repos {verb}:")
     for repo_id, err in failures:
         print(f"  - {repo_id}: {err[:160]}")
-    print("\nIf a gated repo failed with 401/403, accept its license on huggingface.co")
-    print("with the same account as HF_TOKEN, then re-run.")
+    if verify_only:
+        print("\nRe-run without VERIFY=1 to fetch what is missing.")
+    else:
+        print("\nIf a gated repo failed with 401/403, accept its license on huggingface.co")
+        print("with the same account as HF_TOKEN, then re-run.")
     raise SystemExit(1)
-print("All checkpoints cached under:", os.environ["HF_HUB_CACHE"])
-print("The training jobs read this same cache, so they will start without downloading.")
+
+print("All checkpoints resolved from:", os.environ["HF_HUB_CACHE"])
+if verify_only:
+    print("The cache is complete — a job with HF_HUB_OFFLINE=1 will not need the network.")
+else:
+    print("The training jobs read this same cache, so they will start without downloading.")
+    print("Confirm with:  VERIFY=1 bash prefetch_models.sh")
 print("\nIMPORTANT: do NOT run the jobs with OCPQ_CLEAR_HF_CACHE=1 — it deletes this cache.")
+print("IMPORTANT: leave TRANSFORMERS_CACHE unset; setting it hides this cache from transformers.")
 PY

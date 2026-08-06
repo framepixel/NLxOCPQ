@@ -31,17 +31,23 @@ conda activate nlxocpq-train-next
 
 # Use a persistent cache by default to avoid shared FS / temp filesystem issues.
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
-export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$HF_HOME/transformers}"
+# Deliberately NOT setting TRANSFORMERS_CACHE. It is deprecated (transformers warns on every
+# run) and, when set, transformers uses it as the hub cache *instead of* HF_HUB_CACHE. That
+# split the cache in two: snapshot_download wrote to $HF_HOME/hub while transformers looked in
+# $HF_HOME/transformers, so a pre-populated cache was invisible and HF_HUB_OFFLINE=1 failed with
+# "No config file found". Unset it explicitly in case it is exported by the login shell.
+unset TRANSFORMERS_CACHE
 export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
 export HF_HUB_ETAG_TIMEOUT="${HF_HUB_ETAG_TIMEOUT:-60}"
 export HF_HUB_DOWNLOAD_THREADS="${HF_HUB_DOWNLOAD_THREADS:-1}"
 export HF_ENABLE_PARALLEL_LOADING="${HF_ENABLE_PARALLEL_LOADING:-false}"
 export HF_HUB_DISABLE_SYMLINKS_WARNING="${HF_HUB_DISABLE_SYMLINKS_WARNING:-1}"
 export HF_HUB_DISABLE_EXPERIMENTAL_WARNING="${HF_HUB_DISABLE_EXPERIMENTAL_WARNING:-1}"
+export HF_HUB_OFFLINE=1
 if [[ "${OCPQ_CLEAR_HF_CACHE:-0}" == "1" ]]; then
-	rm -rf "$HF_HUB_CACHE" "$HF_HOME/xet" "$TRANSFORMERS_CACHE"
+	rm -rf "$HF_HUB_CACHE" "$HF_HOME/xet" "$HF_HOME/transformers"
 fi
-mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE"
+mkdir -p "$HF_HOME" "$HF_HUB_CACHE"
 
 # Reduce download flakiness on HPC.
 export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-0}"
