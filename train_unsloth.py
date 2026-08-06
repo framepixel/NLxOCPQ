@@ -491,28 +491,51 @@ print(f"Validation rows: {len(eval_dataset)} "
       f"({100.0 * len(eval_dataset) / max(len(raw_dataset), 1):.1f}% of rows, "
       "split by target so no variant of a validation example appears in train)")
 
-def _report_formatting_sanity(sample_text):
-    """Warn about tokenization problems that would otherwise pass silently.
+def _has_duplicate_leading_bos(sample_text):
+    """Whether tokenizing already-templated text yields two BOS tokens in a row."""
+    bos_id = tokenizer.bos_token_id
+    if bos_id is None:
+        return False
+    ids = tokenizer(sample_text, add_special_tokens=True)["input_ids"]
+    return len(ids) >= 2 and ids[0] == bos_id and ids[1] == bos_id
 
-    Two things are worth checking once per run, because both corrupt training without
+
+def _report_formatting_sanity(sample_text):
+    """Check — and where possible repair — tokenization faults that pass silently.
+
+    Two things are worth verifying once per run, because both corrupt training without
     raising anything:
 
-    * **Duplicate BOS.** `apply_chat_template` already emits the model's BOS/header, and
-      SFTTrainer tokenizes that text with `add_special_tokens=True` by default, which can
-      prepend a second one. If that happens, pass
-      `dataset_kwargs={"add_special_tokens": False}` to SFTTrainer.
+    * **Duplicate BOS.** `apply_chat_template` already emits the model's BOS, and the
+      trainer tokenizes that text with `add_special_tokens=True`, which can prepend a
+      second one. Observed on Llama-3 but not on Phi-4 or Gemma-3, so this is repaired
+      per model rather than by forcing `add_special_tokens=False` everywhere — that would
+      strip the *only* BOS from a model whose template does not emit one. Clearing
+      `tokenizer.add_bos_token` is the surgical equivalent and needs no trl-version-specific
+      `dataset_kwargs` plumbing; the template's own BOS stays in the formatted text.
     * **Missing EOS.** The formatted text must end with the template's end-of-turn token,
       otherwise the model never learns to stop and generation runs to max_new_tokens —
       which for JSON output means unterminated objects.
     """
-    ids = tokenizer(sample_text, add_special_tokens=True)["input_ids"]
-    bos_id = tokenizer.bos_token_id
-    if bos_id is not None and len(ids) >= 2 and ids[0] == bos_id and ids[1] == bos_id:
-        print(
-            "[train_unsloth] WARNING: duplicate BOS token detected after tokenization. "
-            "The chat template already adds it and the trainer added another. Pass "
-            'dataset_kwargs={"add_special_tokens": False} to SFTTrainer.'
-        )
+    if _has_duplicate_leading_bos(sample_text):
+        if getattr(tokenizer, "add_bos_token", False):
+            tokenizer.add_bos_token = False
+            if _has_duplicate_leading_bos(sample_text):
+                print(
+                    "[train_unsloth] WARNING: duplicate BOS persists after setting "
+                    "tokenizer.add_bos_token = False. Training would see a doubled BOS."
+                )
+            else:
+                print(
+                    "[train_unsloth] BOS FIXED: the tokenizer was adding a second BOS on top "
+                    "of the one already in the chat template; set tokenizer.add_bos_token = "
+                    "False, leaving exactly one."
+                )
+        else:
+            print(
+                "[train_unsloth] WARNING: duplicate BOS token detected but the tokenizer has "
+                "no add_bos_token flag to clear. Training will see a doubled BOS."
+            )
     else:
         print("[train_unsloth] BOS check OK (no duplicate leading BOS).")
 
@@ -538,6 +561,14 @@ if _preview_n > 0:
     for i, text in enumerate(train_dataset["text"][:_preview_n]):
         print(f"\n--- Example {i} ---\n{text}")
     print("=== End of preview ===")
+
+print(
+    "[train_unsloth] resolved config: "
+    f"max_seq_length={max_seq_length} "
+    f"train_batch={train_batch_size} eval_batch={eval_batch_size} "
+    f"grad_accum={gradient_accumulation_steps} "
+    f"eval_steps={eval_steps} save_steps={save_steps} seed={random_seed}"
+)
 
 # 5. Configure the Trainer
 trainer = SFTTrainer(
@@ -577,6 +608,24 @@ trainer = SFTTrainer(
         torch_compile = False,
     ),
 )
+
+# Unsloth patches the trainer after construction and can override what was requested, so
+# report what the trainer will actually use. The first runs at 4096 showed eval running at
+# one sample per step (eval_samples_per_second == eval_steps_per_second) despite
+# per_device_eval_batch_size=8 being passed, and eval accounted for roughly half of total
+# wall time — so it is worth seeing the effective value rather than the requested one.
+print(
+    "[train_unsloth] trainer effective: "
+    f"per_device_train_batch_size={trainer.args.per_device_train_batch_size} "
+    f"per_device_eval_batch_size={trainer.args.per_device_eval_batch_size} "
+    f"gradient_accumulation_steps={trainer.args.gradient_accumulation_steps}"
+)
+if trainer.args.per_device_eval_batch_size != eval_batch_size:
+    print(
+        "[train_unsloth] NOTE: requested eval batch "
+        f"{eval_batch_size} but the trainer will use "
+        f"{trainer.args.per_device_eval_batch_size}; evaluation will be slower than planned."
+    )
 
 
 class RecoveryCallback(TrainerCallback):
