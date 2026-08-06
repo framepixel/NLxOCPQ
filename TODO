@@ -1,5 +1,1 @@
-- Add query examples that use CEL
-- Use Unsloth or similar to train the model on a dataset.
-- Check whether a different method of embedding would change something.
-- Understand what the end result after running a query means.
-- Put some performance criteria to compare LLMs and different methods.
+- Make it so that every OCPQ generated file gets deleted after it is created during the evaluation

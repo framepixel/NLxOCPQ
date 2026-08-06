@@ -657,7 +657,13 @@ if enable_final_eval:
         if enable_trainer_eval:
             eval_metrics = trainer.evaluate()
         else:
-            eval_metrics = _manual_eval_loss(model, tokenizer, eval_dataset["text"])
+            # Honour the configured eval batch size rather than the function default;
+            # this path scores the whole validation split, so batch size dominates its
+            # wall time. The loss is token-weighted with padding masked to -100, so the
+            # value is unchanged by batching.
+            eval_metrics = _manual_eval_loss(
+                model, tokenizer, eval_dataset["text"], batch_size=eval_batch_size
+            )
         print("Final validation metrics:", eval_metrics)
     except Exception as eval_exc:
         _persist_recovery_snapshot(

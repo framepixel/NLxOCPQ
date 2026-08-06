@@ -94,7 +94,13 @@ export OCPQ_ENABLE_TRAINER_EVAL="${OCPQ_ENABLE_TRAINER_EVAL:-1}"
 export OCPQ_ENABLE_FINAL_EVAL="${OCPQ_ENABLE_FINAL_EVAL:-1}"
 export PYTORCH_NVML_BASED_CUDA_CHECK="${PYTORCH_NVML_BASED_CUDA_CHECK:-1}"
 export OCPQ_TRAIN_BATCH_SIZE="${OCPQ_TRAIN_BATCH_SIZE:-1}"
-export OCPQ_EVAL_BATCH_SIZE="${OCPQ_EVAL_BATCH_SIZE:-1}"
+# Eval batch size is decoupled from the train batch size on purpose. Training is capped at 1
+# by memory (gradients + optimizer state); evaluation runs under no_grad, so a larger batch
+# fits easily on an H100 and cuts eval wall time several-fold. With eval_steps=250 over ~6750
+# steps there are ~27 evaluations over 6000 validation rows, which dominated the previous
+# runtimes. This is a pure speed change: eval loss is token-weighted and padding is masked to
+# -100, so the value is identical at any batch size.
+export OCPQ_EVAL_BATCH_SIZE="${OCPQ_EVAL_BATCH_SIZE:-8}"
 export OCPQ_GRADIENT_ACCUMULATION_STEPS="${OCPQ_GRADIENT_ACCUMULATION_STEPS:-8}"
 # 4096, not 1024: at 1024 a large share of finetune_ocpq.jsonl rows exceeded the budget and
 # SFTTrainer truncates the END of the sequence, i.e. the assistant's JSON target. 4096 also
