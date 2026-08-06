@@ -10,6 +10,7 @@ import time
 import traceback
 from collections import defaultdict
 from pathlib import Path
+from typing import Any, Optional
 
 from LogEvents import extract_ocel_schema
 from ocpq_schema import BindingBoxTree
@@ -23,6 +24,7 @@ from LLM import (
     embeddings,
     nl_to_ocpq_pipeline,
     set_few_shot_enabled,
+    set_few_shot_k,
     set_generation_temperature,
     set_schema_level,
     set_hf_client,
@@ -243,51 +245,118 @@ def _contains_unsupported_filter(ocpq_json):
     return any(token in blob for token in UNSUPPORTED_FILTER_TYPES)
 
 
-def _extract_result_ids(result_data):
-    event_ids = set()
-    object_ids = set()
-    if not isinstance(result_data, dict):
-        return event_ids, object_ids
+def _binding_entity_indices(entity_map: Any) -> tuple:
+    """Return the entity indices of one variable map, ordered by variable index.
 
+    OCPQ serialises `eventMap` / `objectMap` as arrays of `[variable_index,
+    entity_index]` pairs (`event_map: Vec<(EventVariable, EventIndex)>` in
+    `shared/src/binding_box/structs.rs`). Only the entity index carries meaning for
+    result comparison: which variable slot an entity happened to land in is an
+    arbitrary choice of the query author, so it must not affect the score.
+
+    Args:
+        entity_map: The raw `eventMap` or `objectMap` value from a binding.
+
+    Returns:
+        Entity indices ordered by their variable index, as a hashable tuple.
+    """
+    if not isinstance(entity_map, list):
+        return ()
+    pairs = [p for p in entity_map if isinstance(p, (list, tuple)) and len(p) == 2]
+    ordered = sorted(pairs, key=lambda pair: pair[0])
+    return tuple(entity_index for _variable_index, entity_index in ordered)
+
+
+def _extract_result_ids(result_data: Any) -> Optional[tuple]:
+    """Extract the comparable result sets from an ocpq_cli result document.
+
+    Only the **root** binding box (`evaluationResults[0]`) is considered. In OCPQ the
+    root box holds the query's answer; child boxes exist to express constraints over
+    it. Unioning every node would score intermediate scaffolding as though it were the
+    result, and would penalise a correct query merely for using a different tree shape.
+
+    Each root situation is keyed as a canonical tuple of its event indices, its object
+    indices, and whether the binding violated a constraint. The violation flag is
+    required for compliance queries: a gold query may bind an entire population with
+    only a subset violating, and without the flag any query binding that population
+    would score a perfect F1.
+
+    There is deliberately **no** fallback to the document's top-level `eventIds` /
+    `objectIds`: those list every entity in the log rather than any query result, so
+    using them turns an empty answer into a log-sized one. An empty result stays empty.
+
+    Args:
+        result_data: Parsed ocpq_cli result JSON.
+
+    Returns:
+        A `(event_ids, object_ids, situations)` triple of sets, or None when the
+        document carries no evaluation results at all.
+    """
     ok_data = result_data.get("Ok") if isinstance(result_data, dict) else None
     if not isinstance(ok_data, dict):
-        return event_ids, object_ids
-
-    eval_data = ok_data.get("evaluationResults", [])
-    if isinstance(eval_data, list):
-        for node in eval_data:
-            situations = node.get("situations", []) if isinstance(node, dict) else []
-            if not isinstance(situations, list):
-                continue
-            for situation in situations:
-                if not isinstance(situation, list) or len(situation) != 2:
-                    continue
-                binding = situation[0]
-                if not isinstance(binding, dict):
-                    continue
-                for event_id in binding.get("eventMap", []):
-                    event_ids.add(str(event_id))
-                for object_id in binding.get("objectMap", []):
-                    object_ids.add(str(object_id))
-
-    if not event_ids:
-        for event_id in ok_data.get("eventIds", []) or []:
-            event_ids.add(str(event_id))
-    if not object_ids:
-        for object_id in ok_data.get("objectIds", []) or []:
-            object_ids.add(str(object_id))
-
-    return event_ids, object_ids
-
-
-def _load_result_ids(result_path):
-    if not result_path or not os.path.exists(result_path):
         return None
+
+    eval_data = ok_data.get("evaluationResults")
+    if not isinstance(eval_data, list) or not eval_data:
+        return None
+
+    root = eval_data[0]
+    situations = root.get("situations") if isinstance(root, dict) else None
+    if not isinstance(situations, list):
+        situations = []
+
+    event_ids = set()
+    object_ids = set()
+    situation_keys = set()
+
+    for situation in situations:
+        if not isinstance(situation, list) or len(situation) != 2:
+            continue
+        binding, violation = situation
+        if not isinstance(binding, dict):
+            continue
+
+        events = _binding_entity_indices(binding.get("eventMap"))
+        objects = _binding_entity_indices(binding.get("objectMap"))
+
+        event_ids.update(events)
+        object_ids.update(objects)
+        situation_keys.add((events, objects, violation is not None))
+
+    return event_ids, object_ids, situation_keys
+
+
+def _extract_bindings_skipped(result_data: Any) -> Optional[bool]:
+    """Return the CLI's `bindingsSkipped` flag, or None when absent.
+
+    ocpq_cli sets this when a query yields so many bindings that some are dropped. Any
+    comparison against a truncated result is meaningless, so affected cases must stay
+    identifiable after the run.
+    """
+    ok_data = result_data.get("Ok") if isinstance(result_data, dict) else None
+    if not isinstance(ok_data, dict):
+        return None
+    skipped = ok_data.get("bindingsSkipped")
+    return bool(skipped) if isinstance(skipped, bool) else None
+
+
+def _load_result_ids(result_path: Optional[str]) -> tuple:
+    """Load result sets and the truncation flag from a result file.
+
+    Args:
+        result_path: Path to an ocpq_cli result file, or None.
+
+    Returns:
+        An `(ids, bindings_skipped)` pair. `ids` is the triple returned by
+        `_extract_result_ids`, or None when the file is missing/unreadable/empty.
+    """
+    if not result_path or not os.path.exists(result_path):
+        return None, None
     try:
         data = _read_json(result_path)
     except Exception:
-        return None
-    return _extract_result_ids(data)
+        return None, None
+    return _extract_result_ids(data), _extract_bindings_skipped(data)
 
 
 def _set_metrics(gold_set, pred_set):
@@ -316,17 +385,21 @@ def _set_metrics(gold_set, pred_set):
 
 
 def _compute_similarity(gold_ids, pred_ids):
+    """Score a prediction's root-node result against the gold query's.
+
+    `events` and `objects` report the flat root-node entity sets, kept for per-kind
+    breakdowns. `combined` — the primary metric behind `semantic_accuracy` — compares
+    whole situations, so it preserves which entities co-occur within one binding and
+    whether that binding violated a constraint.
+    """
     if gold_ids is None or pred_ids is None:
         return None
-    gold_events, gold_objects = gold_ids
-    pred_events, pred_objects = pred_ids
-    event_metrics = _set_metrics(gold_events, pred_events)
-    object_metrics = _set_metrics(gold_objects, pred_objects)
-    combined_metrics = _set_metrics(gold_events | gold_objects, pred_events | pred_objects)
+    gold_events, gold_objects, gold_situations = gold_ids
+    pred_events, pred_objects, pred_situations = pred_ids
     return {
-        "events": event_metrics,
-        "objects": object_metrics,
-        "combined": combined_metrics,
+        "events": _set_metrics(gold_events, pred_events),
+        "objects": _set_metrics(gold_objects, pred_objects),
+        "combined": _set_metrics(gold_situations, pred_situations),
     }
 
 
@@ -709,7 +782,7 @@ def run_evaluation(config_path_or_config):
             gt_start = time.time()
             gt_stdout, gt_stderr, gt_result_path = run_ocpq_query(ocel_path, str(gt_query_path))
             gt_duration = time.time() - gt_start
-            gt_ids = _load_result_ids(gt_result_path)
+            gt_ids, gt_bindings_skipped = _load_result_ids(gt_result_path)
 
             ground_truth_cache[case_key] = {
                 "result_path": gt_result_path,
@@ -717,6 +790,7 @@ def run_evaluation(config_path_or_config):
                 "stdout": gt_stdout,
                 "stderr": gt_stderr,
                 "ids": gt_ids,
+                "bindings_skipped": gt_bindings_skipped,
             }
 
         gt_record = ground_truth_cache[case_key]
@@ -725,6 +799,9 @@ def run_evaluation(config_path_or_config):
             resolved_model = _resolve_model_config(model_cfg, global_cfg)
             _configure_backend(resolved_model, global_cfg)
             set_few_shot_enabled(True)
+            # Number of retrieved examples. Absent from the config it stays at 3, the value
+            # every recorded run used; set `few_shot_k` to run the more-examples comparison.
+            set_few_shot_k(global_cfg.get("few_shot_k"))
             # Per supervisor guidance the model always receives the complete schema
             # (entities + attributes + relations); schema richness is not a design variable.
             set_schema_level("full")
@@ -791,7 +868,7 @@ def run_evaluation(config_path_or_config):
                         llm_stats = _summarize_llm_stats(get_llm_call_stats())
                         exec_stats = _summarize_exec_stats(get_query_exec_stats())
 
-                        pred_ids = _load_result_ids(query_result_file)
+                        pred_ids, pred_bindings_skipped = _load_result_ids(query_result_file)
                         similarity = _compute_similarity(gt_record.get("ids"), pred_ids)
 
                         schema_valid = False
@@ -866,6 +943,11 @@ def run_evaluation(config_path_or_config):
                                 "unsupported_filters": unsupported,
                                 "hallucinated_attributes": sorted(bad_attributes),
                                 "invalid_relations": sorted(bad_relations),
+                                # ocpq_cli drops bindings when a query yields too many;
+                                # a comparison against a truncated result is meaningless,
+                                # so keep it identifiable after the run.
+                                "bindings_skipped": pred_bindings_skipped,
+                                "gold_bindings_skipped": gt_record.get("bindings_skipped"),
                             },
                             "similarity": similarity,
                             "ground_truth": {
@@ -873,6 +955,7 @@ def run_evaluation(config_path_or_config):
                                 "duration_sec": gt_record.get("duration_sec"),
                                 "stdout": gt_record.get("stdout"),
                                 "stderr": gt_record.get("stderr"),
+                                "bindings_skipped": gt_record.get("bindings_skipped"),
                             },
                         }
 

@@ -83,6 +83,10 @@ hf_backend = os.getenv("HF_BACKEND", "huggingface")
 hf_token = os.getenv("HF_TOKEN")
 failure_log_path = os.getenv("OCPQ_FAILURE_LOG_PATH", "ocpq_failure_log.jsonl")
 few_shot_enabled = True
+# Number of retrieved examples per few-shot prompt. 3 is the value every recorded run used;
+# it is exposed so the "do more examples help?" comparison can be run without touching call sites.
+DEFAULT_FEW_SHOT_K = 3
+few_shot_k = DEFAULT_FEW_SHOT_K
 generation_temperature = None
 
 LLM_CALL_STATS = []
@@ -169,6 +173,27 @@ def set_hf_client(
 def set_few_shot_enabled(enabled=True):
     global few_shot_enabled
     few_shot_enabled = bool(enabled)
+
+
+def set_few_shot_k(value=None):
+    """Set how many examples few-shot retrieval returns.
+
+    Args:
+        value: Number of examples, or None to restore the default of 3.
+    """
+    global few_shot_k
+    if value is None:
+        few_shot_k = DEFAULT_FEW_SHOT_K
+        return few_shot_k
+    parsed = int(value)
+    if parsed < 0:
+        raise ValueError(f"few_shot_k must be >= 0, got {parsed}")
+    few_shot_k = parsed
+    return few_shot_k
+
+
+def get_few_shot_k():
+    return few_shot_k
 
 
 def set_generation_temperature(value):
@@ -653,18 +678,15 @@ def _ensure_local_gpu_model_loaded():
                     "Include 'base_model_name_or_path' in adapter_config.json or specify the base model explicitly."
                 )
 
-            # Gemma-3 is multimodal (Gemma3ForConditionalGeneration). The unsloth pre-
-            # quantized base (`unsloth/gemma-3-4b-it-unsloth-bnb-4bit`) ships with one
-            # vision-tower layer whose saved quant_state is missing, which surfaces as
-            # "FP4 quantization state not initialized" and an empty AssertionError on every
-            # forward pass. Loading the official full-precision base and quantizing it
-            # freshly with our nf4 config gives every layer a valid quant_state. The
-            # architecture is identical, so the LoRA adapter keys still match, and this
-            # keeps gemma3-4b-finetuned consistent with the gemma3-4b base condition.
-            if "gemma-3-4b" in base_model_name.lower() and "unsloth" in base_model_name.lower():
-                print(f"[adapter load] redirecting gemma base "
-                      f"'{base_model_name}' -> 'google/gemma-3-4b-it' for valid quant_state")
-                base_model_name = "google/gemma-3-4b-it"
+            # NOTE: adapters trained before 2026-08-06 record unsloth's pre-quantized
+            # redistribution here instead of the checkpoint the training run requested,
+            # because unsloth substitutes it when load_in_4bit=True. For Gemma-3 that
+            # redistribution ships a vision-tower layer with a missing quant_state ("FP4
+            # quantization state not initialized"), so it used to be redirected to
+            # `google/gemma-3-4b-it` at load time. `train_unsloth.py` now writes the
+            # requested checkpoint into adapter_config.json at save time, so no per-model
+            # redirect is needed. Re-train, or fix `base_model_name_or_path` by hand, if you
+            # hit that error with an older adapter.
 
             # Load the base model with 4-bit quantization so its Params4bit layers are
             # properly initialised. The adapter's LoRA A/B weights are then injected
@@ -1530,9 +1552,9 @@ def run_subproblem_2_plan_tree(messages, model_name):
 
 
 def build_few_shot_examples(query, dataset, embeddings):
-    if not few_shot_enabled:
+    if not few_shot_enabled or few_shot_k <= 0:
         return ""
-    examples = retrieve_examples(query, dataset, embeddings)
+    examples = retrieve_examples(query, dataset, embeddings, top_k=few_shot_k)
     example_prompts = []
     for ex in examples:
         qt = "nl"
@@ -1923,6 +1945,13 @@ Output ONLY valid JSON.
 {schema_block}
 
 Rules:
+- The root object MUST contain both "nodes" and "edgeNames".
+- "edgeNames" is an array of [[parent_index, child_index], "label"] pairs, one per parent-child
+  link used in "nodes" (e.g. [[0, 1], "A"]). Do NOT omit it.
+- Basic filters ("TimeBetweenEvents", "NotEqual", "EventAttributeValueFilter",
+  "ObjectAttributeValueFilter", "BasicFilterCEL") must be wrapped as
+  {{"type": "Filter", "filter": {{...}}}} when placed in "constraints".
+- "O2E" and "O2O" belong in the node's "filters" array, never directly in "constraints".
 - Use ONLY event and object names from the allowed lists.
 - Do NOT invent unsupported filter types such as "ExactlyOnce".
 - Represent "exactly once" using supported schema structure, not a custom operator.

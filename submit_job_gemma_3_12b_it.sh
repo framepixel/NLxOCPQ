@@ -5,7 +5,11 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
-#SBATCH --time=10:00:00
+# 20h: the 8h41m reference run trained at max_seq_length=1024 and already used 87% of a 10h
+# limit. At 4096 nothing is truncated, so wall time rises further; Gemma is additionally the
+# slowest of the three (unsloth's Fast Gemma3 path + eager attention). 10h would very likely
+# have been killed mid-run.
+#SBATCH --time=20:00:00
 
 set -euo pipefail
 
@@ -92,12 +96,20 @@ export PYTORCH_NVML_BASED_CUDA_CHECK="${PYTORCH_NVML_BASED_CUDA_CHECK:-1}"
 export OCPQ_TRAIN_BATCH_SIZE="${OCPQ_TRAIN_BATCH_SIZE:-1}"
 export OCPQ_EVAL_BATCH_SIZE="${OCPQ_EVAL_BATCH_SIZE:-1}"
 export OCPQ_GRADIENT_ACCUMULATION_STEPS="${OCPQ_GRADIENT_ACCUMULATION_STEPS:-8}"
-export OCPQ_MAX_SEQ_LENGTH="${OCPQ_MAX_SEQ_LENGTH:-1024}"
+# 4096, not 1024: at 1024 a large share of finetune_ocpq.jsonl rows exceeded the budget and
+# SFTTrainer truncates the END of the sequence, i.e. the assistant's JSON target. 4096 also
+# covers the longest inference prompt (chain-of-thought-plus, ~4k tokens).
+export OCPQ_MAX_SEQ_LENGTH="${OCPQ_MAX_SEQ_LENGTH:-4096}"
 # H100 has 93 GB — gradient checkpointing not needed and avoids unsloth Triton kernel bugs.
 export OCPQ_GRADIENT_CHECKPOINTING="${OCPQ_GRADIENT_CHECKPOINTING:-false}"
 
 # Resume behavior: prefer the lightweight adapter snapshot if available.
-export OCPQ_RESUME_FROM_CHECKPOINT="${OCPQ_RESUME_FROM_CHECKPOINT:-adapter}"
+# Default to a FRESH run. The previous default ("adapter") resolves to adapters/<run_label>,
+# so a new run would silently load the *existing* adapter's LoRA weights and continue training
+# on top of them -- carrying over whatever the previous run learned. That is wrong whenever the
+# data or training config changed. To resume a run that was interrupted (e.g. wall-time kill),
+# set OCPQ_RESUME_FROM_CHECKPOINT=latest explicitly, which restores full trainer state.
+export OCPQ_RESUME_FROM_CHECKPOINT="${OCPQ_RESUME_FROM_CHECKPOINT:-0}"
 
 # Ensure no Intel paths contaminate the build
 unset PKG_CONFIG_PATH

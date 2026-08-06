@@ -107,7 +107,10 @@ export PYTORCH_NVML_BASED_CUDA_CHECK="${PYTORCH_NVML_BASED_CUDA_CHECK:-1}"
 export OCPQ_TRAIN_BATCH_SIZE="${OCPQ_TRAIN_BATCH_SIZE:-1}"
 export OCPQ_EVAL_BATCH_SIZE="${OCPQ_EVAL_BATCH_SIZE:-1}"
 export OCPQ_GRADIENT_ACCUMULATION_STEPS="${OCPQ_GRADIENT_ACCUMULATION_STEPS:-8}"
-export OCPQ_MAX_SEQ_LENGTH="${OCPQ_MAX_SEQ_LENGTH:-1024}"
+# 4096, not 1024: at 1024 a large share of finetune_ocpq.jsonl rows exceeded the budget and
+# SFTTrainer truncates the END of the sequence, i.e. the assistant's JSON target. 4096 also
+# covers the longest inference prompt (chain-of-thought-plus, ~4k tokens).
+export OCPQ_MAX_SEQ_LENGTH="${OCPQ_MAX_SEQ_LENGTH:-4096}"
 
 # Resume behavior: prefer the lightweight adapter snapshot if available.
 export OCPQ_RESUME_FROM_CHECKPOINT="${OCPQ_RESUME_FROM_CHECKPOINT:-adapter}"

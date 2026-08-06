@@ -1,31 +1,53 @@
 --extra-index-url https://download.pytorch.org/whl/cu126
 
-# Unsloth training environment (known-working stack)
-huggingface-hub==1.7.1
-numpy==2.0.2
-openai==2.28.0
-scikit-learn==1.8.0
-sentence-transformers==5.3.0
-tqdm==4.67.1
-transformers==5.3.0
+# Unsloth training environment — reconciled 2026-08-06 against the conda env that actually
+# runs the SLURM jobs (`nlxocpq-train-next` on the cluster). The previous contents of this
+# file were aspirational rather than actual: they pinned transformers 5.3.0 / torch 2.7.1 /
+# unsloth 2026.4.6, while the environment producing every result ran transformers 4.57.6 /
+# torch 2.10.0 / unsloth 2026.6.1. Pins below are the versions verified in that environment,
+# so this file now reproduces the runs rather than describing a stack nobody used.
+#
+# Python: 3.10.20 (NOT 3.11 — unsloth 2026.6.1 + torch 2.10.0 are installed against 3.10 here).
+
+# --- core training stack -------------------------------------------------------------
+unsloth==2026.6.1
+unsloth-zoo==2026.6.1
+transformers==4.57.6
+tokenizers==0.22.2
+trl==0.24.0
+peft==0.19.1
+accelerate==1.13.0
 datasets==4.3.0
+bitsandbytes==0.49.2
+cut-cross-entropy==25.1.1
+
+# --- torch / CUDA --------------------------------------------------------------------
+torch==2.10.0+cu126
+torchvision==0.25.0+cu126
+torchaudio==2.10.0+cu126
+torchao==0.17.0+cu126
+triton==3.6.0
+xformers==0.0.31.post1
+
+# --- hub / data ----------------------------------------------------------------------
+huggingface-hub==0.36.2
+hf-transfer==0.1.9
+hf-xet==1.5.0
+safetensors==0.8.0
+sentencepiece==0.2.1
+protobuf==7.34.1
+numpy==2.2.6
+pandas==2.3.3
+pyarrow==24.0.0
+scipy==1.15.3
+requests==2.33.1
+tqdm==4.67.1
+
+# --- used by the surrounding tooling, not by training itself ---------------------------
+scikit-learn==1.7.2
+sentence-transformers==5.5.1
+pydantic==2.13.4
+openai==2.41.0
+streamlit==1.56.0
 nbconvert==7.17.0
 jupyter==1.1.1
-trl==0.24.0
-accelerate==1.13.0
-bitsandbytes==0.49.2
-streamlit==1.56.0
-pydantic==2.12.5
-peft==0.19.1
-sentencepiece==0.2.1
-safetensors==0.7.0
-protobuf==7.34.1
-requests==2.33.1
-
-# Pinned release to avoid build-isolation failures on clusters
-unsloth[colab-new]==2026.4.6
-
-torch==2.7.1+cu126
-torchvision==0.22.1+cu126 
-torchaudio==2.7.1+cu126
-torchao==0.13.0

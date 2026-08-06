@@ -75,7 +75,12 @@ def audit_finetune_jsonl(path):
             bad_system += 1
             continue
 
-        if "Never invent unsupported filter types" not in messages[0].get("content", ""):
+        # Match the phrase actually used by convert_dataset_for_finetuning.SYSTEM_PROMPT
+        # ("Never invent entities, events, objects, node names, or unsupported filter
+        # types."). The previous literal assumed a wording the prompt has never used, so
+        # this check reported every row as missing the tightened system prompt.
+        system_content = messages[0].get("content", "")
+        if "Never invent" not in system_content or "unsupported filter types" not in system_content:
             bad_system += 1
 
         prompt = messages[1].get("content", "")

@@ -105,6 +105,13 @@ ALLOWED OBJECTS: {json.dumps(allowed_objects, ensure_ascii=True)}"""
 
 Rules:
 - Output ONLY raw JSON matching the OCPQ schema.
+- The root object MUST contain both "nodes" and "edgeNames".
+- "edgeNames" is an array of [[parent_index, child_index], "label"] pairs, one per parent-child
+  link used in "nodes" (e.g. [[0, 1], "A"]). Do NOT omit it.
+- Basic filters ("TimeBetweenEvents", "NotEqual", "EventAttributeValueFilter",
+  "ObjectAttributeValueFilter", "BasicFilterCEL") must be wrapped as
+  {{"type": "Filter", "filter": {{...}}}} when placed in "constraints".
+- "O2E" and "O2O" belong in the node's "filters" array, never directly in "constraints".
 - Use ONLY event and object names from the allowed lists.
 - Never invent unsupported filter types such as "ExactlyOnce".
 - Represent "exactly once" using the schema's supported structural encoding, not a custom operator.
@@ -126,7 +133,6 @@ Think in this order before emitting JSON:
 
 def _make_training_rows(item):
     query_nl = item["nl"]
-    reasoning = item.get("reasoning", "")
     ocpq_json = item["query"]
     object_attributes = item.get("object_attributes")
     relations = item.get("relations")
