@@ -53,9 +53,15 @@ patterns = [
 
 domains = {
     # Generic domains
+    # "e-commerce" vocabulary was previously customers/employees/items/orders/packages/
+    # products, which is a 100% object-vocabulary match (plus the "pay order" event) with
+    # Logs/order-management.json, a real evaluation log referenced by testset.json. Renamed
+    # to a disjoint vocabulary (verified against every log testset.json evaluates against)
+    # while keeping the plural/lowercase naming convention, for the same de-leaking reason
+    # as the three invented domains further below.
     "e-commerce": {
-        "events": ["create order", "add item", "pay order", "ship package", "cancel order"],
-        "objects": ["customers", "employees", "items", "orders", "packages", "products"]
+        "events": ["open cart", "add line item", "settle cart", "dispatch parcel", "void cart"],
+        "objects": ["shoppers", "workers", "line items", "carts", "parcels", "articles"]
     },
     "recruitment": {
         "events": ["submit application", "review application", "approve application", "reject application"],
@@ -66,7 +72,27 @@ domains = {
         "objects": ["issues", "pull requests", "commits"]
     },
 
-    # Domains from actual log files
+    # De-leaked replacement domains (invented; vocabulary intentionally disjoint from
+    # every evaluation log so the fine-tuned models cannot memorise eval entity names).
+    # Attribute naming conventions are varied on purpose (camelCase, snake_case, is-prefix)
+    # so the model learns to copy the attribute name from the schema rather than guess.
+    "library_circulation": {
+        "events": ["Reserve Book", "Borrow Book", "Renew Loan", "Return Book",
+                   "Pay Late Fee", "Report Book Lost"],
+        "objects": ["Member", "Book", "Loan", "Branch"]
+    },
+    "restaurant_service": {
+        "events": ["Place Reservation", "Seat Guests", "Take Order", "Serve Dish",
+                   "Split Bill", "Process Payment"],
+        "objects": ["Guest", "Table", "Order", "Dish", "Bill"]
+    },
+    "insurance_claims": {
+        "events": ["File Claim", "Assign Adjuster", "Inspect Damage", "Approve Claim",
+                   "Deny Claim", "Issue Settlement"],
+        "objects": ["Policyholder", "Claim", "Policy", "Adjuster"]
+    },
+
+    # Domains from actual log files (verified NOT to overlap any evaluation log's vocabulary)
     "distribution": {
         "events": ["Apply Discount", "Apply Payment", "Approve Order", "Approve Return", "Generate Invoice", 
                    "Generate Pick List", "Generate Shipping Label", "Handle Payment Discrepancy", 
@@ -88,40 +114,6 @@ domains = {
                    "Three-way Match - Successful"],
         "objects": ["Goods Receipt", "Invoice", "Payment", "Purchase Order", "Purchase Requisition", "Supplier"]
     },
-    "hiring": {
-        "events": ['Approve Job Requisition', 'Attend Orientation Training', 'Candidate Accept Offer', 'Candidate Reject Offer', 
-                   'Complete Assessment', 'Complete Background Check', 'Complete HR Paperwork', 'Complete Onboarding', 
-                   'Conduct Initial Interview', 'Conduct Panel Interview', 'Create Job Requisition', 'Evaluate Interview', 
-                   'Initiate Background Check', 'Post Job Opening', 'Prepare Offer Letter', 'Review Assessment', 
-                   'Schedule Initial Interview', 'Schedule Panel Interview', 'Screen Resume', 'Send Assessment', 
-                   'Send Offer Letter', 'Send Rejection Letter', 'Start Onboarding', 'Submit Application'],
-        "objects": ['Interviewer', 'HiringManager', 'Recruiter', 'Assessment', 'Candidate', 'JobRequisition']
-    },
-    "hospital": {
-        "events": ['Appointment Scheduling', 'Assign Bed', 'Diagnostic Test Order', 'Initial Evaluation', 
-                   'Insurance Verification', 'Patient Arrival', 'Perform Diagnostic Test', 'Pre-Admission Consultation', 
-                   'Registration'],
-        "objects": ['Patient', 'InsuranceCompany', 'Physician', 'LabTechnician', 'Nurse', 'DiagnosticEquipment', 'Room', 'Bed']
-    },
-    "container_logistics": {
-        "events": ['Book Vehicles', 'Bring to Loading Bay', 'Collect Goods', 'Create Transport Document', 'Depart', 
-                   'Drive to Terminal', 'Load Truck', 'Load to Vehicle', 'Order Empty Containers', 'Pick Up Empty Container', 
-                   'Place in Stock', 'Register Customer Order', 'Reschedule Container', 'Weigh'],
-        "objects": ['Container', 'Customer Order', 'Forklift', 'Handling Unit', 'Transport Document', 'Truck', 'Vehicle']
-    },
-    "lending": {
-        "events": ['Application Rejected', 'Appointment Denied', 'Hand In Credit Appliaction', 'Loan Denied', 
-                   'Make Visit to Assess Colatteral', 'Request Appointment', 'Request Co-Signer On Loan', 
-                   'Set Appointment', 'Sign Loan Agreement', 'Submit File to Underwriter', 'Verify Borrowers Information', 
-                   'skipped_examination'],
-        "objects": ['Person']
-    },
-    "renting": {
-        "events": ["Accept Late Payment", "Apply for Viewing Appointment", "Check Paperwork", "Evict Tenant", "Extensive Screening",
-                   "Hand In The Paperwork", "Issue Warning", "Miss Rent Payment", "Move In", "Pay Rent", "Reject Prospective Tenant",
-                   "Screen Prospective Tenant", "Set Appointment", "Sign Contract", "Tenant Cancels Appartment", "View The Property"],
-        "objects": ["Person"]
-    }
 }
 
 # In[4b]:
@@ -149,24 +141,168 @@ domains = {
 # real OCEL logs where known (e.g. Container.AmountofHandlingUnits, Person.Creditscore)
 # and use plausible synthetic names elsewhere so each example stays internally consistent.
 OBJECT_ATTRIBUTES = {
-    "e-commerce":          [("orders", "price", "Float"), ("products", "weight", "Float"),
-                            ("orders", "orderDate", "Time")],
+    "e-commerce":          [("carts", "price", "Float"), ("articles", "weight", "Float"),
+                            ("carts", "cartDate", "Time")],
     "distribution":        [("Order", "totalAmount", "Float"), ("Product", "weight", "Float")],
     "procurement":         [("Purchase Order", "amount", "Float")],
     "02_p2p":              [("Purchase Order", "amount", "Float")],
-    "hiring":              [("Candidate", "yearsExperience", "Integer"),
-                            ("JobRequisition", "openings", "Integer")],
-    "hospital":            [("Patient", "age", "Integer"), ("Patient", "isInpatient", "Boolean")],
-    "container_logistics": [("Container", "AmountofHandlingUnits", "Float"),
-                            ("Container", "Status", "String", ["full", "empty"])],
-    "lending":             [("Person", "Creditscore", "Integer"), ("Person", "Age", "Integer"),
-                            ("Person", "Yearsofeducation", "Integer"),
-                            ("Person", "hasGuarantor", "Boolean"),
-                            ("Person", "registrationDate", "Time")],
-    "renting":             [("Person", "monthlyIncome", "Integer")],
     "recruitment":         [("candidates", "yearsExperience", "Integer")],
     "software_dev":        [("pull requests", "linesChanged", "Integer")],
+    # De-leaked replacement domains. Naming conventions are intentionally mixed
+    # (camelCase / snake_case / is-prefix) to teach schema-copying over guessing.
+    "library_circulation": [("Member", "membershipYears", "Integer"),
+                            ("Member", "is_student", "Boolean"),
+                            ("Book", "page_count", "Integer"),
+                            ("Loan", "fineAmount", "Float")],
+    "restaurant_service":  [("Guest", "partySize", "Integer"),
+                            ("Guest", "isVip", "Boolean"),
+                            ("Bill", "total_amount", "Float"),
+                            ("Order", "prepMinutes", "Integer")],
+    "insurance_claims":    [("Policyholder", "age", "Integer"),
+                            ("Policyholder", "has_prior_claims", "Boolean"),
+                            ("Claim", "claimAmount", "Float"),
+                            ("Policy", "coverage_limit", "Integer")],
 }
+
+# Authoritative per-domain relation graphs. Every builder that needs an O2O pair or an
+# E2O (event, object) pair draws from these instead of sampling any two names at random,
+# so two different generated examples for the same domain can never assert contradictory
+# relations (e.g. one claiming Member-Book are directly linked while another claims they
+# aren't). For `distribution`/`procurement`/`02_p2p` these were extracted/derived from the
+# real logs at Logs/01_o2c.xml and Logs/02_p2p.xml (E2O read directly via
+# LogEvents.extract_ocel_schema; O2O has no real data in those logs, so it's derived from
+# object types co-occurring under the same event type). The other domains have no backing
+# log, so both tables are hand-authored, independently of each other.
+
+# domain -> [(object_a, object_b), ...] valid O2O pairs.
+OBJECT_RELATIONS = {
+    "e-commerce": [("carts", "shoppers"), ("carts", "line items"), ("line items", "articles"),
+                   ("workers", "line items"), ("carts", "parcels"), ("workers", "parcels")],
+    "recruitment": [("applications", "candidates")],
+    "software_dev": [("pull requests", "commits"), ("issues", "pull requests")],
+    "library_circulation": [("Member", "Loan"), ("Loan", "Book"), ("Loan", "Branch")],
+    "restaurant_service": [("Guest", "Table"), ("Guest", "Order"), ("Order", "Dish"),
+                            ("Order", "Bill"), ("Guest", "Bill")],
+    "insurance_claims": [("Policyholder", "Claim"), ("Claim", "Policy"), ("Claim", "Adjuster")],
+    # Derived from Logs/01_o2c.xml E2O co-occurrence.
+    "distribution": [("Customer", "Order"), ("Customer", "Invoice"), ("Invoice", "Payment"),
+                      ("Order", "Shipment"), ("Invoice", "Order"), ("Order", "Product"),
+                      ("Customer", "Dispute"), ("Dispute", "Invoice"), ("CreditNote", "Return"),
+                      ("Customer", "Return"), ("Order", "Return")],
+    # Derived from Logs/02_p2p.xml E2O co-occurrence.
+    "procurement": [("Goods Receipt", "Purchase Order"), ("Invoice", "Purchase Order"),
+                     ("Purchase Order", "Purchase Requisition"), ("Goods Receipt", "Invoice"),
+                     ("Invoice", "Payment"), ("Invoice", "Supplier"), ("Payment", "Supplier"),
+                     ("Purchase Order", "Supplier")],
+}
+OBJECT_RELATIONS["02_p2p"] = OBJECT_RELATIONS["procurement"]  # same underlying log
+
+# domain -> [(event, object), ...] valid E2O pairs.
+EVENT_OBJECT_RELATIONS = {
+    "e-commerce": [("open cart", "carts"), ("open cart", "shoppers"),
+                   ("add line item", "carts"), ("add line item", "line items"),
+                   ("add line item", "articles"), ("add line item", "workers"),
+                   ("settle cart", "carts"), ("settle cart", "shoppers"),
+                   ("dispatch parcel", "carts"), ("dispatch parcel", "parcels"),
+                   ("dispatch parcel", "workers"), ("void cart", "carts"),
+                   ("void cart", "shoppers")],
+    "recruitment": [("submit application", "applications"), ("submit application", "candidates"),
+                     ("review application", "applications"), ("review application", "candidates"),
+                     ("approve application", "applications"), ("approve application", "candidates"),
+                     ("reject application", "applications"), ("reject application", "candidates")],
+    "software_dev": [("open issue", "issues"), ("submit pull request", "pull requests"),
+                      ("submit pull request", "commits"), ("review pull request", "pull requests"),
+                      ("merge pull request", "pull requests"), ("merge pull request", "commits"),
+                      ("close issue", "issues"), ("close issue", "pull requests")],
+    "library_circulation": [("Reserve Book", "Member"), ("Reserve Book", "Book"),
+                             ("Reserve Book", "Loan"), ("Borrow Book", "Member"),
+                             ("Borrow Book", "Book"), ("Borrow Book", "Loan"),
+                             ("Borrow Book", "Branch"), ("Renew Loan", "Member"),
+                             ("Renew Loan", "Loan"), ("Return Book", "Book"),
+                             ("Return Book", "Loan"), ("Return Book", "Branch"),
+                             ("Pay Late Fee", "Member"), ("Pay Late Fee", "Loan"),
+                             ("Report Book Lost", "Book"), ("Report Book Lost", "Loan")],
+    "restaurant_service": [("Place Reservation", "Guest"), ("Place Reservation", "Table"),
+                            ("Seat Guests", "Guest"), ("Seat Guests", "Table"),
+                            ("Take Order", "Guest"), ("Take Order", "Order"),
+                            ("Take Order", "Table"), ("Serve Dish", "Order"),
+                            ("Serve Dish", "Dish"), ("Split Bill", "Guest"),
+                            ("Split Bill", "Bill"), ("Split Bill", "Order"),
+                            ("Process Payment", "Guest"), ("Process Payment", "Bill")],
+    "insurance_claims": [("File Claim", "Policyholder"), ("File Claim", "Claim"),
+                          ("File Claim", "Policy"), ("Assign Adjuster", "Claim"),
+                          ("Assign Adjuster", "Adjuster"), ("Inspect Damage", "Claim"),
+                          ("Inspect Damage", "Adjuster"), ("Approve Claim", "Claim"),
+                          ("Approve Claim", "Policyholder"), ("Deny Claim", "Claim"),
+                          ("Deny Claim", "Policyholder"), ("Issue Settlement", "Claim"),
+                          ("Issue Settlement", "Policyholder")],
+    # Real E2O extracted from Logs/01_o2c.xml (qualifier dropped, distinct (event,object) pairs).
+    "distribution": [("Apply Discount", "Order"), ("Apply Payment", "Invoice"),
+                      ("Apply Payment", "Payment"), ("Approve Order", "Customer"),
+                      ("Approve Order", "Order"), ("Approve Return", "Return"),
+                      ("Generate Invoice", "Invoice"), ("Generate Invoice", "Order"),
+                      ("Generate Pick List", "Order"), ("Generate Pick List", "Product"),
+                      ("Generate Shipping Label", "Order"), ("Generate Shipping Label", "Shipment"),
+                      ("Handle Payment Discrepancy", "Customer"),
+                      ("Handle Payment Discrepancy", "Dispute"),
+                      ("Handle Payment Discrepancy", "Invoice"),
+                      ("Issue Credit Note", "CreditNote"), ("Issue Credit Note", "Return"),
+                      ("Issue Payment Reminder", "Customer"), ("Issue Payment Reminder", "Invoice"),
+                      ("Pack Items", "Order"), ("Perform Credit Check", "Customer"),
+                      ("Perform Credit Check", "Order"), ("Pick Items", "Product"),
+                      ("Process Return Request", "Customer"), ("Process Return Request", "Order"),
+                      ("Process Return Request", "Return"), ("Receive Customer Order", "Customer"),
+                      ("Receive Customer Order", "Order"), ("Receive Payment", "Invoice"),
+                      ("Receive Payment", "Payment"), ("Reject Order", "Customer"),
+                      ("Reject Order", "Order"), ("Schedule Order Fulfillment", "Order"),
+                      ("Send Invoice to Customer", "Customer"),
+                      ("Send Invoice to Customer", "Invoice"), ("Ship Order", "Order"),
+                      ("Ship Order", "Shipment"), ("Update Inventory", "Product"),
+                      ("Validate Customer Order", "Order")],
+    # Real E2O extracted from Logs/02_p2p.xml.
+    "procurement": [("Approve PO", "Purchase Order"), ("Approve PR", "Purchase Requisition"),
+                     ("Create PO", "Purchase Order"), ("Create PO", "Purchase Requisition"),
+                     ("Create PO (Batch)", "Purchase Order"),
+                     ("Create PO (Batch)", "Purchase Requisition"),
+                     ("Create PR", "Purchase Requisition"), ("Make Payment", "Invoice"),
+                     ("Make Payment", "Payment"), ("Make Payment", "Supplier"),
+                     ("Receive Goods", "Goods Receipt"), ("Receive Goods", "Purchase Order"),
+                     ("Receive Invoice", "Invoice"), ("Receive Invoice", "Purchase Order"),
+                     ("Reject PR", "Purchase Requisition"), ("Send PO to Supplier", "Purchase Order"),
+                     ("Send PO to Supplier", "Supplier"),
+                     ("Three-way Match - Mismatch Found", "Goods Receipt"),
+                     ("Three-way Match - Mismatch Found", "Invoice"),
+                     ("Three-way Match - Mismatch Found", "Purchase Order"),
+                     ("Three-way Match - Successful", "Goods Receipt"),
+                     ("Three-way Match - Successful", "Invoice"),
+                     ("Three-way Match - Successful", "Purchase Order")],
+}
+EVENT_OBJECT_RELATIONS["02_p2p"] = EVENT_OBJECT_RELATIONS["procurement"]
+
+# Singular, natural-language surface form for each object type. Several domains use plural
+# (e-commerce, recruitment, software_dev) or PascalCase/compound (distribution, procurement)
+# type names that would read ungrammatically substituted directly into a sentence — used by
+# the randomized no-direct-path generator, which has to phrase an NL sentence for any object
+# type the relation graph hands it, not just a hand-picked few.
+OBJECT_SINGULAR = {
+    "e-commerce": {"shoppers": "shopper", "workers": "worker", "line items": "line item",
+                   "carts": "cart", "parcels": "parcel", "articles": "article"},
+    "recruitment": {"applications": "application", "candidates": "candidate"},
+    "software_dev": {"issues": "issue", "pull requests": "pull request", "commits": "commit"},
+    "library_circulation": {"Member": "member", "Book": "book", "Loan": "loan", "Branch": "branch"},
+    "restaurant_service": {"Guest": "guest", "Table": "table", "Order": "order", "Dish": "dish",
+                            "Bill": "bill"},
+    "insurance_claims": {"Policyholder": "policyholder", "Claim": "claim", "Policy": "policy",
+                          "Adjuster": "adjuster"},
+    "distribution": {"CreditNote": "credit note", "Customer": "customer", "Dispute": "dispute",
+                      "Invoice": "invoice", "Order": "order", "Payment": "payment",
+                      "Product": "product", "Return": "return", "Shipment": "shipment"},
+    "procurement": {"Goods Receipt": "goods receipt", "Purchase Requisition": "purchase requisition",
+                     "Payment": "payment", "Invoice": "invoice", "Purchase Order": "purchase order",
+                     "Supplier": "supplier"},
+}
+OBJECT_SINGULAR["02_p2p"] = OBJECT_SINGULAR["procurement"]
+
 
 # Event attributes used for EventAttributeValueFilter (F9) and attribute-comparison CEL.
 EVENT_ATTRIBUTES = ["text", "outcome", "status"]
@@ -181,6 +317,94 @@ TIME_UNITS_SECONDS = {
 
 # Pre-computed frozensets for O(1) domain detection by event-list fingerprint.
 _DOMAIN_EVENT_SETS: dict = {dom: frozenset(dd["events"]) for dom, dd in domains.items()}
+
+# Pre-computed event -> {valid object types} map per domain, built once from
+# EVENT_OBJECT_RELATIONS since _e2o_object() is called thousands of times per run.
+_EVENT_TO_OBJECTS: dict = {}
+for _dom, _pairs in EVENT_OBJECT_RELATIONS.items():
+    _by_event: dict = {}
+    for _ev, _obj in _pairs:
+        _by_event.setdefault(_ev, set()).add(_obj)
+    _EVENT_TO_OBJECTS[_dom] = _by_event
+del _dom, _pairs, _by_event, _ev, _obj
+
+# Pre-computed object -> {events valid for it} map per domain (reverse of _EVENT_TO_OBJECTS),
+# needed when the object is picked first (e.g. it's constrained by OBJECT_ATTRIBUTES) and a
+# compatible event must be found afterwards.
+_OBJECT_TO_EVENTS: dict = {}
+for _dom, _pairs in EVENT_OBJECT_RELATIONS.items():
+    _by_obj: dict = {}
+    for _ev, _obj in _pairs:
+        _by_obj.setdefault(_obj, set()).add(_ev)
+    _OBJECT_TO_EVENTS[_dom] = _by_obj
+del _dom, _pairs, _by_obj, _ev, _obj
+
+
+def _o2o_pair(domain: str, fixed: str = None):
+    """Return a random valid (obj_a, obj_b) O2O pair for domain from OBJECT_RELATIONS.
+
+    If `fixed` is given, returns (fixed, other) where `other` is drawn from pairs that
+    actually contain `fixed`, so an object chosen elsewhere (e.g. by OBJECT_ATTRIBUTES) is
+    kept as-is instead of being overridden. Falls back to an unconstrained random pair (or
+    partner) if the domain has no table entry, or no table pair contains `fixed`.
+    """
+    pairs = OBJECT_RELATIONS.get(domain)
+    dd = domains[domain]
+    if fixed is not None:
+        partners = [b if a == fixed else a for a, b in (pairs or []) if fixed in (a, b)]
+        if partners:
+            return fixed, random.choice(partners)
+        others = [o for o in dd["objects"] if o != fixed] or [fixed]
+        return fixed, random.choice(others)
+    if pairs:
+        return random.choice(pairs)
+    if len(dd["objects"]) >= 2:
+        a, b = random.sample(dd["objects"], 2)
+        return a, b
+    return dd["objects"][0], dd["objects"][0]
+
+
+def _e2o_object(domain: str, events):
+    """Return a random object type E2O-valid for every event in `events`.
+
+    Uses the intersection of each event's valid-object set (so a single object variable
+    bound to multiple events picks a type that plausibly relates to all of them). Falls
+    back to the union if no object is valid for every event, then to any object in the
+    domain if the domain has no EVENT_OBJECT_RELATIONS entry at all.
+    """
+    if isinstance(events, str):
+        events = [events]
+    dd = domains[domain]
+    ev_to_objs = _EVENT_TO_OBJECTS.get(domain)
+    if not ev_to_objs:
+        return random.choice(dd["objects"])
+    sets = [ev_to_objs.get(ev, set()) for ev in events]
+    candidates = set.intersection(*sets) if sets else set()
+    if not candidates:
+        candidates = set.union(*sets) if sets else set()
+    if not candidates:
+        return random.choice(dd["objects"])
+    return random.choice(sorted(candidates))
+
+
+def _e2o_event(domain: str, objects):
+    """Return a random event E2O-valid for at least one object in `objects`.
+
+    Reverse of `_e2o_object`, used when the object(s) are already fixed (e.g. picked via
+    OBJECT_ATTRIBUTES, or a multi-type object variable) and a compatible event is needed.
+    Uses the union (any given object being touched by the event is sufficient) since the
+    call sites either have a single fixed object or an either/or multi-type object.
+    """
+    if isinstance(objects, str):
+        objects = [objects]
+    dd = domains[domain]
+    ob_to_evs = _OBJECT_TO_EVENTS.get(domain)
+    if not ob_to_evs:
+        return random.choice(dd["events"])
+    candidates = set.union(*(ob_to_evs.get(o, set()) for o in objects)) if objects else set()
+    if not candidates:
+        return random.choice(dd["events"])
+    return random.choice(sorted(candidates))
 
 
 def _domain_attributes(domain: str) -> dict:
@@ -200,6 +424,54 @@ def _detect_domain(example_events: list) -> str:
         if ev_set == dom_evs:
             return dom
     return None
+
+
+def _query_relations(query: dict) -> dict:
+    """Derive the E2O and O2O relations a query actually uses, as name-level triples.
+
+    O2E/O2O filters reference variables by index into a node's newEventVars /
+    newObjectVars; this resolves those indices back to the event/object type names.
+    The result is used to show the model exactly the relations (and their qualifiers)
+    its target query relies on, so it learns to read relation names from the schema
+    instead of inventing them. Because the graph is derived from the gold query, the
+    gold can never reference a relation absent from the shown schema.
+
+    Returns:
+        {"e2o": [[event, object, qualifier], ...], "o2o": [[object, object, qualifier], ...]}
+        with qualifiers as strings or null, sorted and de-duplicated.
+    """
+    e2o: set = set()
+    o2o: set = set()
+    for node in (query or {}).get("nodes", []):
+        if not isinstance(node, dict):
+            continue
+        box = node.get("Box")
+        if not isinstance(box, list) or not box or not isinstance(box[0], dict):
+            continue
+        data = box[0]
+        ev_vars = data.get("newEventVars", {}) or {}
+        ob_vars = data.get("newObjectVars", {}) or {}
+
+        def _names(vars_map, idx):
+            val = vars_map.get(str(idx), vars_map.get(idx, []))
+            return [v for v in val if isinstance(v, str)] if isinstance(val, list) else []
+
+        for f in data.get("filters", []) or []:
+            if not isinstance(f, dict):
+                continue
+            qualifier = f.get("qualifier")
+            if f.get("type") == "O2E":
+                for obj_name in _names(ob_vars, f.get("object")):
+                    for ev_name in _names(ev_vars, f.get("event")):
+                        e2o.add((ev_name, obj_name, qualifier))
+            elif f.get("type") == "O2O":
+                for a_name in _names(ob_vars, f.get("object")):
+                    for b_name in _names(ob_vars, f.get("other_object")):
+                        o2o.add((a_name, b_name, qualifier))
+    return {
+        "e2o": sorted([list(t) for t in e2o]),
+        "o2o": sorted([list(t) for t in o2o]),
+    }
 
 
 def _box(children, ev=None, ob=None, filters=None, size_filters=None,
@@ -298,7 +570,7 @@ def _build_qualifier():
     dd = domains[domain]
     qual = random.choice(QUALIFIERS)
     if len(dd["objects"]) >= 2 and random.random() < 0.5:
-        obj_a, obj_b = random.sample(dd["objects"], 2)
+        obj_a, obj_b = _o2o_pair(domain)
         nl = f"An {obj_a} must only be linked to an {obj_b} through the '{qual}' relationship."
         tree = {
             "nodes": [
@@ -313,7 +585,7 @@ def _build_qualifier():
                      f"bound with an O2O filter whose qualifier is '{qual}'.")
     else:
         event = random.choice(dd["events"])
-        obj_a = random.choice(dd["objects"])
+        obj_a = _e2o_object(domain, [event])
         nl = f"A '{event}' event must be related to the {obj_a} object via the '{qual}' qualifier."
         tree = {
             "nodes": [_box([], ev={"0": [event]}, ob={"0": [obj_a]}, filters=[_o2e(0, 0, qual)])],
@@ -372,7 +644,7 @@ def _build_not_equal():
     domain = random.choice(list(domains.keys()))
     dd = domains[domain]
     a, b = _two_events(dd)
-    obj = random.choice(dd["objects"])
+    obj = _e2o_object(domain, [a, b])
     nl = (f"When a '{a}' and a '{b}' event occur for the same {obj}, the two events must be "
           f"distinct occurrences.")
     tree = {
@@ -424,7 +696,7 @@ def _build_object_attr(at_time_mode):
     domain, obj, attr, kind, svals = _pick_object_attribute()
     dd = domains[domain]
     vf, phrase = _rand_value_filter(kind, svals)
-    event = random.choice(dd["events"])
+    event = _e2o_event(domain, [obj])
 
     if at_time_mode == "AtEvent":
         at_time = {"type": "AtEvent", "event": 0}
@@ -468,7 +740,7 @@ def _build_basic_cel():
     domain = random.choice(list(domains.keys()))
     dd = domains[domain]
     a, b = _two_events(dd)
-    obj = random.choice(dd["objects"])
+    obj = _e2o_object(domain, [a, b])
     if random.random() < 0.5:
         cel = "e1 != e2"
         nl = (f"A '{a}' and a '{b}' event for the same {obj} must be different events.")
@@ -496,8 +768,8 @@ def _build_advanced_cel():
     AdvancedCEL constraint that references the label by name."""
     domain, obj_b, attr, kind, _ = _pick_object_attribute(kinds=["Float", "Integer"])
     dd = domains[domain]
-    obj_a = random.choice([o for o in dd["objects"] if o != obj_b] or [obj_b])
-    event = random.choice(dd["events"])
+    _, obj_a = _o2o_pair(domain, fixed=obj_b)
+    event = _e2o_event(domain, [obj_b])
     label = random.choice(["total_volume", "total_amount", "total_value"])
     op_text = random.choice(["below", "above", "at least"])
     op = {"below": "<", "above": ">", "at least": ">="}[op_text]
@@ -532,7 +804,7 @@ def _build_any():
     domain = random.choice(list(domains.keys()))
     dd = domains[domain]
     a, b = _two_events(dd)
-    obj = random.choice(dd["objects"])
+    obj = _e2o_object(domain, [a, b])
     nl = (f"For any '{b}' event of a {obj}, at least one '{a}' event must have occurred beforehand.")
     tree = {
         "nodes": [
@@ -555,7 +827,7 @@ def _build_or():
     domain = random.choice(list(domains.keys()))
     dd = domains[domain]
     a, b, c = _three_events(dd)
-    obj = random.choice(dd["objects"])
+    obj = _e2o_object(domain, [a, b, c])
     nl = (f"After a '{a}' event, a {obj} must undergo either a '{b}' or a '{c}' event.")
     tree = {
         "nodes": [
@@ -579,7 +851,7 @@ def _build_and():
     domain = random.choice(list(domains.keys()))
     dd = domains[domain]
     a, b, c = _three_events(dd)
-    obj = random.choice(dd["objects"])
+    obj = _e2o_object(domain, [a, b, c])
     nl = (f"Before a '{c}' event, a {obj} must have completed both a '{a}' and a '{b}' event.")
     tree = {
         "nodes": [
@@ -607,7 +879,7 @@ def _build_ev_label():
     domain = random.choice(list(domains.keys()))
     dd = domains[domain]
     a, b = _two_events(dd)
-    obj = random.choice(dd["objects"])
+    obj = _e2o_object(domain, [a, b])
     nl = (f"List all '{a}' events for {obj} that subsequently had a '{b}' event.")
     tree = {
         "nodes": [
@@ -633,7 +905,7 @@ def _build_ob_label():
     domain = random.choice(list(domains.keys()))
     dd = domains[domain]
     a, b = _two_events(dd)
-    obj = random.choice(dd["objects"])
+    obj = _e2o_object(domain, [a, b])
     nl = (f"List all {obj} that had a '{a}' event followed by a '{b}' event.")
     tree = {
         "nodes": [
@@ -661,7 +933,7 @@ def _build_deep_chain():
     evs = dd["events"]
     seq = random.sample(evs, 4) if len(evs) >= 4 else (evs * 4)[:4]
     a, b, c, d = seq
-    obj = random.choice(dd["objects"])
+    obj = _e2o_object(domain, [a, b, c, d])
     nl = (f"A {obj} must follow the sequence: '{a}', then '{b}', then '{c}', then '{d}'.")
     tree = {
         "nodes": [
@@ -711,8 +983,8 @@ def _build_multi_type_object():
     """V4: a single object variable accepting multiple object types."""
     domain = random.choice([d for d in domains if len(domains[d]["objects"]) >= 2])
     dd = domains[domain]
-    obj_a, obj_b = random.sample(dd["objects"], 2)
-    event = random.choice(dd["events"])
+    obj_a, obj_b = _o2o_pair(domain)
+    event = _e2o_event(domain, [obj_a, obj_b])
     nl = (f"Every {obj_a} or {obj_b} must participate in at least one '{event}' event.")
     tree = {
         "nodes": [
@@ -732,8 +1004,74 @@ def _build_multi_type_object():
             "query": tree, "reasoning": reasoning}
 
 
+def _no_direct_path_triples(domain):
+    """Return every (A, B, C) triple for domain where A-B and B-C are valid O2O pairs in
+    OBJECT_RELATIONS but A-C is not — the shape the no-direct-path skill needs (A and C get
+    named in the NL, B is the required unmentioned intermediary)."""
+    adjacency: dict = {}
+    edge_set = set()
+    for a, b in OBJECT_RELATIONS.get(domain, []):
+        edge_set.add((a, b))
+        edge_set.add((b, a))
+        adjacency.setdefault(a, set()).add(b)
+        adjacency.setdefault(b, set()).add(a)
+    triples = []
+    for b, neighbors in adjacency.items():
+        neighbors = sorted(neighbors)
+        for i, a in enumerate(neighbors):
+            for c in neighbors[i + 1:]:
+                if (a, c) not in edge_set:
+                    triples.append((a, b, c))
+    return triples
+
+
+# Pre-computed once: {domain: [(A, B, C), ...]} of valid no-direct-path triples.
+_NO_PATH_TRIPLES: dict = {dom: _no_direct_path_triples(dom) for dom in OBJECT_RELATIONS}
+
+# Domain-agnostic phrasing templates for the randomized no-direct-path generator, since it
+# has to phrase a sentence for arbitrary triples it wasn't hand-authored for.
+_NO_PATH_TEMPLATES = [
+    ("who", "is connected to"),
+    ("that", "is linked to"),
+    ("who", "is associated with"),
+    ("that", "relates to"),
+]
+
+
+def _build_no_direct_path():
+    """Randomized counterpart to the hand-authored examples in
+    _build_targeted_curriculum_examples: draws a random (A, B, C) no-direct-path triple from
+    _NO_PATH_TRIPLES (any domain, not just the 8 hand-picked ones) so this skill is drawn from
+    EXT_BUILDERS at the same rate as every other building block instead of being capped at a
+    fixed handful. Reads the same OBJECT_RELATIONS table every other O2O site now draws from,
+    so it can never contradict a 'these two ARE related' example generated elsewhere.
+    """
+    candidates = [dom for dom, triples in _NO_PATH_TRIPLES.items() if triples]
+    domain = random.choice(candidates)
+    a, b, c = random.choice(_NO_PATH_TRIPLES[domain])
+    dd = domains[domain]
+    singular = OBJECT_SINGULAR.get(domain, {})
+    a_nl = singular.get(a, a.lower())
+    c_nl = singular.get(c, c.lower())
+    subj, verb = random.choice(_NO_PATH_TEMPLATES)
+    article = "an" if c_nl[:1].lower() in "aeiou" else "a"
+
+    node = _box(children=[], ob={"0": [a], "1": [b], "2": [c]}, filters=[_o2o(0, 1), _o2o(1, 2)])
+    query = {"nodes": [node], "edgeNames": []}
+    nl = f"Find each {a_nl} {subj} {verb} {article} {c_nl}."
+    reasoning = (
+        f"Step 1: The query names '{a}' and '{c}', but the relation graph has no direct "
+        f"'{a}' -> '{c}' link. Step 2: The graph does link '{a}' -> '{b}' and '{b}' -> '{c}', "
+        f"so '{b}' is the required (unmentioned) intermediary. Step 3: Bind all three object "
+        f"variables in one node and chain them with two O2O filters: ({a},{b}) and ({b},{c})."
+    )
+    return {"nl": nl, "events": dd["events"], "objects": dd["objects"],
+            "query": query, "reasoning": reasoning}
+
+
 EXT_BUILDERS = [
     _build_qualifier,
+    _build_no_direct_path,
     _build_tbe_min,
     _build_tbe_simultaneous,
     _build_not_equal,
@@ -873,11 +1211,34 @@ def generate_example():
     A = random.choice(domain_data["events"])
     # Ensure event A and B are different for better logical examples
     B = random.choice([e for e in domain_data["events"] if e != A])
-    
-    obj_a = random.choice(domain_data["objects"])
-    
-    # Fetch a second object if the domain has more than one
-    obj_b = random.choice([o for o in domain_data["objects"] if o != obj_a]) if len(domain_data["objects"]) > 1 else obj_a
+
+    # Pick obj_a/obj_b consistent with OBJECT_RELATIONS/EVENT_OBJECT_RELATIONS, matching
+    # the exact E2O/O2O shape the tree below actually builds for this pattern.
+    if "total is calculated" in pattern or "for which the EVENT_A" in pattern:
+        # obj_b-A O2E, obj_a-obj_b O2O
+        obj_b = _e2o_object(domain, [A])
+        _, obj_a = _o2o_pair(domain, fixed=obj_b)
+    elif "at most NUM" in pattern:
+        # obj_a-A O2E, obj_a-B O2E, obj_a-obj_b O2O
+        obj_a = _e2o_object(domain, [A, B])
+        _, obj_b = _o2o_pair(domain, fixed=obj_a)
+    elif "at least NUM2" in pattern:
+        # obj_a-A O2E; obj_b-A O2E and obj_b-B O2E (no O2O between them)
+        obj_b = _e2o_object(domain, [A, B])
+        obj_a = _e2o_object(domain, [A])
+    elif "exactly once" in pattern:
+        obj_a = _e2o_object(domain, [A])
+        obj_b = obj_a
+    elif ("at least once" in pattern or "completed within" in pattern
+          or "refer to the same" in pattern):
+        obj_a = _e2o_object(domain, [A, B])
+        obj_b = obj_a
+    else:
+        # Patterns with no object at all in the tree ("before"/"eventually"/"within TIME"/
+        # "must not occur") — obj_a/obj_b are unused, so an unconstrained pick is fine.
+        obj_a = random.choice(domain_data["objects"])
+        obj_b = (random.choice([o for o in domain_data["objects"] if o != obj_a])
+                 if len(domain_data["objects"]) > 1 else obj_a)
 
     # Randomly select a time unit for patterns that require it
     time_unit = random.choice(["hour(s)", "week(s)", "day(s)", "minute(s)", "second(s)", "month(s)", "year(s)"])
@@ -1410,24 +1771,100 @@ def generate_example():
             "reasoning": reasoning}
 
 
+def _plural_verb(verb):
+    """Agree a singular-subject verb phrase with a plural subject (only be-verbs change)."""
+    if verb.startswith("is "):
+        return "are " + verb[3:]
+    if verb.startswith("was "):
+        return "were " + verb[4:]
+    return verb
+
+
+def _build_no_direct_path_examples():
+    """Examples where two named entities have NO direct relation and the gold query must
+    route through an unmentioned intermediary object.
+
+    This is the exact skill the pipeline was missing: the NL names A and C, the relation
+    graph links A->B and B->C but never A->C, so the model must introduce B. Because the
+    shown schema is derived from the gold (see _query_relations), the A->C edge is never
+    present, making the no-path premise explicit to the model.
+    """
+    # (domain, A, B_intermediary, C, subject word "who"/"that", verb phrase,
+    #  NL-singular form of A, NL-singular form of C). The NL-singular forms are decoupled
+    # from the schema type strings (A/C) because some domains use plural type names
+    # (e.g. "customers", "issues") that would otherwise read ungrammatically in the sentence.
+    specs = [
+        ("library_circulation", "Member", "Loan", "Book", "who", "borrowed", "member", "book"),
+        ("restaurant_service", "Guest", "Order", "Dish", "who", "was served", "guest", "dish"),
+        ("insurance_claims", "Policyholder", "Claim", "Policy", "who", "filed against",
+         "policyholder", "policy"),
+        ("e-commerce", "carts", "line items", "articles", "that", "included",
+         "cart", "article"),
+        ("software_dev", "commits", "pull requests", "issues", "that", "closed",
+         "commit", "issue"),
+        ("distribution", "Customer", "Order", "Shipment", "who", "received",
+         "customer", "shipment"),
+        # Real Logs/02_p2p.xml co-occurrence shows Invoice-Supplier DO co-occur (via "Make
+        # Payment"), so Supplier->PO->Invoice would contradict OBJECT_RELATIONS. Goods
+        # Receipt and Purchase Requisition never co-occur there, so that pair is used instead.
+        ("procurement", "Goods Receipt", "Purchase Order", "Purchase Requisition", "that",
+         "is associated with", "goods receipt", "purchase requisition"),
+        ("02_p2p", "Goods Receipt", "Purchase Order", "Purchase Requisition", "that",
+         "is associated with", "goods receipt", "purchase requisition"),
+    ]
+    for domain, a, b, c, _subj, _verb, _a_nl, _c_nl in specs:
+        assert (a, b) in OBJECT_RELATIONS[domain] or (b, a) in OBJECT_RELATIONS[domain], \
+            f"{domain}: {a}-{b} must be a valid O2O pair"
+        assert (b, c) in OBJECT_RELATIONS[domain] or (c, b) in OBJECT_RELATIONS[domain], \
+            f"{domain}: {b}-{c} must be a valid O2O pair"
+        assert (a, c) not in OBJECT_RELATIONS[domain] and (c, a) not in OBJECT_RELATIONS[domain], \
+            f"{domain}: {a}-{c} must NOT be a direct O2O pair (contradicts the no-path claim)"
+    examples = []
+    for domain, a, b, c, subj, verb, a_nl, c_nl in specs:
+        dd = domains[domain]
+        node = _box(
+            children=[],
+            ob={"0": [a], "1": [b], "2": [c]},
+            filters=[_o2o(0, 1), _o2o(1, 2)],
+        )
+        query = {"nodes": [node], "edgeNames": []}
+        article = "an" if c_nl[:1].lower() in "aeiou" else "a"
+        examples.append({
+            "nl": f"Find each {a_nl} {subj} {verb} {article} {c_nl}.",
+            "nl_clean_1": f"List every {a_nl} that {verb} {article} {c_nl}.",
+            "nl_clean_2": f"Which {a_nl}s {_plural_verb(verb)} {article} {c_nl}?",
+            "events": dd["events"],
+            "objects": dd["objects"],
+            "query": query,
+            "reasoning": (
+                f"Step 1: The query names '{a}' and '{c}', but the relation graph has no direct "
+                f"'{a}' -> '{c}' link. Step 2: The graph does link '{a}' -> '{b}' and '{b}' -> '{c}', "
+                f"so '{b}' is the required (unmentioned) intermediary. Step 3: Bind all three object "
+                f"variables in one node and chain them with two O2O filters: ({a},{b}) and ({b},{c})."
+            ),
+        })
+    return examples
+
+
 def _build_targeted_curriculum_examples():
-    hospital_events = domains["hospital"]["events"]
-    hospital_objects = domains["hospital"]["objects"]
+    # Uses the de-leaked `insurance_claims` domain (vocabulary disjoint from every eval log).
+    claims_events = domains["insurance_claims"]["events"]
+    claims_objects = domains["insurance_claims"]["objects"]
 
     targeted_examples = [
         {
-            "nl": "For any person, the diagnosis happens exactly once.",
-            "nl_clean_1": "For any person, the diagnosis must happen exactly once.",
-            "nl_clean_2": "Each person should receive the diagnosis exactly one time.",
-            "events": hospital_events,
-            "objects": hospital_objects,
+            "nl": "For any policyholder, the claim is approved exactly once.",
+            "nl_clean_1": "For any policyholder, the claim must be approved exactly once.",
+            "nl_clean_2": "Each policyholder should have their claim approved exactly one time.",
+            "events": claims_events,
+            "objects": claims_objects,
             "query": {
                 "nodes": [
                     {
                         "Box": [
                             {
                                 "newEventVars": {},
-                                "newObjectVars": {"0": ["Patient"]},
+                                "newObjectVars": {"0": ["Policyholder"]},
                                 "filters": [],
                                 "sizeFilters": [],
                                 "constraints": [
@@ -1445,7 +1882,7 @@ def _build_targeted_curriculum_examples():
                     {
                         "Box": [
                             {
-                                "newEventVars": {"0": ["Initial Evaluation"]},
+                                "newEventVars": {"0": ["Approve Claim"]},
                                 "newObjectVars": {},
                                 "filters": [{"type": "O2E", "object": 0, "event": 0, "qualifier": None}],
                                 "sizeFilters": [],
@@ -1460,25 +1897,25 @@ def _build_targeted_curriculum_examples():
                 "edgeNames": [[[0, 1], "A"]],
             },
             "reasoning": (
-                "Step 1: Interpret the colloquial term 'person' as the allowed object 'Patient' and "
-                "'diagnosis' as the allowed event 'Initial Evaluation'. Step 2: The phrase 'exactly once' "
+                "Step 1: Interpret the colloquial term 'policyholder' as the allowed object 'Policyholder' "
+                "and 'approved' as the allowed event 'Approve Claim'. Step 2: The phrase 'exactly once' "
                 "must not introduce a custom filter type. Step 3: Represent it with a parent object node "
                 "and a SizeFilter min=1,max=1 on a child event node that is linked back with O2E."
             ),
         },
         {
-            "nl": "For any person, the diagnosis must be completed within 3 days after the registration at ER.",
-            "nl_clean_1": "For any person, diagnosis must be completed within 3 days after ER registration.",
-            "nl_clean_2": "Each person should complete diagnosis within 3 days after registering at the ER.",
-            "events": hospital_events,
-            "objects": hospital_objects,
+            "nl": "For any policyholder, the claim must be approved within 3 days after it is filed.",
+            "nl_clean_1": "For any policyholder, the claim must be approved within 3 days after filing.",
+            "nl_clean_2": "Each policyholder should have their claim approved within 3 days after filing it.",
+            "events": claims_events,
+            "objects": claims_objects,
             "query": {
                 "nodes": [
                     {
                         "Box": [
                             {
                                 "newEventVars": {},
-                                "newObjectVars": {"0": ["Patient"]},
+                                "newObjectVars": {"0": ["Policyholder"]},
                                 "filters": [],
                                 "sizeFilters": [],
                                 "constraints": [{"type": "SAT", "child_names": ["A"]}],
@@ -1491,7 +1928,7 @@ def _build_targeted_curriculum_examples():
                     {
                         "Box": [
                             {
-                                "newEventVars": {"0": ["Registration"], "1": ["Initial Evaluation"]},
+                                "newEventVars": {"0": ["File Claim"], "1": ["Approve Claim"]},
                                 "newObjectVars": {},
                                 "filters": [
                                     {"type": "O2E", "object": 0, "event": 0, "qualifier": None},
@@ -1520,14 +1957,15 @@ def _build_targeted_curriculum_examples():
                 "edgeNames": [[[0, 1], "A"]],
             },
             "reasoning": (
-                "Step 1: Interpret 'person' as 'Patient', 'registration at ER' as 'Registration', and "
-                "'diagnosis' as 'Initial Evaluation'. Step 2: The temporal constraint is 'within 3 days after', "
+                "Step 1: Interpret 'policyholder' as 'Policyholder', 'filed' as 'File Claim', and "
+                "'approved' as 'Approve Claim'. Step 2: The temporal constraint is 'within 3 days after', "
                 "so it must become a TimeBetweenEvents max_seconds of 259200. Step 3: Keep the tree connected "
                 "with a parent SAT node and child event node using O2E bindings for both events."
             ),
         },
     ]
 
+    targeted_examples.extend(_build_no_direct_path_examples())
     return targeted_examples
 
 # In[9]:
@@ -1610,6 +2048,7 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
             dom = _detect_domain(example.get("events", []))
             if dom:
                 example["object_attributes"] = _domain_attributes(dom)
+            example.setdefault("relations", _query_relations(example["query"]))
             raw_examples.append(example)
 
     # 2. Instantly generate the remaining unique logical sentences locally.
@@ -1627,6 +2066,7 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
         dom = _detect_domain(ex.get("events", []))
         if dom:
             ex["object_attributes"] = _domain_attributes(dom)
+        ex.setdefault("relations", _query_relations(ex["query"]))
         raw_examples.append(ex)
 
     # 3. Process the LLM rewrites in parallel batches
@@ -1660,6 +2100,8 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
             updated_example["objects"] = ex["objects"]
             if "object_attributes" in ex:
                 updated_example["object_attributes"] = ex["object_attributes"]
+            if "relations" in ex:
+                updated_example["relations"] = ex["relations"]
             updated_example["query"] = ex["query"]
             updated_example["reasoning"] = ex["reasoning"]
             dataset.append(updated_example)

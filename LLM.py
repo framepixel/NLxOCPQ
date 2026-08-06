@@ -21,7 +21,7 @@ from pydantic import ValidationError
 
 from ocpq_schema import OCPQ_JSON_SCHEMA, BindingBoxTree, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
 
-from LogEvents import events_and_objects_from_ocel
+from LogEvents import events_and_objects_from_ocel, extract_ocel_schema
 
 # In[2]:
 
@@ -83,6 +83,10 @@ hf_backend = os.getenv("HF_BACKEND", "huggingface")
 hf_token = os.getenv("HF_TOKEN")
 failure_log_path = os.getenv("OCPQ_FAILURE_LOG_PATH", "ocpq_failure_log.jsonl")
 few_shot_enabled = True
+# Number of retrieved examples per few-shot prompt. 3 is the value every recorded run used;
+# it is exposed so the "do more examples help?" comparison can be run without touching call sites.
+DEFAULT_FEW_SHOT_K = 3
+few_shot_k = DEFAULT_FEW_SHOT_K
 generation_temperature = None
 
 LLM_CALL_STATS = []
@@ -171,6 +175,27 @@ def set_few_shot_enabled(enabled=True):
     few_shot_enabled = bool(enabled)
 
 
+def set_few_shot_k(value=None):
+    """Set how many examples few-shot retrieval returns.
+
+    Args:
+        value: Number of examples, or None to restore the default of 3.
+    """
+    global few_shot_k
+    if value is None:
+        few_shot_k = DEFAULT_FEW_SHOT_K
+        return few_shot_k
+    parsed = int(value)
+    if parsed < 0:
+        raise ValueError(f"few_shot_k must be >= 0, got {parsed}")
+    few_shot_k = parsed
+    return few_shot_k
+
+
+def get_few_shot_k():
+    return few_shot_k
+
+
 def set_generation_temperature(value):
     global generation_temperature
     if value is None:
@@ -241,6 +266,131 @@ PROMPT_STRATEGIES = [
     "schema-least-to-most",
 ]
 DEFAULT_PROMPT_STRATEGY = os.getenv("OCPQ_PROMPT_STRATEGY", "schema-grammar-guided")
+
+
+# --- Schema-richness levels (grounding ablation) -------------------------------------
+# How much of the OCEL schema is placed in the prompt. This is an independent variable:
+# it measures how much of the NL->OCPQ difficulty is *grounding* versus reasoning/syntax.
+#
+#   entities            event + object type names only (historic behaviour)
+#   entities_attributes + declared object attribute names/types. This is the format the
+#                       fine-tuning prompts were built with, so it also repairs a
+#                       train/inference mismatch: every training prompt carried an
+#                       OBJECT ATTRIBUTES block, but inference previously sent none,
+#                       leaving the model to invent names like `is_Married`.
+#   full                + the type-level E2O and O2O relation graphs, so the model can
+#                       see which events touch which objects and route through an
+#                       intermediary when no direct relation exists.
+SCHEMA_LEVELS = ["entities", "entities_attributes", "full"]
+DEFAULT_SCHEMA_LEVEL = os.getenv("OCPQ_SCHEMA_LEVEL", "full")
+schema_level = DEFAULT_SCHEMA_LEVEL
+
+# OCEL declares attribute types lowercase ("integer"); OCPQ value_filter discriminators
+# and the fine-tuning prompts use capitalised names ("Integer"). Normalise so the prompt
+# shows the model exactly the token it must emit in `value_filter.type`.
+_ATTR_TYPE_DISPLAY = {
+    "integer": "Integer",
+    "float": "Float",
+    "double": "Float",
+    "boolean": "Boolean",
+    "bool": "Boolean",
+    "string": "String",
+    "time": "Time",
+    "date": "Time",
+}
+
+
+def normalize_schema_level(level):
+    """Return a valid schema level, falling back to the default."""
+    if not level:
+        return DEFAULT_SCHEMA_LEVEL
+    normalized = str(level).strip().lower().replace("-", "_")
+    aliases = {
+        "entities": "entities",
+        "entities_only": "entities",
+        "entities_attributes": "entities_attributes",
+        "attributes": "entities_attributes",
+        "full": "full",
+        "relations": "full",
+    }
+    return aliases.get(normalized, DEFAULT_SCHEMA_LEVEL)
+
+
+def set_schema_level(level):
+    """Set the active schema-richness level for subsequent pipeline calls."""
+    global schema_level
+    schema_level = normalize_schema_level(level)
+    return schema_level
+
+
+def build_schema_block(schema, level=None):
+    """Render the OCEL schema for the prompt at the requested richness level.
+
+    The ALLOWED EVENTS / ALLOWED OBJECTS / OBJECT ATTRIBUTES sections reproduce the
+    exact format used in the fine-tuning prompts, so the fine-tuned models see at
+    inference what they saw during training.
+
+    Args:
+        schema: Output of LogEvents.extract_ocel_schema().
+        level: One of SCHEMA_LEVELS; defaults to the module-level `schema_level`.
+
+    Returns:
+        The schema text block to embed in a prompt.
+    """
+    level = normalize_schema_level(level or schema_level)
+
+    event_types = schema.get("event_types", [])
+    object_types = schema.get("object_types", [])
+    lines = [
+        f"ALLOWED EVENTS: {json.dumps(event_types)}",
+        f"ALLOWED OBJECTS: {json.dumps(object_types)}",
+    ]
+
+    if level == "entities":
+        return "\n".join(lines)
+
+    object_attributes = schema.get("object_attributes", {}) or {}
+    attr_lines = []
+    for otype in object_types:
+        attrs = object_attributes.get(otype) or []
+        if not attrs:
+            continue
+        rendered = ", ".join(
+            f"{a['name']} ({_ATTR_TYPE_DISPLAY.get(str(a.get('type', '')).lower(), 'String')})"
+            for a in attrs if a.get("name")
+        )
+        if rendered:
+            attr_lines.append(f"  {otype}: {rendered}")
+    if attr_lines:
+        lines.append("OBJECT ATTRIBUTES:")
+        lines.extend(attr_lines)
+
+    if level == "entities_attributes":
+        return "\n".join(lines)
+
+    # level == "full": add the relation graphs.
+    def _render_relations(triples):
+        rendered = []
+        for source, target, qualifier in triples:
+            suffix = f" ({qualifier})" if qualifier else ""
+            rendered.append(f"  {source} -> {target}{suffix}")
+        return rendered
+
+    e2o = _render_relations(schema.get("e2o", []) or [])
+    if e2o:
+        lines.append("EVENT-TO-OBJECT RELATIONS (only these event/object pairs are linked):")
+        lines.extend(e2o)
+
+    o2o = _render_relations(schema.get("o2o", []) or [])
+    if o2o:
+        lines.append("OBJECT-TO-OBJECT RELATIONS (only these object pairs are linked):")
+        lines.extend(o2o)
+    lines.append(
+        "Use ONLY the relations listed above. If two entities are not directly related, "
+        "connect them through an intermediary that is."
+    )
+
+    return "\n".join(lines)
 
 
 def normalize_prompt_strategy(prompt_strategy):
@@ -528,18 +678,15 @@ def _ensure_local_gpu_model_loaded():
                     "Include 'base_model_name_or_path' in adapter_config.json or specify the base model explicitly."
                 )
 
-            # Gemma-3 is multimodal (Gemma3ForConditionalGeneration). The unsloth pre-
-            # quantized base (`unsloth/gemma-3-4b-it-unsloth-bnb-4bit`) ships with one
-            # vision-tower layer whose saved quant_state is missing, which surfaces as
-            # "FP4 quantization state not initialized" and an empty AssertionError on every
-            # forward pass. Loading the official full-precision base and quantizing it
-            # freshly with our nf4 config gives every layer a valid quant_state. The
-            # architecture is identical, so the LoRA adapter keys still match, and this
-            # keeps gemma3-4b-finetuned consistent with the gemma3-4b base condition.
-            if "gemma-3-4b" in base_model_name.lower() and "unsloth" in base_model_name.lower():
-                print(f"[adapter load] redirecting gemma base "
-                      f"'{base_model_name}' -> 'google/gemma-3-4b-it' for valid quant_state")
-                base_model_name = "google/gemma-3-4b-it"
+            # NOTE: adapters trained before 2026-08-06 record unsloth's pre-quantized
+            # redistribution here instead of the checkpoint the training run requested,
+            # because unsloth substitutes it when load_in_4bit=True. For Gemma-3 that
+            # redistribution ships a vision-tower layer with a missing quant_state ("FP4
+            # quantization state not initialized"), so it used to be redirected to
+            # `google/gemma-3-4b-it` at load time. `train_unsloth.py` now writes the
+            # requested checkpoint into adapter_config.json at save time, so no per-model
+            # redirect is needed. Re-train, or fix `base_model_name_or_path` by hand, if you
+            # hit that error with an older adapter.
 
             # Load the base model with 4-bit quantization so its Params4bit layers are
             # properly initialised. The adapter's LoRA A/B weights are then injected
@@ -1280,16 +1427,32 @@ JSON:
         return normalized
 
 
-def run_subproblem_1_extract_entities(query, event_names, object_names, messages, model_name):
+def run_subproblem_1_extract_entities(query, schema_block, messages, model_name):
+    # Only ask for relation grounding when the schema block actually contains a relation
+    # graph (schema_level == "full"); at lower schema levels this section is absent and
+    # asking for it would just invite hallucinated relations.
+    relations_available = (
+        "EVENT-TO-OBJECT RELATIONS" in schema_block or "OBJECT-TO-OBJECT RELATIONS" in schema_block
+    )
+    relations_instruction = ""
+    if relations_available:
+        relations_instruction = (
+            "\nAlso copy which relations from the EVENT-TO-OBJECT RELATIONS and OBJECT-TO-OBJECT RELATIONS "
+            "lists above connect the events/objects you just mapped. Copy each relation VERBATIM as shown "
+            "(e.g. \"EventType -> ObjectType\") into 'object_event_links' (event-to-object) and "
+            "'object_object_links' (object-to-object). Do NOT invent relations that are not listed. If an "
+            "object you need is not directly related to any identified event, include the relation chain "
+            "through an intermediary object that IS listed, so the chain can be followed later.\n"
+        )
     prompt_1 = (
         "Given the user query, map the terms to the exact events and objects involved.\n\n"
         "CRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly "
-        "to the EXACT valid names provided below. DO NOT use names that aren't in these lists.\n\n"
-        f"Valid events: {event_names}\n"
-        f"Valid objects: {object_names}\n\n"
+        "to the EXACT names provided below. DO NOT use names that aren't in these lists.\n\n"
+        f"{schema_block}\n\n"
         f"Query: {query}\n\n"
         "Output a clear mapping of the elements found in the query to the valid events and objects. "
-        "Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once'). "
+        "Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once').\n"
+        f"{relations_instruction}"
         "Return ONLY JSON matching the schema."
     )
     messages.append({"role": "user", "content": prompt_1})
@@ -1316,24 +1479,61 @@ def run_subproblem_2_plan_tree(messages, model_name):
         extracted_structure = messages[2].get("content", "{}")
 
     prompt_2 = (
-        "Based on the mapped elements, plan the logical tree structure for the OCPQ query.\n\n"
-        "OCPQ PATTERN CHEAT SHEET:\n"
-        "- 'completed within TIME': Requires 2 nodes. Parent node has Event A, Object A, and a constraint "
-        "specifying 'SAT' on the child path. Child node has Event B and a 'TimeBetweenEvents' filter (max_seconds).\n"
-        "- 'exactly once': Requires 2 nodes. Root node has Object A and a 'SizeFilter' constraint on the child path (min:1, max:1). Connected child node has Event A and an 'O2E' filter linking Event A to Object A.\n"
-        "- 'at least once': Parent node with Event A, child node with Event B.\n"
-        "- 'must not occur': Single node with a 'NOT' constraint on a child path.\n\n"
-        "CRITICAL TO PREVENT SLOW QUERIES (OOM CRASHES):\n"
-        "1. DO NOT create orphaned/disconnected nodes. EVERY node must be linked as a child of another node via the child index arrays, except for the root node.\n"
-        "2. DO NOT create EMPTY nodes that don't contain any events or objects. Every node should have a clear purpose in the query plan.\n"
-        "3. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` MUST be placed inside connected child nodes, not isolated in disconnected nodes.\n"
-        "4. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.\n\n"
-        "Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, "
-        "and exact filters/constraints).\n\n"
-        "CRITICAL: ONLY use the events and objects mapped here. DO NOT INVENT NEW ONES!\n"
-        f"{extracted_structure}\n\n"
-        "Return ONLY JSON matching the schema."
-    )
+        """Based on the mapped elements, plan the logical tree structure for the OCPQ query.
+
+        TREE FORMAT RULES:
+        - 'events' and 'objects' on each node list ONLY the events/objects newly introduced AT THAT NODE, not 
+        entities already introduced by an ancestor node (a child implicitly inherits its ancestors' bindings).
+        - 'description' is the ONLY place to record filters and constraints for that node -- state the EXACT 
+        type name and key parameters (e.g. "O2E: event 0 -> object 0", "TimeBetweenEvents:
+        max_seconds=259200", "SizeFilter/NumChilds: child A, min=1", "NOT: child A"). Do not leave
+        filters/constraints unstated in a node that needs them.
+        - 'id' values start at 0 and increase by node order. Every edge's 'from'/'to' MUST reference an 'id'
+        that exists in 'nodes' -- never invent or skip ids.
+
+        EXAMPLE (format only -- your actual events/objects/filters must come from the mapped elements below):
+        {
+          "nodes": [
+            {"id": 0, "description": "root: holds Object A, no filters", "events": [], "objects": ["Object A"]},
+            {"id": 1, "description": "O2E: event 0 -> object 0", "events": ["Event A"], "objects": []}
+          ],
+          "edges": [
+            {"from": 0, "to": 1, "label": "A"}
+          ]
+        }
+        OCPQ PATTERN CHEAT SHEET (typical shapes, not fixed node counts -- add nodes if extra constraints require it):
+        - 'completed within TIME': Typically 2 nodes. Parent node has Event A and Object A. Child node has
+        Event B, an 'O2E' filter linking Event B to Object A, and a 'TimeBetweenEvents' filter (max_seconds)
+        bounding Event A -> Event B.
+        - Occurrence-count constraints ('at least once', 'more than once', 'exactly once', 'must not occur more
+        than N times'): Root node has Object A and BOTH a 'SAT' constraint AND a 'SizeFilter'/'NumChilds'
+        constraint pointing at the SAME child path (set min/max per the phrasing, e.g. min:1 for 'at least once',
+        min:1,max:1 for 'exactly once'). Connected child node has Event A and an 'O2E' filter linking
+        Event A to Object A.
+        - 'must not occur' / 'must not X' / 'should not X': Requires AT LEAST 2 nodes -- a 'NOT' constraint
+        always references a child path by name, so the forbidden pattern must live in a real child node. The
+        parent node holds the triggering event/object; the 'NOT' constraint's child_names point at the child
+        node(s) describing what must NOT happen.
+        - Simple, single-condition queries that need no nesting: a single root node with NO children is valid
+        -- put the events, objects, and filters/constraints directly in that one node.
+
+        CRITICAL TO PREVENT SLOW QUERIES (OOM CRASHES):
+        1. DO NOT create orphaned/disconnected nodes. EVERY node except the root must be reachable via some
+        parent's child index array.
+        2. DO NOT create EMPTY nodes that don't contain any events or objects. Every node should have a clear purpose in the query plan.
+        3. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` may live in the root node itself for simple,
+        non-nested queries, or in any node reachable from the root -- just never in a node that is unreachable.
+        4. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.
+
+        Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, 
+        and exact filters/constraints).
+
+        CRITICAL: ONLY use the events and objects mapped here. DO NOT INVENT NEW ONES!
+
+        {extracted_structure}
+
+        Return ONLY JSON matching the schema."""
+    ).replace("{extracted_structure}", extracted_structure)
     messages.append({"role": "user", "content": prompt_2})
 
     response_2 = call_hf_with_retry(
@@ -1352,9 +1552,9 @@ def run_subproblem_2_plan_tree(messages, model_name):
 
 
 def build_few_shot_examples(query, dataset, embeddings):
-    if not few_shot_enabled:
+    if not few_shot_enabled or few_shot_k <= 0:
         return ""
-    examples = retrieve_examples(query, dataset, embeddings)
+    examples = retrieve_examples(query, dataset, embeddings, top_k=few_shot_k)
     example_prompts = []
     for ex in examples:
         qt = "nl"
@@ -1397,6 +1597,10 @@ def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_n
         f"ALLOWED ENTITIES: {extracted_structure}\n\n"
         "3. You must follow the logical tree plan from your second subproblem.\n"
         f"LOGICAL PLAN: {logical_tree}\n\n"
+        "4. Every 'O2E' and 'O2O' filter you emit MUST correspond to a relation actually present in "
+        "ALLOWED ENTITIES ('object_event_links'/'object_object_links', when populated) or implied by the "
+        "LOGICAL PLAN's node descriptions. Do NOT invent an event-object or object-object link that isn't "
+        "grounded there.\n\n"
         "Output strictly and ONLY valid JSON matching the exact schema based entirely on these allowed entities and plan."
     )
     
@@ -1454,7 +1658,9 @@ def _run_pipeline_grammar_guided(
     print(f"Using model: {selected_model}")
     
     # Extract event and object names from the OCEL log
-    event_names, object_names = events_and_objects_from_ocel(ocel_path)
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
 
     # Initialize the chat messages for context
     messages = [
@@ -1464,8 +1670,7 @@ def _run_pipeline_grammar_guided(
     # Sub-problem 1: Extract entities mapping
     structure_text = run_subproblem_1_extract_entities(
         query=query,
-        event_names=event_names,
-        object_names=object_names,
+        schema_block=schema_block,
         messages=messages,
         model_name=selected_model,
     )
@@ -1539,6 +1744,7 @@ def _run_pipeline_grammar_guided(
                     stage="grammar_guided_fix",
                 )
                 ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_4})
                 messages.append({"role": "assistant", "content": fixed_content})
 
     return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
@@ -1559,7 +1765,9 @@ def _run_pipeline_few_shot(
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
 
-    event_names, object_names = events_and_objects_from_ocel(ocel_path)
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
 
     messages = [
         {
@@ -1579,10 +1787,9 @@ def _run_pipeline_few_shot(
 
 Output ONLY valid JSON.
 
-CRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly to the EXACT valid names provided below.
+CRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly to the EXACT names provided below.
 DO NOT use names that aren't in these lists.
-Valid events: {event_names}
-Valid objects: {object_names}
+{schema_block}
 {example_block}
 Now translate this query:
 Question: {query}
@@ -1716,7 +1923,9 @@ def _run_pipeline_allowed_entities_only(
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
 
-    event_names, object_names = events_and_objects_from_ocel(ocel_path)
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
 
     messages = [
         {
@@ -1733,10 +1942,16 @@ Convert this natural language query to OCPQ JSON.
 
 Output ONLY valid JSON.
 
-Allowed events: {event_names}
-Allowed objects: {object_names}
+{schema_block}
 
 Rules:
+- The root object MUST contain both "nodes" and "edgeNames".
+- "edgeNames" is an array of [[parent_index, child_index], "label"] pairs, one per parent-child
+  link used in "nodes" (e.g. [[0, 1], "A"]). Do NOT omit it.
+- Basic filters ("TimeBetweenEvents", "NotEqual", "EventAttributeValueFilter",
+  "ObjectAttributeValueFilter", "BasicFilterCEL") must be wrapped as
+  {{"type": "Filter", "filter": {{...}}}} when placed in "constraints".
+- "O2E" and "O2O" belong in the node's "filters" array, never directly in "constraints".
 - Use ONLY event and object names from the allowed lists.
 - Do NOT invent unsupported filter types such as "ExactlyOnce".
 - Represent "exactly once" using supported schema structure, not a custom operator.
@@ -1836,6 +2051,7 @@ Query:
                     stage="allowed_entities_only_fix",
                 )
                 ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_fix})
                 messages.append({"role": "assistant", "content": fixed_content})
 
     return None, None, ocpq_json, query_result, query_result_file_path
@@ -1856,7 +2072,9 @@ def _run_pipeline_chain_of_thought_plus(
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
 
-    event_names, object_names = events_and_objects_from_ocel(ocel_path)
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
     messages = [
         {
             "role": "system",
@@ -1875,9 +2093,8 @@ Given a natural language query, identify:
 4. Cardinality constraints (e.g., exactly once, at least once)
 5. Whether nesting is needed (yes/no)
 
-The events and objects must be chosen from the following lists extracted from the log:
-Events: {event_names}
-Objects: {object_names}
+The events and objects must be chosen from the schema extracted from the log:
+{schema_block}
 
 Return ONLY JSON in this format:
 
@@ -1893,7 +2110,15 @@ Query:
 {query}
 """
     messages.append({"role": "user", "content": prompt_1})
-    response_1 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    response_1 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "extracted_structure", "schema": EXTRACTED_STRUCTURE_SCHEMA, "strict": True},
+        },
+    )
     structure_text = response_1.choices[0].message.content
     messages.append({"role": "assistant", "content": structure_text})
     print("Sub-problem 1 completed: Entities extracted.")
@@ -1911,12 +2136,22 @@ Decide:
 - What each node represents
 - Parent-child relationships
 
+The example below shows the FORMAT ONLY, with 2 nodes and 1 edge. Your actual
+tree may need more or fewer nodes/edges depending on the query — include ALL
+nodes and edges you decided on above, not just this many.
+
 Return ONLY JSON:
 
 {{
   "nodes": [
     {{
       "id": 0,
+      "description": "...",
+      "events": [...],
+      "objects": [...]
+    }},
+    {{
+      "id": 1,
       "description": "...",
       "events": [...],
       "objects": [...]
@@ -1928,7 +2163,15 @@ Return ONLY JSON:
 }}
 """
     messages.append({"role": "user", "content": prompt_2})
-    response_2 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    response_2 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "query_tree", "schema": QUERY_TREE_SCHEMA, "strict": True},
+        },
+    )
     tree_text = response_2.choices[0].message.content
     messages.append({"role": "assistant", "content": tree_text})
     print("Sub-problem 2 completed: Tree structure planned.")
@@ -1939,11 +2182,12 @@ You are generating OCPQ JSON.
 
 CRITICAL SCHEMA REQUIREMENT:
 Output ONLY valid JSON matching the exact schema shown in the examples.
-The root object should minimally contain an array of "nodes".
-Each node in the "nodes" array MUST be an object with a single key "Box" (and optionally "[", "]" keys depending on the syntax).
+The root object MUST contain exactly two top-level keys: "nodes" and "edgeNames".
+Each node in the "nodes" array MUST be an object with a single key "Box".
 The "Box" value MUST always be an array with exactly TWO elements:
 1. The node data dictionary (containing newEventVars, newObjectVars, filters, sizeFilters, constraints, evVarLabels, obVarLabels).
 2. An array of child node indices (e.g., [], [1]).
+"edgeNames" MUST be an array of [[parent_index, child_index], "label"] pairs, one per parent-child link used in "nodes" (e.g., [[0, 1], "A"]). Do NOT omit this field.
 
 CONSTRAINT SCHEMA:
 The constraints in your JSON MUST ONLY use the following top-level variants:
@@ -2053,6 +2297,7 @@ ONLY output valid JSON.
                     stage="chain_of_thought_plus_fix",
                 )
                 ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_4})
                 messages.append({"role": "assistant", "content": fixed_content})
 
     return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
@@ -2073,7 +2318,9 @@ def _run_pipeline_least_to_most(
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
 
-    event_names, object_names = events_and_objects_from_ocel(ocel_path)
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
     messages = [
         {
             "role": "system",
@@ -2092,9 +2339,8 @@ Given a natural language query, identify:
 4. Cardinality constraints (e.g., exactly once, at least once)
 5. Whether nesting is needed (yes/no)
 
-The events and objects must be chosen from the following lists extracted from the log:
-Events: {event_names}
-Objects: {object_names}
+The events and objects must be chosen from the schema extracted from the log:
+{schema_block}
 
 Return ONLY JSON in this format:
 
@@ -2110,7 +2356,15 @@ Query:
 {query}
 """
     messages.append({"role": "user", "content": prompt_1})
-    response_1 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    response_1 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "extracted_structure", "schema": EXTRACTED_STRUCTURE_SCHEMA, "strict": True},
+        },
+    )
     structure_text = response_1.choices[0].message.content
     messages.append({"role": "assistant", "content": structure_text})
     print("Sub-problem 1 completed: Entities extracted.")
@@ -2164,12 +2418,22 @@ Decide:
 - What each node represents
 - Parent-child relationships
 
+The example below shows the FORMAT ONLY, with 2 nodes and 1 edge. Your actual
+tree may need more or fewer nodes/edges depending on the query — include ALL
+nodes and edges you decided on above, not just this many.
+
 Return ONLY JSON:
 
 {{
   "nodes": [
     {{
       "id": 0,
+      "description": "...",
+      "events": [...],
+      "objects": [...]
+    }},
+    {{
+      "id": 1,
       "description": "...",
       "events": [...],
       "objects": [...]
@@ -2181,7 +2445,15 @@ Return ONLY JSON:
 }}
 """
     messages.append({"role": "user", "content": prompt_3})
-    response_3 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    response_3 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "query_tree", "schema": QUERY_TREE_SCHEMA, "strict": True},
+        },
+    )
     tree_text = response_3.choices[0].message.content
     messages.append({"role": "assistant", "content": tree_text})
     print("Sub-problem 3 completed: Query tree designed.")
@@ -2192,11 +2464,12 @@ You are generating OCPQ JSON.
 
 CRITICAL SCHEMA REQUIREMENT:
 Output ONLY valid JSON matching the exact schema shown in the examples.
-The root object should minimally contain an array of "nodes".
-Each node in the "nodes" array MUST be an object with a single key "Box" (and optionally "[", "]" keys depending on the syntax).
+The root object MUST contain exactly two top-level keys: "nodes" and "edgeNames".
+Each node in the "nodes" array MUST be an object with a single key "Box".
 The "Box" value MUST always be an array with exactly TWO elements:
 1. The node data dictionary (containing newEventVars, newObjectVars, filters, sizeFilters, constraints, evVarLabels, obVarLabels).
 2. An array of child node indices (e.g., [], [1]).
+"edgeNames" MUST be an array of [[parent_index, child_index], "label"] pairs, one per parent-child link used in "nodes" (e.g., [[0, 1], "A"]). Do NOT omit this field.
 
 CONSTRAINT SCHEMA:
 The constraints in your JSON MUST ONLY use the following top-level variants:
@@ -2361,6 +2634,7 @@ Return JSON:
                     stage="least_to_most_fix",
                 )
                 ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_6})
                 messages.append({"role": "assistant", "content": fixed_content})
 
     return structure_text, verification_json, ocpq_json, query_result, query_result_file_path

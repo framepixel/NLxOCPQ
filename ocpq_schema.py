@@ -199,6 +199,11 @@ class ExtractedStructure(BaseModel):
     relations: List[str]
     constraints: List[str]
     requires_nesting: bool
+    # Optional: only populated by strategies that explicitly ask for schema relation
+    # grounding (currently schema-grammar-guided). Left empty by strategies that don't
+    # reference these fields in their prompt, since they carry a default.
+    object_event_links: List[str] = Field(default_factory=list)
+    object_object_links: List[str] = Field(default_factory=list)
 
 class QueryTreeNode(BaseModel):
     id: int

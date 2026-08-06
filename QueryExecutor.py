@@ -8,6 +8,29 @@ import signal
 from urllib import request, error
 
 
+# A pathological OCPQ query (e.g. an unbounded Cartesian product from a missing
+# O2E filter) can exhaust system RAM and trigger a SLURM OOM-kill of the whole
+# job, or run effectively forever. Cap the CLI subprocess so such a query is
+# killed and surfaces as a counted execution failure instead. Both limits are
+# overridable via environment variables (no magic numbers in the logic).
+_OCPQ_CLI_TIMEOUT_SEC = int(os.getenv("OCPQ_CLI_TIMEOUT_SEC", "300"))
+_OCPQ_CLI_MEM_LIMIT_GB = float(os.getenv("OCPQ_CLI_MEM_LIMIT_GB", "24"))
+
+
+def _limit_child_memory():
+    """Cap the child process's address space (Linux only).
+
+    Runs in the forked child before exec. When the Rust CLI exceeds the cap its
+    allocations fail and it aborts with a non-zero exit code, which the caller
+    handles as an ordinary execution failure rather than letting the runaway
+    query take down the entire SLURM allocation.
+    """
+    import resource
+
+    limit_bytes = int(_OCPQ_CLI_MEM_LIMIT_GB * (1024 ** 3))
+    resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
+
+
 def _find_cargo_command():
     cargo_candidates = []
 
@@ -41,6 +64,38 @@ def _find_cargo_command():
         "Cargo was not found. Install Rust via rustup or add cargo to PATH. "
         "Searched locations:\n- " + searched
     )
+
+
+# Cached OCPQ CLI argument style. Older builds accept `--ocel/--bbox-tree`
+# directly; newer builds nest the same flags under an `evaluate` subcommand.
+# Detected once per process from the binary's --help output.
+_CLI_MODE = None  # None=unknown, "subcommand", or "bare"
+
+
+def _detect_cli_mode(cargo_cmd, cli_dir):
+    """Return 'subcommand' if the CLI exposes an `evaluate` subcommand, else 'bare'."""
+    global _CLI_MODE
+    if _CLI_MODE is not None:
+        return _CLI_MODE
+    _CLI_MODE = "bare"  # safe default = legacy interface used on the cluster
+    try:
+        probe = subprocess.run(
+            [cargo_cmd, "run", "-q", "--release", "-p", "ocpq_cli", "--", "--help"],
+            cwd=cli_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=600,
+        )
+        help_text = (probe.stdout or "") + (probe.stderr or "")
+        if "evaluate" in help_text and "Commands:" in help_text:
+            _CLI_MODE = "subcommand"
+    except Exception:
+        pass  # keep the legacy default if probing fails
+    return _CLI_MODE
+
+
+def _build_cli_args(cli_mode, ocel_abs, query_abs):
+    """Build the argument list after the cargo `--` separator for the given mode."""
+    flags = ["--ocel", ocel_abs, "--bbox-tree", query_abs]
+    return (["evaluate"] + flags) if cli_mode == "subcommand" else flags
 
 
 def _terminate_process(process):
@@ -79,14 +134,15 @@ def run_ocpq_query(ocel_path, query_result_file):
         return warning, warning, None
         
     cargo_cmd = _find_cargo_command()
-        
+
     # The -q (quiet) flag restricts cargo build output, only showing program output.
-    # The binary itself accepts `--ocel` and `--bbox-tree` directly, so do not
-    # inject an extra subcommand here.
+    # Older OCPQ builds accept `--ocel/--bbox-tree` directly; newer builds nest them
+    # under an `evaluate` subcommand. Detect the style once and adapt, so the same
+    # code works against both the cluster (legacy) and an updated local checkout.
+    cli_mode = _detect_cli_mode(cargo_cmd, cli_dir)
     cmd = [
         cargo_cmd, "run", "-q", "--release", "-p", "ocpq_cli", "--",
-        "--ocel", ocel_abs,
-        "--bbox-tree", query_abs,
+        *_build_cli_args(cli_mode, ocel_abs, query_abs),
     ]
     
     print(f"\nExecuting OCPQ CLI query locally...")
@@ -95,16 +151,19 @@ def run_ocpq_query(ocel_path, query_result_file):
     try:
         # start_new_session=True creates a new process group so we can cleanly kill BOTH cargo and the spawned Rust executable if Streamlit stops
         process = subprocess.Popen(
-            cmd, 
-            cwd=cli_dir, 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE, 
+            cmd,
+            cwd=cli_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            start_new_session=True
+            start_new_session=True,
+            # Memory cap is POSIX-only (no fork/preexec_fn on Windows).
+            preexec_fn=_limit_child_memory if os.name != "nt" else None,
         )
-        
-        # Wait for the process to finish
-        stdout, stderr = process.communicate()
+
+        # Wait for the process to finish, bounding the wall time so a runaway
+        # query cannot hang the shard indefinitely.
+        stdout, stderr = process.communicate(timeout=_OCPQ_CLI_TIMEOUT_SEC)
         
         if process.returncode != 0:
             raise subprocess.CalledProcessError(
@@ -132,6 +191,16 @@ def run_ocpq_query(ocel_path, query_result_file):
             except Exception as kill_err:
                 print(f"Failed to kill process: {kill_err}")
                 
+        # A runaway query that hit the wall-time cap: kill it and report as a
+        # normal execution failure so the shard keeps going.
+        if isinstance(e, subprocess.TimeoutExpired):
+            msg = (
+                f"OCPQ query exceeded the {_OCPQ_CLI_TIMEOUT_SEC}s time limit "
+                "and was terminated (likely an unbounded Cartesian search)."
+            )
+            print(f"--- Query Execution Timed Out ---\n{msg}\n-----------------------------\n")
+            return "", msg, None
+
         # If it was a standard Cargo failure (e.g., syntax crash), parse it out as normal
         if isinstance(e, subprocess.CalledProcessError):
             print("--- Query Execution Failed ---")

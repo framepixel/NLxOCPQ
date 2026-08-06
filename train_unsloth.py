@@ -168,8 +168,38 @@ def _choose_training_mode():
 _gc_env = os.getenv("OCPQ_GRADIENT_CHECKPOINTING", "unsloth")
 gradient_checkpointing_mode = False if _gc_env == "false" else (True if _gc_env == "true" else _gc_env)
 
-max_seq_length = 2048 # Good size for JSON generation
+# 4096 covers the whole fine-tuning corpus (longest row ~1.6k tokens) with headroom for the
+# inference distribution, whose longest prompts (chain-of-thought-plus) reach ~4k tokens.
+# Do not lower this: SFTTrainer truncates the END of the sequence, which is the assistant's
+# JSON target, so an undersized budget silently trains the model to emit incomplete JSON.
+max_seq_length = 4096
 random_seed = int(os.getenv("OCPQ_RANDOM_SEED", "3407"))
+
+
+def _seed_everything(seed):
+    """Seed every RNG the run touches, before anything stochastic happens.
+
+    The component-level seeds (LoRA `random_state`, the dataset split, and
+    `TrainingArguments.seed`) already cover the parts that matter most, but HF only calls
+    `set_seed` once the Trainer is constructed. Seeding here removes any dependence on
+    that ordering and matches the project-wide reproducibility rule.
+    """
+    import random as _random
+
+    _random.seed(seed)
+    try:
+        import numpy as _np
+
+        _np.random.seed(seed)
+    except Exception:
+        pass
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+_seed_everything(random_seed)
+
 validation_split = float(os.getenv("OCPQ_VALIDATION_SPLIT", "0.1"))
 learning_rate = float(os.getenv("OCPQ_LEARNING_RATE", "2e-4"))
 num_train_epochs = float(os.getenv("OCPQ_NUM_TRAIN_EPOCHS", "1"))
@@ -403,15 +433,104 @@ def formatting_prompts_func(examples):
     texts = [tokenizer.apply_chat_template(convo, tokenize = False, add_generation_prompt = False) for convo in convos]
     return { "text" : texts, }
 
-# Load and split the fine-tuning corpus before formatting so train/validation remain disjoint.
+def _grouped_train_validation_split(dataset, test_fraction, seed):
+    """Split rows into train/validation, keeping same-target rows on the same side.
+
+    `convert_dataset_for_finetuning.py` emits several rows per source example (a base
+    prompt, a reasoning-augmented variant, a contrastive variant, sometimes a rewrite),
+    and every one of them carries the *identical* assistant target. Splitting at row
+    level therefore puts variants of one example on both sides: measured on the current
+    corpus, 99.2% of validation rows had their exact target JSON present in train, which
+    makes eval_loss a memorisation score rather than a held-out one. That matters twice
+    over, because `load_best_model_at_end` selects the reported checkpoint by eval_loss.
+
+    Grouping by the assistant target keeps every variant of an example together. Examples
+    that happen to share an identical gold query are grouped too, which is also correct —
+    they are the same query semantically.
+
+    Args:
+        dataset: The raw `datasets.Dataset` of chat rows.
+        test_fraction: Fraction of *groups* to hold out.
+        seed: Seed for the group shuffle.
+
+    Returns:
+        `(train_indices, validation_indices)`.
+    """
+    import random as _random
+
+    group_of_row = []
+    groups = {}
+    for messages in dataset["messages"]:
+        target = messages[-1]["content"]
+        if target not in groups:
+            groups[target] = len(groups)
+        group_of_row.append(groups[target])
+
+    group_ids = list(range(len(groups)))
+    _random.Random(seed).shuffle(group_ids)
+    holdout = set(group_ids[: int(len(group_ids) * test_fraction)])
+
+    train_indices, validation_indices = [], []
+    for row_index, group_id in enumerate(group_of_row):
+        (validation_indices if group_id in holdout else train_indices).append(row_index)
+    return train_indices, validation_indices
+
+
+# Split before formatting so train/validation stay disjoint at the *example* level, not
+# merely the row level (see _grouped_train_validation_split).
 raw_dataset = load_dataset("json", data_files=finetune_dataset_path, split="train")
-dataset_split = raw_dataset.train_test_split(test_size=validation_split, seed=random_seed, shuffle=True)
-train_dataset = dataset_split["train"].map(formatting_prompts_func, batched=True)
-eval_dataset = dataset_split["test"].map(formatting_prompts_func, batched=True)
+train_indices, validation_indices = _grouped_train_validation_split(
+    raw_dataset, validation_split, random_seed
+)
+train_dataset = raw_dataset.select(train_indices).map(formatting_prompts_func, batched=True)
+eval_dataset = raw_dataset.select(validation_indices).map(formatting_prompts_func, batched=True)
 
 print(f"Loaded {len(raw_dataset)} supervised rows from {finetune_dataset_path}")
 print(f"Train rows: {len(train_dataset)}")
-print(f"Validation rows: {len(eval_dataset)}")
+print(f"Validation rows: {len(eval_dataset)} "
+      f"({100.0 * len(eval_dataset) / max(len(raw_dataset), 1):.1f}% of rows, "
+      "split by target so no variant of a validation example appears in train)")
+
+def _report_formatting_sanity(sample_text):
+    """Warn about tokenization problems that would otherwise pass silently.
+
+    Two things are worth checking once per run, because both corrupt training without
+    raising anything:
+
+    * **Duplicate BOS.** `apply_chat_template` already emits the model's BOS/header, and
+      SFTTrainer tokenizes that text with `add_special_tokens=True` by default, which can
+      prepend a second one. If that happens, pass
+      `dataset_kwargs={"add_special_tokens": False}` to SFTTrainer.
+    * **Missing EOS.** The formatted text must end with the template's end-of-turn token,
+      otherwise the model never learns to stop and generation runs to max_new_tokens —
+      which for JSON output means unterminated objects.
+    """
+    ids = tokenizer(sample_text, add_special_tokens=True)["input_ids"]
+    bos_id = tokenizer.bos_token_id
+    if bos_id is not None and len(ids) >= 2 and ids[0] == bos_id and ids[1] == bos_id:
+        print(
+            "[train_unsloth] WARNING: duplicate BOS token detected after tokenization. "
+            "The chat template already adds it and the trainer added another. Pass "
+            'dataset_kwargs={"add_special_tokens": False} to SFTTrainer.'
+        )
+    else:
+        print("[train_unsloth] BOS check OK (no duplicate leading BOS).")
+
+    tail = sample_text.rstrip()
+    eos_token = tokenizer.eos_token
+    known_terminators = [t for t in (eos_token, "<|eot_id|>", "<end_of_turn>", "<|im_end|>") if t]
+    if any(tail.endswith(t) for t in known_terminators):
+        print("[train_unsloth] EOS check OK (formatted text ends with an end-of-turn token).")
+    else:
+        print(
+            "[train_unsloth] WARNING: formatted text does not end with a known end-of-turn "
+            f"token (eos_token={eos_token!r}); the model may never learn to stop. "
+            f"Tail: {tail[-60:]!r}"
+        )
+
+
+if len(train_dataset) > 0:
+    _report_formatting_sanity(train_dataset["text"][0])
 
 _preview_n = int(os.getenv("OCPQ_PREVIEW_EXAMPLES", "0"))
 if _preview_n > 0:
@@ -548,8 +667,56 @@ if enable_final_eval:
         )
         raise
 
+def _restore_requested_base_model_name(adapter_dir, requested_model_name):
+    """Record the base model we asked for in the saved adapter config.
+
+    When `load_in_4bit=True`, unsloth silently swaps the requested checkpoint for its own
+    pre-quantized redistribution, and that substituted name is what lands in
+    `adapter_config.json`. Inference then has to special-case the mismatch: for Gemma the
+    unsloth redistribution additionally ships a vision-tower layer with a missing
+    quant_state, so `LLM.py` had to redirect the base back to `google/gemma-3-4b-it` at load
+    time. Writing the requested name here makes the adapter self-describing and lets that
+    redirect go away.
+
+    The LoRA weights are unaffected — only the provenance string changes.
+
+    Args:
+        adapter_dir: Directory `save_pretrained` just wrote.
+        requested_model_name: The checkpoint this run actually asked for.
+    """
+    config_path = os.path.join(adapter_dir, "adapter_config.json")
+    if not requested_model_name or not os.path.exists(config_path):
+        return
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            adapter_config = json.load(f)
+    except Exception as exc:
+        print(f"Warning: could not read {config_path} to fix base model name: {exc}")
+        return
+
+    saved_name = adapter_config.get("base_model_name_or_path")
+    if saved_name == requested_model_name:
+        return
+
+    adapter_config["base_model_name_or_path"] = requested_model_name
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(adapter_config, f, indent=2)
+    except Exception as exc:
+        print(f"Warning: could not write {config_path} to fix base model name: {exc}")
+        return
+
+    print(
+        "[adapter save] base_model_name_or_path "
+        f"'{saved_name}' -> '{requested_model_name}' (unsloth substituted its pre-quantized "
+        "redistribution; recording the checkpoint this run requested)"
+    )
+
+
 # 7. Save the Fine-Tuned LoRA Adapter
 model.save_pretrained(adapter_output_dir)
 tokenizer.save_pretrained(adapter_output_dir)
+_restore_requested_base_model_name(adapter_output_dir, selected_model_name)
 print(f"Finished! Saved LoRA adapter to '{adapter_output_dir}'")
 print(f"Training label: {run_label}")

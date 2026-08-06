@@ -27,6 +27,23 @@ BB_ORDER = [
     "T1","T2","T3","T4","T5",
 ]
 
+# BB category (first letter) -> human-readable name. Used for the category-level
+# breakdown the discussion section reports against (BB-class performance).
+CATEGORY_ORDER = ["V", "F", "S", "C", "L", "T"]
+CATEGORY_NAMES = {
+    "V": "Variables",
+    "F": "Filters",
+    "S": "SizeFilters",
+    "C": "Constraints",
+    "L": "Labels",
+    "T": "Tree",
+}
+
+
+def _bb_category(bb: str) -> str:
+    """Map a BB id (e.g. 'F11') to its category letter (e.g. 'F')."""
+    return bb[0] if bb else ""
+
 
 def _mean(vals: list) -> float | None:
     return round(sum(vals) / len(vals), 4) if vals else None
@@ -91,6 +108,55 @@ def slice_by_bb(
             if len(recs) < min_n:
                 continue
             result[cid][bb] = {
+                "n": len(recs),
+                "combined_f1": _mean([
+                    (r.get("similarity") or {}).get("combined", {}).get("f1")
+                    for r in recs
+                ]),
+                "schema_valid_rate": _mean(
+                    [1 if r["metrics"]["schema_valid"] else 0 for r in recs]
+                ),
+                "execution_success_rate": _mean(
+                    [_execution_success(r) for r in recs]
+                ),
+            }
+    return result
+
+
+def slice_by_category(
+    predictions: list[dict],
+    bb_index: dict[str, list[str]],
+    min_n: int = 1,
+) -> dict:
+    """Group predictions by (config_id, BB-category) and compute per-group metrics.
+
+    A record is counted once per category it touches, even if it contains several
+    BBs from the same category (e.g. F1 + F4 -> one count under 'F'). Returns the
+    same metric shape as slice_by_bb, keyed by category letter (V/F/S/C/L/T).
+    """
+    missing_nl = set()
+    groups: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+
+    for rec in predictions:
+        nl = rec.get("nl_query", "")
+        bbs = bb_index.get(nl)
+        if bbs is None:
+            missing_nl.add(nl)
+            continue
+        cid = rec["config_id"]
+        for cat in {_bb_category(bb) for bb in bbs}:
+            groups[cid][cat].append(rec)
+
+    if missing_nl:
+        print(f"Warning: {len(missing_nl)} nl_query values not found in BB labels file.")
+
+    result: dict = {}
+    for cid, cat_map in groups.items():
+        result[cid] = {}
+        for cat, recs in cat_map.items():
+            if len(recs) < min_n:
+                continue
+            result[cid][cat] = {
                 "n": len(recs),
                 "combined_f1": _mean([
                     (r.get("similarity") or {}).get("combined", {}).get("f1")
@@ -171,6 +237,42 @@ def _print_ascii_table(breakdown: dict, primary_metric: str = "combined_f1") -> 
         print(f"{bb:<{bb_col}} {n:>{col_width}}")
 
 
+def _print_category_table(breakdown: dict, primary_metric: str = "combined_f1") -> None:
+    config_ids = sorted(breakdown.keys())
+    if not config_ids:
+        print("No category data.")
+        return
+
+    cats_seen = set()
+    for cat_map in breakdown.values():
+        cats_seen.update(cat_map.keys())
+    cats_to_show = [c for c in CATEGORY_ORDER if c in cats_seen]
+
+    col_width = 8
+    cat_col = 14
+    label_header = primary_metric.replace("_rate", "").replace("_", " ")
+
+    def short_id(cid: str) -> str:
+        return cid[:col_width]
+
+    col_labels = [short_id(cid) for cid in config_ids]
+    header = f"{'Category':<{cat_col}}" + "".join(f" {c:>{col_width}}" for c in col_labels)
+    print(f"\n--- {label_header.upper()} by BB Category ---")
+    print(header)
+    print("-" * len(header))
+
+    for cat in cats_to_show:
+        label = f"{cat}:{CATEGORY_NAMES.get(cat, cat)}"
+        row = f"{label:<{cat_col}}"
+        for cid in config_ids:
+            val = (breakdown.get(cid) or {}).get(cat, {}).get(primary_metric)
+            if val is None:
+                row += f" {'—':>{col_width}}"
+            else:
+                row += f" {val:>{col_width}.2f}"
+        print(row)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run_dir", required=True, help="Path to eval_runs/<run_id>/")
@@ -203,10 +305,16 @@ def main() -> None:
 
     bb_index = _build_bb_index(labels_data)
     breakdown = slice_by_bb(predictions, bb_index, min_n=args.min_n)
+    category_breakdown = slice_by_category(predictions, bb_index, min_n=args.min_n)
 
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(breakdown, f, indent=2)
-    print(f"\nWrote bb_breakdown.json to {out_path}")
+    print(f"\nWrote {args.out} to {out_path}")
+
+    cat_out_path = run_dir / "bb_category_breakdown.json"
+    with open(cat_out_path, "w", encoding="utf-8") as f:
+        json.dump(category_breakdown, f, indent=2)
+    print(f"Wrote bb_category_breakdown.json to {cat_out_path}")
 
     config_count = len(breakdown)
     bb_counts = defaultdict(int)
@@ -216,6 +324,7 @@ def main() -> None:
     print(f"Configs: {config_count}  |  BB labels covered: {len(bb_counts)}/{len(BB_ORDER)}")
 
     _print_ascii_table(breakdown, primary_metric="combined_f1")
+    _print_category_table(category_breakdown, primary_metric="combined_f1")
 
 
 if __name__ == "__main__":
