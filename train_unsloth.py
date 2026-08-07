@@ -427,11 +427,21 @@ else:
         mapping = {"role" : "role", "content" : "content", "user": "user", "assistant": "assistant"},
     )
 
+# Set by _resolve_duplicate_bos() below, and honoured by formatting_prompts_func.
+strip_leading_bos_from_text = False
+
+
 def formatting_prompts_func(examples):
-    # Applies the Llama 3 chat template to our converted JSONL strings
+    # Applies the model's chat template to our converted JSONL rows.
     convos = examples["messages"]
-    texts = [tokenizer.apply_chat_template(convo, tokenize = False, add_generation_prompt = False) for convo in convos]
-    return { "text" : texts, }
+    texts = [
+        tokenizer.apply_chat_template(convo, tokenize=False, add_generation_prompt=False)
+        for convo in convos
+    ]
+    if strip_leading_bos_from_text:
+        bos = tokenizer.bos_token
+        texts = [t[len(bos):] if t.startswith(bos) else t for t in texts]
+    return {"text": texts}
 
 def _grouped_train_validation_split(dataset, test_fraction, seed):
     """Split rows into train/validation, keeping same-target rows on the same side.
@@ -476,21 +486,6 @@ def _grouped_train_validation_split(dataset, test_fraction, seed):
     return train_indices, validation_indices
 
 
-# Split before formatting so train/validation stay disjoint at the *example* level, not
-# merely the row level (see _grouped_train_validation_split).
-raw_dataset = load_dataset("json", data_files=finetune_dataset_path, split="train")
-train_indices, validation_indices = _grouped_train_validation_split(
-    raw_dataset, validation_split, random_seed
-)
-train_dataset = raw_dataset.select(train_indices).map(formatting_prompts_func, batched=True)
-eval_dataset = raw_dataset.select(validation_indices).map(formatting_prompts_func, batched=True)
-
-print(f"Loaded {len(raw_dataset)} supervised rows from {finetune_dataset_path}")
-print(f"Train rows: {len(train_dataset)}")
-print(f"Validation rows: {len(eval_dataset)} "
-      f"({100.0 * len(eval_dataset) / max(len(raw_dataset), 1):.1f}% of rows, "
-      "split by target so no variant of a validation example appears in train)")
-
 def _has_duplicate_leading_bos(sample_text):
     """Whether tokenizing already-templated text yields two BOS tokens in a row."""
     bos_id = tokenizer.bos_token_id
@@ -500,44 +495,99 @@ def _has_duplicate_leading_bos(sample_text):
     return len(ids) >= 2 and ids[0] == bos_id and ids[1] == bos_id
 
 
+def _resolve_duplicate_bos():
+    """Decide how to keep exactly one BOS, before the dataset is formatted.
+
+    `apply_chat_template` emits the model's BOS inside the text, and the trainer then
+    tokenizes that text with `add_special_tokens=True`, whose post-processor can prepend
+    a second one. Observed on Llama-3; Phi-4 and Gemma-3 are unaffected. It is repaired
+    per model rather than by forcing `add_special_tokens=False` globally, which would
+    strip the *only* BOS from a model whose template does not emit one.
+
+    Two remedies are tried in order:
+
+    1. Clear `tokenizer.add_bos_token`. Idiomatic, but on Llama-3 under unsloth the extra
+       BOS comes from the fast tokenizer's post-processor and the attribute is already
+       absent/false, so this does nothing — hence the fallback.
+    2. Strip the leading BOS from the formatted text, leaving the tokenizer to contribute
+       the single one. Independent of tokenizer internals and trl version.
+
+    Sets the module-level `strip_leading_bos_from_text` flag used by
+    `formatting_prompts_func`.
+    """
+    global strip_leading_bos_from_text
+
+    probe_messages = raw_dataset[0]["messages"]
+    sample = tokenizer.apply_chat_template(
+        probe_messages, tokenize=False, add_generation_prompt=False
+    )
+
+    if not _has_duplicate_leading_bos(sample):
+        print("[train_unsloth] BOS check OK (no duplicate leading BOS).")
+        return
+
+    # Remedy 1: the tokenizer flag, if this tokenizer honours it.
+    if hasattr(tokenizer, "add_bos_token"):
+        try:
+            tokenizer.add_bos_token = False
+            if not _has_duplicate_leading_bos(sample):
+                print(
+                    "[train_unsloth] BOS FIXED (tokenizer.add_bos_token = False): the "
+                    "tokenizer was adding a second BOS on top of the template's."
+                )
+                return
+        except Exception as exc:
+            print(f"[train_unsloth] could not set tokenizer.add_bos_token: {exc}")
+
+    # Remedy 2: drop the template's BOS from the text instead.
+    bos = tokenizer.bos_token
+    if bos and sample.startswith(bos):
+        strip_leading_bos_from_text = True
+        if not _has_duplicate_leading_bos(sample[len(bos):]):
+            print(
+                f"[train_unsloth] BOS FIXED (stripping leading {bos!r} from the formatted "
+                "text): the tokenizer adds one via add_special_tokens, so the template's "
+                "copy is removed, leaving exactly one."
+            )
+            return
+        strip_leading_bos_from_text = False
+
+    print(
+        "[train_unsloth] WARNING: duplicate BOS could not be repaired. Training would see "
+        "a doubled BOS, which differs from what inference produces via apply_chat_template."
+    )
+
+
+# Split before formatting so train/validation stay disjoint at the *example* level, not
+# merely the row level (see _grouped_train_validation_split).
+raw_dataset = load_dataset("json", data_files=finetune_dataset_path, split="train")
+train_indices, validation_indices = _grouped_train_validation_split(
+    raw_dataset, validation_split, random_seed
+)
+
+# Decide the BOS handling before formatting, since the remedy may change the text itself.
+_resolve_duplicate_bos()
+
+train_dataset = raw_dataset.select(train_indices).map(formatting_prompts_func, batched=True)
+eval_dataset = raw_dataset.select(validation_indices).map(formatting_prompts_func, batched=True)
+
+print(f"Loaded {len(raw_dataset)} supervised rows from {finetune_dataset_path}")
+print(f"Train rows: {len(train_dataset)}")
+print(f"Validation rows: {len(eval_dataset)} "
+      f"({100.0 * len(eval_dataset) / max(len(raw_dataset), 1):.1f}% of rows, "
+      "split by target so no variant of a validation example appears in train)")
+
 def _report_formatting_sanity(sample_text):
-    """Check — and where possible repair — tokenization faults that pass silently.
+    """Verify the formatted text after the BOS decision has been applied.
 
-    Two things are worth verifying once per run, because both corrupt training without
-    raising anything:
-
-    * **Duplicate BOS.** `apply_chat_template` already emits the model's BOS, and the
-      trainer tokenizes that text with `add_special_tokens=True`, which can prepend a
-      second one. Observed on Llama-3 but not on Phi-4 or Gemma-3, so this is repaired
-      per model rather than by forcing `add_special_tokens=False` everywhere — that would
-      strip the *only* BOS from a model whose template does not emit one. Clearing
-      `tokenizer.add_bos_token` is the surgical equivalent and needs no trl-version-specific
-      `dataset_kwargs` plumbing; the template's own BOS stays in the formatted text.
-    * **Missing EOS.** The formatted text must end with the template's end-of-turn token,
-      otherwise the model never learns to stop and generation runs to max_new_tokens —
-      which for JSON output means unterminated objects.
+    Re-checks BOS on the real formatted output, and confirms the text ends with the
+    template's end-of-turn token — without it the model never learns to stop, which for
+    JSON output means unterminated objects.
     """
     if _has_duplicate_leading_bos(sample_text):
-        if getattr(tokenizer, "add_bos_token", False):
-            tokenizer.add_bos_token = False
-            if _has_duplicate_leading_bos(sample_text):
-                print(
-                    "[train_unsloth] WARNING: duplicate BOS persists after setting "
-                    "tokenizer.add_bos_token = False. Training would see a doubled BOS."
-                )
-            else:
-                print(
-                    "[train_unsloth] BOS FIXED: the tokenizer was adding a second BOS on top "
-                    "of the one already in the chat template; set tokenizer.add_bos_token = "
-                    "False, leaving exactly one."
-                )
-        else:
-            print(
-                "[train_unsloth] WARNING: duplicate BOS token detected but the tokenizer has "
-                "no add_bos_token flag to clear. Training will see a doubled BOS."
-            )
+        print("[train_unsloth] WARNING: formatted text still tokenizes to a doubled BOS.")
     else:
-        print("[train_unsloth] BOS check OK (no duplicate leading BOS).")
+        print("[train_unsloth] BOS verified: exactly one leading BOS after tokenization.")
 
     tail = sample_text.rstrip()
     eos_token = tokenizer.eos_token
