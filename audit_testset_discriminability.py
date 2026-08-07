@@ -50,6 +50,11 @@ DEGENERATE_VERDICTS = {
     VERDICT_SAME_AS_BASELINE,
 }
 
+# Filters that express linkage between entities rather than an assertion about them.
+# The no-op baseline keeps these so it stays bounded; every other filter is query logic
+# and gets stripped. See `_build_baseline_query`.
+STRUCTURAL_FILTER_TYPES = {"O2E", "O2O"}
+
 
 def _read_json(path: str) -> Any:
     with open(path, "r", encoding="utf-8") as f:
@@ -62,14 +67,46 @@ def _write_json(path: Path, payload: Any) -> None:
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
 
+def _filter_vars_declared_at_root(query_filter: dict, root_data: dict) -> bool:
+    """Whether every variable a structural filter references is declared at the root.
+
+    A gold tree can place an `O2E`/`O2O` on the root that links to a variable introduced
+    further down the tree. Lifting the root out on its own leaves that reference dangling
+    and `ocpq_cli` rejects the whole query with `{"Err": "Could not get o1"}`, which the
+    audit would otherwise misreport as an execution failure. Such a filter describes the
+    tree's structure rather than the root box's own, so dropping it from the baseline is
+    both necessary and correct.
+    """
+    event_vars = set(root_data.get("newEventVars") or {})
+    object_vars = set(root_data.get("newObjectVars") or {})
+
+    if query_filter.get("type") == "O2E":
+        return (
+            str(query_filter.get("object")) in object_vars
+            and str(query_filter.get("event")) in event_vars
+        )
+    return (
+        str(query_filter.get("object")) in object_vars
+        and str(query_filter.get("other_object")) in object_vars
+    )
+
+
 def _build_baseline_query(gold_query: dict) -> Optional[dict]:
     """Build the no-op counterpart of a gold query: same root anchor, no query logic.
 
-    Keeps the root box's variable declarations and its `filters`, but strips the
-    `sizeFilters`, `constraints` and every child node. `O2E`/`O2O` filters are retained
-    deliberately: they express which entities are *linked*, not what the query asserts,
-    and removing them would turn the baseline into an unbounded Cartesian product that
-    can exhaust memory.
+    Keeps only the root box's variable declarations and its **structural** filters
+    (`O2E` / `O2O`). Everything that asserts something about the data is stripped:
+    `sizeFilters`, `constraints`, every child node, and the non-structural filters
+    (`TimeBetweenEvents`, `NotEqual`, `EventAttributeValueFilter`,
+    `ObjectAttributeValueFilter`, `BasicFilterCEL`).
+
+    The structural/non-structural split matters in both directions. Keeping `O2E`/`O2O`
+    prevents the baseline from becoming an unbounded Cartesian product that exhausts
+    memory — they say which entities are *linked*, not what the query claims. Stripping
+    the rest is what makes the comparison meaningful for single-node queries: a query
+    whose entire logic is one `ObjectAttributeValueFilter` would otherwise equal its own
+    baseline by construction and be reported degenerate even though it discriminates
+    perfectly well.
 
     Comparing the gold result against this baseline answers the question the metric
     actually cares about: does the query's logic change the root result at all? If it
@@ -91,8 +128,23 @@ def _build_baseline_query(gold_query: dict) -> Optional[dict]:
     if not isinstance(root_data, dict):
         return None
 
+    root_data["filters"] = [
+        f
+        for f in root_data.get("filters") or []
+        if isinstance(f, dict)
+        and f.get("type") in STRUCTURAL_FILTER_TYPES
+        and _filter_vars_declared_at_root(f, root_data)
+    ]
     root_data["sizeFilters"] = []
     root_data["constraints"] = []
+    # CEL labels are computed annotations that routinely reference a child path
+    # ("A.size()", "A.map(b, ...)"). With the children stripped that path no longer
+    # resolves and the CLI aborts, so they must go too. They never change which
+    # bindings the box produces, so removing them cannot alter the comparison.
+    root_data["labels"] = []
+    # `evVarLabels` / `obVarLabels` are deliberately kept: they change which variables
+    # appear in a binding, so dropping them would change the situation tuple's shape and
+    # make gold and baseline trivially unequal.
     root["Box"][1] = []
 
     return {"nodes": [root], "edgeNames": []}

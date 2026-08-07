@@ -1039,26 +1039,6 @@
     ]
   },
   {
-    "nl_query": "A container that was at some point marked as 'full' must have a 'Load to Vehicle' event recorded.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F13",
-      "F16",
-      "S1",
-      "C2",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
     "nl_query": "At the time of loading, the container's status must be 'full'.",
     "bb_labels": [
       "V1",
@@ -1756,27 +1736,6 @@
     "category_labels": [
       "V",
       "F",
-      "C",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "A container that was at some point marked as 'full' must have at least one load-to-vehicle event.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F13",
-      "F16",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
       "C",
       "T"
     ]
