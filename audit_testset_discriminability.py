@@ -35,7 +35,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from eval_testset import _extract_result_ids
+from eval_testset import _extract_result_ids, root_node_index
 from QueryExecutor import run_ocpq_query
 
 
@@ -123,7 +123,8 @@ def _build_baseline_query(gold_query: dict) -> Optional[dict]:
     if not nodes:
         return None
 
-    root = copy.deepcopy(nodes[0])
+    # The root is not guaranteed to be index 0 - a valid tree may list a child first.
+    root = copy.deepcopy(nodes[root_node_index(gold_query)])
     root_data = root.get("Box", [None, None])[0]
     if not isinstance(root_data, dict):
         return None
@@ -293,7 +294,7 @@ def _run_and_extract(ocel_path: str, query: dict, query_path: Path) -> Optional[
         return None
     if not result_path:
         return None
-    extracted = _extract_result_ids(_read_json(result_path))
+    extracted = _extract_result_ids(_read_json(result_path), query)
     return extracted[2] if extracted else None
 
 

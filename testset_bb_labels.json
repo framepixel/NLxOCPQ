@@ -3284,5 +3284,463 @@
       "L",
       "T"
     ]
+  },
+  {
+    "nl_query": "No vehicle whose departure date was at some point set before 1 September 2023 may have had one of its containers rescheduled.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F14",
+      "F16",
+      "S2",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "No vehicle whose departure date was at some point set on or after 1 September 2023 may have had one of its containers rescheduled.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F14",
+      "F16",
+      "S2",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A package shipped by an employee through the 'shipped by' relationship must not have a failed delivery.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V6",
+      "F1",
+      "F3",
+      "C5",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A transport document assigned to a vehicle via the 'High-Prio VH for TD' relationship must depart at least three days after the document was created.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "V6",
+      "F1",
+      "F3",
+      "F6",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every registered customer order must lead to a transport document, which must be assigned to a vehicle, which must eventually depart.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F2",
+      "F3",
+      "S1",
+      "C2",
+      "C3",
+      "T5"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Show the persons who are older than 40 and whose throughput time exceeded 30 days.",
+    "bb_labels": [
+      "V2",
+      "F11",
+      "F15",
+      "F18",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A warning must only be issued at least seven days after the person missed a rent payment.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F6",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "After missing a rent payment, a person must either pay rent again or have a late payment accepted.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "C6",
+      "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Persons who were married at some point must have signed a contract.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F12",
+      "F16",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Patients who at some point had an underlying condition recorded must have received at least one expert examination.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F16",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Before treatment starts, a patient must have been both examined and diagnosed.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "C7",
+      "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A container must not be ordered and picked up at exactly the same moment.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F7",
+      "C5",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "List only the treatment events, not the registration events, for patients whose treatment was unsuccessful.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "V5",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "L2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "For every patient registered at the emergency room, at least one of their examinations must have been followed by a diagnosis.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "C4",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A candidate whose interview decision was 'Proceed' must have a background check with result 'Clear'.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F9",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which candidates had their assessment reviewed after passing the initial interview?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F9",
+      "S1",
+      "C2",
+      "C3",
+      "L3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A hypothesis generation step must be followed by at least one of deductive reasoning, inductive reasoning or abductive reasoning.",
+    "bb_labels": [
+      "V3",
+      "V4",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "C6",
+      "T4",
+      "T5"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A backtracking step must lead either to a validation step or to a new hypothesis generation, which must then reach a conclusion.",
+    "bb_labels": [
+      "V3",
+      "V4",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "C6",
+      "T4",
+      "T5"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Containers linked to a transport document through the 'CR for TD' relationship must have been placed in stock at least once.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V6",
+      "F1",
+      "F3",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every patient registered at the emergency room must have both a thorough examination and an expert examination recorded.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C3",
+      "C7",
+      "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Patients whose total throughput time exceeded seven days must have received at least one thorough examination.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F18",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every order must have at least one item that was delivered within five days of the order being placed.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F3",
+      "F5",
+      "S1",
+      "C2",
+      "C3",
+      "C4",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
   }
 ]

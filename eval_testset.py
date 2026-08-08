@@ -267,13 +267,50 @@ def _binding_entity_indices(entity_map: Any) -> tuple:
     return tuple(entity_index for _variable_index, entity_index in ordered)
 
 
-def _extract_result_ids(result_data: Any) -> Optional[tuple]:
+def root_node_index(query: Any) -> int:
+    """Return the index of the tree's root box: the node that is nobody's child.
+
+    `evaluationResults` is index-aligned with `nodes`, but the root is **not**
+    guaranteed to be index 0 — a valid tree can list a child first and the parent
+    after, and both the OCPQ UI and a generating model may do so. Assuming index 0
+    silently scores a child box instead of the answer, so the root is located
+    structurally instead.
+
+    Args:
+        query: The OCPQ query (BindingBoxTree shape), or None.
+
+    Returns:
+        The root node's index; 0 when the query is unavailable or malformed, or when
+        the structure is cyclic and no node qualifies.
+    """
+    nodes = (query or {}).get("nodes") if isinstance(query, dict) else None
+    if not isinstance(nodes, list) or not nodes:
+        return 0
+
+    referenced = set()
+    for node in nodes:
+        box = node.get("Box") if isinstance(node, dict) else None
+        if isinstance(box, list) and len(box) == 2 and isinstance(box[1], list):
+            referenced.update(c for c in box[1] if isinstance(c, int))
+
+    for index in range(len(nodes)):
+        if index not in referenced:
+            return index
+    return 0
+
+
+def _extract_result_ids(result_data: Any, query: Any = None) -> Optional[tuple]:
     """Extract the comparable result sets from an ocpq_cli result document.
 
-    Only the **root** binding box (`evaluationResults[0]`) is considered. In OCPQ the
-    root box holds the query's answer; child boxes exist to express constraints over
-    it. Unioning every node would score intermediate scaffolding as though it were the
-    result, and would penalise a correct query merely for using a different tree shape.
+    Only the **root** binding box is considered. In OCPQ the root box holds the query's
+    answer; child boxes exist to express constraints over it. Unioning every node would
+    score intermediate scaffolding as though it were the result, and would penalise a
+    correct query merely for using a different tree shape.
+
+    The root is located via `root_node_index(query)` rather than assumed to be index 0,
+    because a valid tree may list a child before its parent. When `query` is omitted the
+    function falls back to index 0, which is correct for the overwhelming majority of
+    trees but cannot be relied on in general.
 
     Each root situation is keyed as a canonical tuple of its event indices, its object
     indices, and whether the binding violated a constraint. The violation flag is
@@ -287,6 +324,7 @@ def _extract_result_ids(result_data: Any) -> Optional[tuple]:
 
     Args:
         result_data: Parsed ocpq_cli result JSON.
+        query: The query that produced it, used to locate the root box.
 
     Returns:
         A `(event_ids, object_ids, situations)` triple of sets, or None when the
@@ -300,7 +338,10 @@ def _extract_result_ids(result_data: Any) -> Optional[tuple]:
     if not isinstance(eval_data, list) or not eval_data:
         return None
 
-    root = eval_data[0]
+    root_index = root_node_index(query)
+    if root_index >= len(eval_data):
+        root_index = 0
+    root = eval_data[root_index]
     situations = root.get("situations") if isinstance(root, dict) else None
     if not isinstance(situations, list):
         situations = []
@@ -340,11 +381,12 @@ def _extract_bindings_skipped(result_data: Any) -> Optional[bool]:
     return bool(skipped) if isinstance(skipped, bool) else None
 
 
-def _load_result_ids(result_path: Optional[str]) -> tuple:
+def _load_result_ids(result_path: Optional[str], query: Any = None) -> tuple:
     """Load result sets and the truncation flag from a result file.
 
     Args:
         result_path: Path to an ocpq_cli result file, or None.
+        query: The query that produced the file, used to locate its root box.
 
     Returns:
         An `(ids, bindings_skipped)` pair. `ids` is the triple returned by
@@ -356,7 +398,7 @@ def _load_result_ids(result_path: Optional[str]) -> tuple:
         data = _read_json(result_path)
     except Exception:
         return None, None
-    return _extract_result_ids(data), _extract_bindings_skipped(data)
+    return _extract_result_ids(data, query), _extract_bindings_skipped(data)
 
 
 def _set_metrics(gold_set, pred_set):
@@ -782,7 +824,7 @@ def run_evaluation(config_path_or_config):
             gt_start = time.time()
             gt_stdout, gt_stderr, gt_result_path = run_ocpq_query(ocel_path, str(gt_query_path))
             gt_duration = time.time() - gt_start
-            gt_ids, gt_bindings_skipped = _load_result_ids(gt_result_path)
+            gt_ids, gt_bindings_skipped = _load_result_ids(gt_result_path, gold_query)
 
             ground_truth_cache[case_key] = {
                 "result_path": gt_result_path,
@@ -868,7 +910,7 @@ def run_evaluation(config_path_or_config):
                         llm_stats = _summarize_llm_stats(get_llm_call_stats())
                         exec_stats = _summarize_exec_stats(get_query_exec_stats())
 
-                        pred_ids, pred_bindings_skipped = _load_result_ids(query_result_file)
+                        pred_ids, pred_bindings_skipped = _load_result_ids(query_result_file, ocpq_json)
                         similarity = _compute_similarity(gt_record.get("ids"), pred_ids)
 
                         schema_valid = False

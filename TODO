@@ -1,1 +1,2 @@
-- Make it so that every OCPQ generated file gets deleted after it is created during the evaluation
+- Make it so that every OCPQ generated file gets deleted after it is created during the evaluation.
+- Since the root node's bindings aren't the only thing required for the results, how do I compare two queries that do the same thing but have different nodes?
