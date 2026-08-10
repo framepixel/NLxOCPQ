@@ -105,10 +105,15 @@ export OCPQ_PREVIEW_EXAMPLES="${OCPQ_PREVIEW_EXAMPLES:-3}"
 
 # Model selection. `auto` keeps the tokenizer's own [INST] template — do NOT substitute a
 # named unsloth preset, which would silently impose Llama-3 formatting on a Mistral model.
-: "${OCPQ_QUANTIZED_MODEL:=unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit}"
-: "${OCPQ_MODEL_LABEL:=ministral3-14b}"
-: "${OCPQ_CHAT_TEMPLATE:=auto}"
-: "${OCPQ_ATTENTION_IMPLEMENTATION:=eager}"
+#
+# EXPORT, not `: "${VAR:=...}"`. A bare parameter assignment sets a *shell* variable that the
+# python child never sees, so train_unsloth.py falls back to its own default
+# (unsloth/llama-3-8b-Instruct-bnb-4bit) and trains the wrong model — while this script's own
+# echo still prints the intended name. That exact mistake made one spike look like a pass.
+export OCPQ_QUANTIZED_MODEL="${OCPQ_QUANTIZED_MODEL:-unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit}"
+export OCPQ_MODEL_LABEL="${OCPQ_MODEL_LABEL:-ministral3-14b}"
+export OCPQ_CHAT_TEMPLATE="${OCPQ_CHAT_TEMPLATE:-auto}"
+export OCPQ_ATTENTION_IMPLEMENTATION="${OCPQ_ATTENTION_IMPLEMENTATION:-eager}"
 
 echo "=== SPIKE: ${OCPQ_QUANTIZED_MODEL} ==="
 python --version
@@ -117,14 +122,28 @@ python -c "import unsloth, sys; print('unsloth', getattr(unsloth,'__version__','
 python -c "import mistral_common, sys; print('mistral_common', mistral_common.__version__)" || \
 	echo "mistral_common NOT installed — tokenization will likely fail"
 
+# Fail fast if the export above did not reach the child process. Two seconds here beats
+# discovering from a parameter count at the end that the wrong model trained.
+python - <<'PYCHECK'
+import os
+import sys
+model = os.environ.get("OCPQ_QUANTIZED_MODEL", "")
+print(f"python sees OCPQ_QUANTIZED_MODEL = {model!r}")
+if "ministral" not in model.lower():
+    sys.exit("ABORT: the spike model did not reach python; it would train the default instead.")
+PYCHECK
+
 LD_PRELOAD="$gcc_libgcc_path:$gcc_libstdcxx_path${LD_PRELOAD:+:$LD_PRELOAD}" \
 	OCPQ_FORCE_4BIT=1 python -u train_unsloth.py
 
 echo
 echo "=== SPIKE GO/NO-GO — check the log above ==="
+echo "  0. FIRST: 'Trainable parameters = X of ~14,000,000,000' and a 'Training label:'"
+echo "     containing 'ministral'. ~8.07B or a llama-3 label means the wrong model trained"
+echo "     and every other check below is meaningless."
 echo "  1. model loaded in 4-bit without an unknown-architecture error"
 echo "  2. BOS/EOS check reported exactly one leading BOS (no duplicate-BOS warning)"
-echo "  3. the previewed examples show [INST] ... [/INST], not a Llama-3 header"
+echo "  3. the previewed examples show [INST] ... [/INST], not <|start_header_id|>/<|eot_id|>"
 echo "  4. LoRA attached and trainable params are non-zero"
 echo "  5. training loss decreased over the logged steps"
 echo "  6. adapter saved under ${OCPQ_ADAPTER_OUTPUT_DIR}"
