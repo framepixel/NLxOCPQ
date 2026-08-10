@@ -382,8 +382,17 @@ model, tokenizer = FastLanguageModel.from_pretrained(
 )
 
 # 3. Add LoRA Adapters
-model = FastLanguageModel.get_peft_model(
-    model,
+# Multimodal checkpoints (Ministral 3, Gemma 3) carry a vision tower alongside the language
+# model. This is a text-only task, so say so explicitly: otherwise unsloth applies its
+# finetune_(vision|language) filters against our target_modules and warns that "adapters
+# attach only where both select", leaving it unclear which tower was actually trained.
+# Passed only for vision models, and behind a TypeError fallback, because older unsloth
+# builds and text-only models do not accept these keywords.
+_is_multimodal = (
+    hasattr(tokenizer, "image_processor")
+    or getattr(getattr(model, "config", None), "vision_config", None) is not None
+)
+_lora_kwargs = dict(
     r = 16, # Rank of the adapter (16 is a good standard)
     target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
                       "gate_proj", "up_proj", "down_proj",],
@@ -395,6 +404,19 @@ model = FastLanguageModel.get_peft_model(
     use_rslora = False,
     loftq_config = None,
 )
+if _is_multimodal:
+    print("[train_unsloth] multimodal checkpoint detected — attaching LoRA to the language "
+          "tower only (finetune_vision_layers=False)")
+try:
+    model = FastLanguageModel.get_peft_model(
+        model,
+        **_lora_kwargs,
+        **({"finetune_vision_layers": False, "finetune_language_layers": True}
+           if _is_multimodal else {}),
+    )
+except TypeError:
+    # This unsloth build does not expose the tower filters; fall back to the plain call.
+    model = FastLanguageModel.get_peft_model(model, **_lora_kwargs)
 
 resume_checkpoint = _resolve_resume_checkpoint(output_dir)
 if resume_checkpoint and Path(resume_checkpoint).is_dir() and (Path(resume_checkpoint) / "adapter_config.json").exists():
@@ -487,11 +509,18 @@ def _grouped_train_validation_split(dataset, test_fraction, seed):
 
 
 def _has_duplicate_leading_bos(sample_text):
-    """Whether tokenizing already-templated text yields two BOS tokens in a row."""
+    """Whether tokenizing already-templated text yields two BOS tokens in a row.
+
+    `text=` is passed by keyword, never positionally. For a multimodal checkpoint
+    (Ministral 3, Gemma 3) the loader returns a *processor*, not a tokenizer, and a
+    processor's first positional parameter is `images` — so a positional call hands the
+    prompt string to PIL and dies with "cannot identify image file". `text=` is the correct
+    keyword for both a plain tokenizer and a processor.
+    """
     bos_id = tokenizer.bos_token_id
     if bos_id is None:
         return False
-    ids = tokenizer(sample_text, add_special_tokens=True)["input_ids"]
+    ids = tokenizer(text=sample_text, add_special_tokens=True)["input_ids"]
     return len(ids) >= 2 and ids[0] == bos_id and ids[1] == bos_id
 
 
@@ -621,9 +650,20 @@ print(
 )
 
 # 5. Configure the Trainer
+# For a multimodal checkpoint the loader returns a processor, but by this point the dataset
+# is already formatted into a plain "text" column, so the trainer only has to *tokenize*.
+# Hand it the inner text tokenizer: a processor treats its first positional argument as
+# `images`, which is what broke the BOS check, and TRL tokenizes internally where we cannot
+# add a `text=` keyword. Text-only models are unaffected — they have no `.tokenizer`.
+_trainer_tokenizer = getattr(tokenizer, "tokenizer", None) if _is_multimodal else None
+if _trainer_tokenizer is not None:
+    print("[train_unsloth] passing the processor's inner text tokenizer to SFTTrainer")
+else:
+    _trainer_tokenizer = tokenizer
+
 trainer = SFTTrainer(
     model = model,
-    tokenizer = tokenizer,
+    tokenizer = _trainer_tokenizer,
     train_dataset = train_dataset,
     eval_dataset = eval_dataset if enable_trainer_eval else None,
     dataset_text_field = "text",
@@ -711,8 +751,10 @@ def _manual_eval_loss(model, tokenizer, texts, batch_size=2):
 
     for start_index in range(0, len(texts), batch_size):
         batch_texts = texts[start_index:start_index + batch_size]
+        # Keyword `text=`, for the same reason as _has_duplicate_leading_bos: a multimodal
+        # checkpoint yields a processor whose first positional argument is `images`.
         batch = tokenizer(
-            batch_texts,
+            text=batch_texts,
             padding=True,
             truncation=True,
             max_length=max_seq_length,
