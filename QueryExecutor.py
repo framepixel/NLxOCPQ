@@ -3,6 +3,8 @@ import subprocess
 import shutil
 import glob
 import json
+import tempfile
+import threading
 import time
 import signal
 from urllib import request, error
@@ -15,6 +17,15 @@ from urllib import request, error
 # overridable via environment variables (no magic numbers in the logic).
 _OCPQ_CLI_TIMEOUT_SEC = int(os.getenv("OCPQ_CLI_TIMEOUT_SEC", "300"))
 _OCPQ_CLI_MEM_LIMIT_GB = float(os.getenv("OCPQ_CLI_MEM_LIMIT_GB", "24"))
+
+# Where each CLI invocation gets its private working directory. The Rust CLI writes its
+# result to `ocpq-res-export-<UTC-second>.json` *relative to its cwd* and exposes no output
+# flag (`EvaluateArgs` in OCPQ/backend/ocpq_cli/src/main.rs), so the working directory is the
+# only handle we have on where the file lands. Point this at node-local scratch on SLURM.
+_OCPQ_CLI_SCRATCH_DIR = os.getenv("OCPQ_CLI_SCRATCH_DIR") or tempfile.gettempdir()
+
+_RESULT_EXPORT_GLOB = "ocpq-res-export-*.json"
+_RUN_DIR_PREFIX = "ocpq-run-"
 
 
 def _limit_child_memory():
@@ -70,25 +81,50 @@ def _find_cargo_command():
 # directly; newer builds nest the same flags under an `evaluate` subcommand.
 # Detected once per process from the binary's --help output.
 _CLI_MODE = None  # None=unknown, "subcommand", or "bare"
+_CLI_MODE_LOCK = threading.Lock()
+
+
+def _cargo_invocation(cargo_cmd, cli_dir):
+    """Build the cargo prefix that runs `ocpq_cli` regardless of the working directory.
+
+    The CLI is launched from a private scratch directory (see `run_ocpq_query`), which sits
+    outside the cargo workspace, so cargo can no longer discover the manifest by walking up
+    from its cwd. `--manifest-path` pins it explicitly.
+    """
+    return [
+        cargo_cmd, "run", "-q", "--release",
+        "--manifest-path", os.path.join(cli_dir, "Cargo.toml"),
+        "-p", "ocpq_cli", "--",
+    ]
 
 
 def _detect_cli_mode(cargo_cmd, cli_dir):
-    """Return 'subcommand' if the CLI exposes an `evaluate` subcommand, else 'bare'."""
+    """Return 'subcommand' if the CLI exposes an `evaluate` subcommand, else 'bare'.
+
+    Detection is cached and guarded by a lock. The probe takes seconds, so publishing the
+    `bare` default *before* it finished let a concurrent caller read the placeholder and
+    build legacy-style arguments against a modern CLI, which fails with
+    `unexpected argument '--ocel'`. The result is only assigned once it is final.
+    """
     global _CLI_MODE
     if _CLI_MODE is not None:
         return _CLI_MODE
-    _CLI_MODE = "bare"  # safe default = legacy interface used on the cluster
-    try:
-        probe = subprocess.run(
-            [cargo_cmd, "run", "-q", "--release", "-p", "ocpq_cli", "--", "--help"],
-            cwd=cli_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, timeout=600,
-        )
-        help_text = (probe.stdout or "") + (probe.stderr or "")
-        if "evaluate" in help_text and "Commands:" in help_text:
-            _CLI_MODE = "subcommand"
-    except Exception:
-        pass  # keep the legacy default if probing fails
+    with _CLI_MODE_LOCK:
+        if _CLI_MODE is not None:  # another caller finished while we waited
+            return _CLI_MODE
+        detected = "bare"  # safe default = legacy interface used on the cluster
+        try:
+            probe = subprocess.run(
+                _cargo_invocation(cargo_cmd, cli_dir) + ["--help"],
+                cwd=cli_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=600,
+            )
+            help_text = (probe.stdout or "") + (probe.stderr or "")
+            if "evaluate" in help_text and "Commands:" in help_text:
+                detected = "subcommand"
+        except Exception:
+            pass  # keep the legacy default if probing fails
+        _CLI_MODE = detected
     return _CLI_MODE
 
 
@@ -96,6 +132,51 @@ def _build_cli_args(cli_mode, ocel_abs, query_abs):
     """Build the argument list after the cargo `--` separator for the given mode."""
     flags = ["--ocel", ocel_abs, "--bbox-tree", query_abs]
     return (["evaluate"] + flags) if cli_mode == "subcommand" else flags
+
+
+class _AmbiguousResultError(RuntimeError):
+    """More than one result file appeared for a single CLI invocation.
+
+    Impossible by construction once the working directory is private, so it signals a broken
+    assumption rather than a query failure. Never resolved by guessing, because guessing is
+    exactly what made the shared-directory version unsafe.
+    """
+
+
+def _collect_exported_result(run_dir):
+    """Return the single result file the CLI wrote into its private run directory.
+
+    Isolating the working directory is what makes this unambiguous. The previous
+    implementation globbed the *shared* CLI directory and took the newest file by mtime,
+    which under `submit_eval_array.sh` (24 concurrent tasks, one `SLURM_SUBMIT_DIR`) could
+    hand one task another task's results — silently, and straight into `combined_f1`.
+    """
+    exports = glob.glob(os.path.join(run_dir, _RESULT_EXPORT_GLOB))
+    if not exports:
+        return None
+    if len(exports) > 1:
+        raise _AmbiguousResultError(
+            f"OCPQ CLI produced {len(exports)} result files in {run_dir}; expected exactly one."
+        )
+    return exports[0]
+
+
+def discard_result_file(result_path):
+    """Delete a CLI result file and the private run directory created for it.
+
+    Safe to call with None or an already-deleted path. Only removes the parent directory
+    when it is one of ours, so a caller that moved the result elsewhere cannot lose data.
+    """
+    if not result_path:
+        return
+    parent = os.path.dirname(os.path.abspath(result_path))
+    if os.path.basename(parent).startswith(_RUN_DIR_PREFIX):
+        shutil.rmtree(parent, ignore_errors=True)
+        return
+    try:
+        os.remove(result_path)
+    except OSError:
+        pass
 
 
 def _terminate_process(process):
@@ -117,6 +198,16 @@ def run_ocpq_query(ocel_path, query_result_file):
     """
     Executes the generated OCPQ query using the Rust CLI backend.
     Output is suppressed except for the final query result.
+
+    Each invocation runs in its own scratch directory, because the CLI writes its result
+    relative to the working directory and offers no output flag. That makes the returned
+    path unambiguous even when many evaluations run concurrently against one checkout.
+
+    Returns:
+        A `(stdout, stderr, result_path)` triple. `result_path` is None when the query did
+        not produce a result, which callers treat as an execution failure. On success the
+        caller owns the returned file and should pass it to `discard_result_file` once the
+        result has been read.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
@@ -141,18 +232,23 @@ def run_ocpq_query(ocel_path, query_result_file):
     # code works against both the cluster (legacy) and an updated local checkout.
     cli_mode = _detect_cli_mode(cargo_cmd, cli_dir)
     cmd = [
-        cargo_cmd, "run", "-q", "--release", "-p", "ocpq_cli", "--",
+        *_cargo_invocation(cargo_cmd, cli_dir),
         *_build_cli_args(cli_mode, ocel_abs, query_abs),
     ]
-    
+
+    # Private working directory: the CLI's output filename is fixed and only second-resolution,
+    # so a shared cwd lets concurrent runs collide and lets one run pick up another's result.
+    os.makedirs(_OCPQ_CLI_SCRATCH_DIR, exist_ok=True)
+    run_dir = tempfile.mkdtemp(prefix=_RUN_DIR_PREFIX, dir=_OCPQ_CLI_SCRATCH_DIR)
+
     print(f"\nExecuting OCPQ CLI query locally...")
-    
+
     process = None
     try:
         # start_new_session=True creates a new process group so we can cleanly kill BOTH cargo and the spawned Rust executable if Streamlit stops
         process = subprocess.Popen(
             cmd,
-            cwd=cli_dir,
+            cwd=run_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -174,13 +270,13 @@ def run_ocpq_query(ocel_path, query_result_file):
         print(stdout.strip())
         print("-----------------------------\n")
         
-        # Find the latest exported JSON file in the cli directory
-        export_files = glob.glob(os.path.join(cli_dir, "ocpq-res-export-*.json"))
-        latest_file = max(export_files, key=os.path.getmtime) if export_files else None
-        
+        result_file = _collect_exported_result(run_dir)
+        if result_file is None:
+            shutil.rmtree(run_dir, ignore_errors=True)
+
         # On successful execution (exit code 0), we ignore `res.stderr` (e.g. rust/cargo warnings)
-        return stdout, None, latest_file
-        
+        return stdout, None, result_file
+
     except BaseException as e:
         # If the user presses "Stop" in Streamlit, it raises a custom ScriptRunner exception.
         # This BaseException catch perfectly hooks into that flow so we can kill the underlying process.
@@ -190,7 +286,15 @@ def run_ocpq_query(ocel_path, query_result_file):
                 _terminate_process(process)
             except Exception as kill_err:
                 print(f"Failed to kill process: {kill_err}")
-                
+
+        # No result reaches the caller on any of these paths, so the scratch directory is ours
+        # to remove; leaving it behind would recreate the disk growth this replaced. Done after
+        # terminating the child, which still has this directory as its cwd. The one exception
+        # is a multiple-export collision, which should be impossible — keep the directory so
+        # whoever investigates can still see what the CLI actually wrote.
+        if not isinstance(e, _AmbiguousResultError):
+            shutil.rmtree(run_dir, ignore_errors=True)
+
         # A runaway query that hit the wall-time cap: kill it and report as a
         # normal execution failure so the shard keeps going.
         if isinstance(e, subprocess.TimeoutExpired):

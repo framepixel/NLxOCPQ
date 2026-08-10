@@ -11,6 +11,54 @@ from typing import Any, Optional
 # parsed once per process — wall-time is the binding constraint on the cluster.
 _SCHEMA_CACHE: dict[tuple, dict] = {}
 
+# Bump whenever the *shape* of an extracted schema changes. The cache key is otherwise
+# derived only from the log file, so a code change that adds a field would keep serving
+# the old shape from `.schema_cache/` forever and the change would silently do nothing.
+#   v2: string-typed attributes carry a bounded `values` list.
+_SCHEMA_FORMAT_VERSION = 2
+
+# Distinct values kept per string attribute. The prompt enumerates them so the model can
+# see that `isCitizen` is encoded "0"/"1" rather than "true"/"false" — training did exactly
+# this (`Status (String: full, empty)`) and evaluation did not, which is the divergence this
+# closes. Attributes above the cap are identifiers (`Case` has 10 000 distinct values), and
+# carry no `values`, so they render as a bare `(String)` exactly as before.
+_MAX_ATTRIBUTE_VALUES = 10
+
+
+class _BoundedValues:
+    """Collects distinct attribute values, refusing to grow far past the cap.
+
+    Bounding matters: `bpic2017-ocel2.json` has 1.2 M events, and an unbounded set per
+    attribute would hold a large share of the log in memory. Growth stops one past the cap,
+    which is still enough to tell "fits" from "too many".
+    """
+
+    def __init__(self, cap: int) -> None:
+        self._cap = cap
+        self._seen: dict[tuple, set] = {}
+
+    def add(self, type_name: Optional[str], attr_name: Optional[str], value: Any) -> None:
+        if not type_name or not attr_name or value is None:
+            return
+        text = str(value).strip()
+        if not text:
+            return  # empty strings are real but unguessable, and render as noise
+        bucket = self._seen.setdefault((type_name, attr_name), set())
+        if len(bucket) <= self._cap:
+            bucket.add(text)
+
+    def attach(self, attributes_by_type: dict) -> None:
+        """Add a sorted `values` list to each string attribute that stayed within the cap."""
+        for type_name, attrs in (attributes_by_type or {}).items():
+            for attr in attrs or []:
+                if str(attr.get("type", "")).lower() != "string":
+                    continue
+                bucket = self._seen.get((type_name, attr.get("name")))
+                if bucket and len(bucket) <= self._cap:
+                    # Sorted rather than insertion-ordered: the prompt must be identical
+                    # across runs (CLAUDE.md 2.1), and dict/set order is not a guarantee.
+                    attr["values"] = sorted(bucket)
+
 
 def _normalize_qualifier(qualifier: Optional[str]) -> Optional[str]:
     """Map absent/placeholder qualifiers to None.
@@ -27,7 +75,8 @@ def _normalize_qualifier(qualifier: Optional[str]) -> Optional[str]:
 
 def _schema_cache_key(ocel_path: str) -> tuple:
     stat = os.stat(ocel_path)
-    return (os.path.abspath(ocel_path), stat.st_mtime_ns, stat.st_size)
+    return (os.path.abspath(ocel_path), stat.st_mtime_ns, stat.st_size,
+            _SCHEMA_FORMAT_VERSION)
 
 
 def _extract_schema_json(ocel_path: str) -> dict[str, Any]:
@@ -53,9 +102,16 @@ def _extract_schema_json(ocel_path: str) -> dict[str, Any]:
     objects = log.get("objects", []) or []
     id_to_type = {o.get("id"): o.get("type") for o in objects}
 
+    # Values are gathered inside the relation walks below rather than in a separate pass —
+    # these loops already visit every event and object, and the log may be gigabytes.
+    event_values = _BoundedValues(_MAX_ATTRIBUTE_VALUES)
+    object_values = _BoundedValues(_MAX_ATTRIBUTE_VALUES)
+
     e2o: set[tuple] = set()
     for event in log.get("events", []) or []:
         etype = event.get("type")
+        for attr in event.get("attributes", []) or []:
+            event_values.add(etype, attr.get("name"), attr.get("value"))
         for rel in event.get("relationships", []) or []:
             otype = id_to_type.get(rel.get("objectId"))
             if etype and otype:
@@ -64,10 +120,15 @@ def _extract_schema_json(ocel_path: str) -> dict[str, Any]:
     o2o: set[tuple] = set()
     for obj in objects:
         otype = obj.get("type")
+        for attr in obj.get("attributes", []) or []:
+            object_values.add(otype, attr.get("name"), attr.get("value"))
         for rel in obj.get("relationships", []) or []:
             target = id_to_type.get(rel.get("objectId"))
             if otype and target:
                 o2o.add((otype, target, _normalize_qualifier(rel.get("qualifier"))))
+
+    event_values.attach(event_attributes)
+    object_values.attach(object_attributes)
 
     return {
         "event_types": sorted(event_attributes.keys()),
@@ -123,6 +184,16 @@ def _extract_schema_xml(ocel_path: str) -> dict[str, Any]:
                 found.append((object_id, _normalize_qualifier(rel.get("qualifier"))))
         return found
 
+    def _collect_values(item: ET.Element, type_name: Optional[str],
+                        sink: "_BoundedValues") -> None:
+        """Gather this element's attribute values. XML nests them as <attributes>."""
+        for attrs_node in item.findall("attributes"):
+            for a in attrs_node.findall("attribute"):
+                sink.add(type_name, a.get("name"), a.text)
+
+    event_values = _BoundedValues(_MAX_ATTRIBUTE_VALUES)
+    object_values = _BoundedValues(_MAX_ATTRIBUTE_VALUES)
+
     e2o: set[tuple] = set()
     events_node = root.find("events")
     if events_node is not None:
@@ -130,6 +201,7 @@ def _extract_schema_xml(ocel_path: str) -> dict[str, Any]:
             etype = event.get("type")
             if etype is None:
                 continue
+            _collect_values(event, etype, event_values)
             for object_id, qualifier in _related_ids(event):
                 otype = id_to_type.get(object_id)
                 if otype:
@@ -142,10 +214,14 @@ def _extract_schema_xml(ocel_path: str) -> dict[str, Any]:
             otype = obj.get("type")
             if otype is None:
                 continue
+            _collect_values(obj, otype, object_values)
             for object_id, qualifier in _related_ids(obj):
                 target = id_to_type.get(object_id)
                 if target:
                     o2o.add((otype, target, qualifier))
+
+    event_values.attach(event_attributes)
+    object_values.attach(object_attributes)
 
     return {
         "event_types": sorted(event_attributes.keys()),
@@ -173,8 +249,10 @@ def _load_disk_cache(ocel_path: str, key: tuple) -> Optional[dict]:
             payload = json.load(f)
     except Exception:
         return None
-    # Invalidate if the log changed (mtime/size are part of the key).
-    if payload.get("key") != [key[0], key[1], key[2]]:
+    # Invalidate if the log changed (mtime/size) or if the extractor's output shape
+    # changed (_SCHEMA_FORMAT_VERSION) — the whole key is persisted, so a version bump
+    # retires every cached file without anyone having to remember to delete them.
+    if payload.get("key") != list(key):
         return None
     schema = payload.get("schema")
     if not isinstance(schema, dict):
@@ -190,7 +268,7 @@ def _store_disk_cache(ocel_path: str, key: tuple, schema: dict) -> None:
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"key": [key[0], key[1], key[2]], "schema": schema}, f)
+            json.dump({"key": list(key), "schema": schema}, f)
     except Exception:
         pass  # a cache failure must never break extraction
 

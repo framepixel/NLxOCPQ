@@ -327,6 +327,61 @@ _ATTR_TYPE_DISPLAY = {
     "date": "Time",
 }
 
+# Upper bound on the rendered schema block, in estimated tokens. Deliberately ONE value for
+# every model: giving a 256k-context model more schema than an 8k one would mean the models
+# see different prompts, which confounds the model-vs-model comparison the thesis rests on.
+# Sized for the smallest context in the model set, leaving room for the rules block, the
+# few-shot examples, and the reserved generation budget. Nothing else caps the prompt —
+# the local backend tokenizes without `max_length` — so this is the only guard.
+SCHEMA_BLOCK_TOKEN_BUDGET = int(os.getenv("OCPQ_SCHEMA_TOKEN_BUDGET", "3500"))
+
+# Schema text is name-heavy, so it tokenizes denser than prose. Used only to keep the block
+# under budget, never to report a metric, so an approximation is sufficient and avoids
+# loading a tokenizer on a function called once per evaluation case.
+_CHARS_PER_TOKEN = 3.6
+
+# Records why a section was left out, for the run manifest. Reset per render.
+_last_schema_omissions: list = []
+
+# Context-overflow warnings are emitted once per (model, rough size) so a systematic
+# overflow is reported without flooding 5400 runs' worth of logs.
+_context_warned: set = set()
+
+
+def _estimated_tokens(text):
+    return int(len(text) / _CHARS_PER_TOKEN)
+
+
+def get_last_schema_omissions():
+    """Sections dropped from the most recent `build_schema_block` call, if any."""
+    return list(_last_schema_omissions)
+
+
+def _render_attribute(attr):
+    """Render one attribute as the fine-tuning prompts do.
+
+    `convert_dataset_for_finetuning.py` emits `name (Type)` and, for low-cardinality string
+    attributes, `name (Type: v1, v2)`. Evaluation previously emitted only the former, so a
+    model taught to read the literal `"0"` off `isCitizen (String: 0, 1)` was left guessing
+    between `"0"`, `"false"` and `"No"`. Matching the training format closes that gap.
+    """
+    display = _ATTR_TYPE_DISPLAY.get(str(attr.get("type", "")).lower(), "String")
+    values = attr.get("values")
+    if values:
+        return f"{attr['name']} ({display}: {', '.join(str(v) for v in values)})"
+    return f"{attr['name']} ({display})"
+
+
+def _render_attribute_section(header, types, attributes_by_type):
+    """Render one `X ATTRIBUTES:` section, or [] when nothing has attributes."""
+    lines = []
+    for type_name in types:
+        attrs = (attributes_by_type or {}).get(type_name) or []
+        rendered = ", ".join(_render_attribute(a) for a in attrs if a.get("name"))
+        if rendered:
+            lines.append(f"  {type_name}: {rendered}")
+    return ([header] + lines) if lines else []
+
 
 def normalize_schema_level(level):
     """Return a valid schema level, falling back to the default."""
@@ -355,8 +410,15 @@ def build_schema_block(schema, level=None):
     """Render the OCEL schema for the prompt at the requested richness level.
 
     The ALLOWED EVENTS / ALLOWED OBJECTS / OBJECT ATTRIBUTES sections reproduce the
-    exact format used in the fine-tuning prompts, so the fine-tuned models see at
-    inference what they saw during training.
+    format used in the fine-tuning prompts — including the `(String: v1, v2)` value
+    enumeration — so the fine-tuned models see at inference what they saw in training.
+
+    The block is capped at `SCHEMA_BLOCK_TOKEN_BUDGET`; sections that do not fit are
+    dropped whole and reported by `get_last_schema_omissions()`. Two deliberate
+    differences from the training prompt remain and are documented in
+    `Thesis/notes/11-evaluation-readiness.md`: the relation graphs and the event-attribute
+    section appear here but in no training prompt, because `ocpq_dataset.json` carries
+    neither.
 
     Args:
         schema: Output of LogEvents.extract_ocel_schema().
@@ -365,6 +427,8 @@ def build_schema_block(schema, level=None):
     Returns:
         The schema text block to embed in a prompt.
     """
+    global _last_schema_omissions
+    _last_schema_omissions = []
     level = normalize_schema_level(level or schema_level)
 
     event_types = schema.get("event_types", [])
@@ -377,21 +441,27 @@ def build_schema_block(schema, level=None):
     if level == "entities":
         return "\n".join(lines)
 
-    object_attributes = schema.get("object_attributes", {}) or {}
-    attr_lines = []
-    for otype in object_types:
-        attrs = object_attributes.get(otype) or []
-        if not attrs:
-            continue
-        rendered = ", ".join(
-            f"{a['name']} ({_ATTR_TYPE_DISPLAY.get(str(a.get('type', '')).lower(), 'String')})"
-            for a in attrs if a.get("name")
-        )
-        if rendered:
-            attr_lines.append(f"  {otype}: {rendered}")
-    if attr_lines:
-        lines.append("OBJECT ATTRIBUTES:")
-        lines.extend(attr_lines)
+    def _add(section, name):
+        """Append a section unless it would push the block past the budget.
+
+        Sections are dropped whole rather than truncated: half a relation list or half an
+        attribute list would read as a complete one, and the model would confidently treat
+        the missing entries as nonexistent. An omission is recorded instead.
+        """
+        if not section:
+            return
+        candidate = "\n".join(lines + section)
+        if _estimated_tokens(candidate) > SCHEMA_BLOCK_TOKEN_BUDGET:
+            _last_schema_omissions.append({
+                "section": name,
+                "estimated_tokens": _estimated_tokens("\n".join(section)),
+                "budget": SCHEMA_BLOCK_TOKEN_BUDGET,
+            })
+            return
+        lines.extend(section)
+
+    _add(_render_attribute_section("OBJECT ATTRIBUTES:", object_types,
+                                   schema.get("object_attributes")), "object_attributes")
 
     if level == "entities_attributes":
         return "\n".join(lines)
@@ -406,17 +476,23 @@ def build_schema_block(schema, level=None):
 
     e2o = _render_relations(schema.get("e2o", []) or [])
     if e2o:
-        lines.append("EVENT-TO-OBJECT RELATIONS (only these event/object pairs are linked):")
-        lines.extend(e2o)
+        _add(["EVENT-TO-OBJECT RELATIONS (only these event/object pairs are linked):"] + e2o,
+             "e2o_relations")
 
     o2o = _render_relations(schema.get("o2o", []) or [])
     if o2o:
-        lines.append("OBJECT-TO-OBJECT RELATIONS (only these object pairs are linked):")
-        lines.extend(o2o)
+        _add(["OBJECT-TO-OBJECT RELATIONS (only these object pairs are linked):"] + o2o,
+             "o2o_relations")
     lines.append(
         "Use ONLY the relations listed above. If two entities are not directly related, "
         "connect them through an intermediary that is."
     )
+
+    # Event attributes come last because they are the least often needed and by far the
+    # largest: bpic2017 declares 494 of them (~15 000 tokens, more than Llama-3-8B's entire
+    # context) and angular 277. Budget-gated, so those two logs simply go without.
+    _add(_render_attribute_section("EVENT ATTRIBUTES:", event_types,
+                                   schema.get("event_attributes")), "event_attributes")
 
     return "\n".join(lines)
 
@@ -818,6 +894,48 @@ def _ensure_local_gpu_model_loaded():
     local_model_key = model_key
 
 
+def _model_context_limit():
+    """The loaded model's context window, read from its own config.
+
+    Preferred over a hardcoded table: the model set changes, and a stale table would
+    silently mis-report the very thing this guard exists to catch.
+    """
+    config = getattr(local_model, "config", None)
+    for attr in ("max_position_embeddings", "max_sequence_length", "n_positions"):
+        value = getattr(config, attr, None)
+        if isinstance(value, int) and value > 0:
+            return value
+    text_config = getattr(config, "text_config", None)  # multimodal models nest it
+    value = getattr(text_config, "max_position_embeddings", None)
+    return value if isinstance(value, int) and value > 0 else None
+
+
+def _check_context_budget(prompt_tokens, max_tokens):
+    """Warn when a prompt plus its generation budget will not fit the context window.
+
+    Nothing in this path truncates: the tokenizer is called without `max_length` and
+    `generation_config.max_length` is set to None, so an oversized prompt is not clipped —
+    it degrades or errors during generation. Without this the failure would surface only as
+    unexplained garbage output in the results.
+    """
+    limit = _model_context_limit()
+    if not limit:
+        return
+    needed = prompt_tokens + int(max_tokens or 0)
+    if needed <= limit:
+        return
+    key = (local_model_key, needed // 512)
+    if key in _context_warned:
+        return
+    _context_warned.add(key)
+    print(
+        f"WARNING: prompt ({prompt_tokens} tokens) + generation budget ({max_tokens}) "
+        f"= {needed} exceeds the model's {limit}-token context. Output will be truncated "
+        f"or degraded. Lower OCPQ_SCHEMA_TOKEN_BUDGET (currently "
+        f"{SCHEMA_BLOCK_TOKEN_BUDGET}) or reduce few_shot_k."
+    )
+
+
 def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
     import torch
 
@@ -854,6 +972,7 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
             attention_mask = attention_mask.to(local_model.device)
 
     prompt_tokens = int(input_ids.shape[-1])
+    _check_context_budget(prompt_tokens, max_tokens)
 
     do_sample = False
     temperature = generation_temperature

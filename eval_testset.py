@@ -1216,6 +1216,12 @@ def _build_summary(records, repeats):
         exec_success_rate = _mean([1 if (r.get("execution") or {}).get("success") else 0 for r in recs])
 
         prompt_tokens = _mean([r["llm"].get("prompt_tokens") for r in recs])
+        # Peak, not just the mean: nothing in the pipeline truncates the prompt, so an
+        # overflow on one large-schema log is invisible in an average but is exactly the
+        # case that produces degraded output. Reported so it can be checked, not guessed.
+        _prompt_values = [r["llm"].get("prompt_tokens") for r in recs
+                          if r["llm"].get("prompt_tokens") is not None]
+        max_prompt_tokens = max(_prompt_values) if _prompt_values else None
         completion_tokens = _mean([r["llm"].get("completion_tokens") for r in recs])
         total_tokens = _mean([r["llm"].get("total_tokens") for r in recs])
         avg_completion_chars = _mean([r["llm"].get("completion_chars") for r in recs])
@@ -1297,6 +1303,7 @@ def _build_summary(records, repeats):
                 "combined_precision": combined_precision,
                 "combined_recall": combined_recall,
                 "avg_completion_chars": avg_completion_chars,
+                "max_prompt_tokens": max_prompt_tokens,
                 "avg_llm_calls": avg_llm_calls,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,

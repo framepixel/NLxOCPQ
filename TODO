@@ -19,4 +19,28 @@
   Also fixed: failure_log.jsonl now lands in the run dir (24 array tasks shared one path before),
   a crash in slice_results_by_bb._mean on any non-executing prediction, and the analysis steps are
   now guarded so they cannot fail a completed run. See Thesis/notes/11-evaluation-readiness.md 6.4.
-- Give field types (e.g., string, bool, float) to the LLM during the prompting and explicitly ask it to cast variables that need to if using CEL. 
+- PARTLY DONE (2026-08-10) Give field types (e.g., string, bool, float) to the LLM during the prompting and explicitly ask it to cast variables that need to if using CEL.
+  Types were ALREADY given, in training and evaluation, and correct for all 42 attribute filters.
+  The real defect was VALUES: training rendered `Status (String: full, empty)` in 5,910 prompts,
+  evaluation rendered `Status (String)` - so the model was taught to read literals like "0",
+  "Flagged", "3" off the prompt and then denied them. Fixed: LogEvents collects distinct values
+  for string attributes (cap 10), build_schema_block renders them, and an EVENT ATTRIBUTES
+  section makes 03_hiring's Decision/Outcome/Result visible (6 filters that were previously
+  unanswerable). Numeric ranges were considered and rejected - every numeric literal in the
+  testset comes from the question text. Still open: CEL casting guidance (2 entries need the
+  prefix `int(o1.attr(...))` form, which appears 0 times in training).
+  See Thesis/notes/11-evaluation-readiness.md 6.5.
+- DONE (2026-08-10) About bullet 4: how is adding more stuff as input to the LLM going to affect the context window? Are we even capping how much info the LLM should get? Is input getting truncated?
+  Answers: nothing was capped and nothing truncates - the local backend tokenizes without
+  max_length and generation_config.max_length is None, so an oversized prompt degrades or errors
+  rather than being clipped. Now there is a single model-independent SCHEMA_BLOCK_TOKEN_BUDGET
+  (3500), whole sections dropped rather than truncated, omissions recorded. Measured peak context
+  for the accumulating strategies: 3,732 tokens with compact answers, 15,042 in the pessimistic
+  bound where every CoT stage emits a maximal query - the latter overflows both Llama 3 8B and
+  Phi-4 14B. _check_context_budget now warns, and summary.json records max_prompt_tokens.
+- Swap base models: Llama 3 8B -> Llama 3.1 8B, and Phi-4 14B -> Ministral 3 14B Instruct-2512
+  (256k context) if the spike passes. Spike first: needs a NEW conda env (Ministral 3 requires
+  transformers v5 + mistral-common>=1.8.6; the working env pins transformers 4.57.6 and must not
+  be upgraded). Watch for the vision encoder (Gemma-3 situation again) and the FP8 default.
+  No code change needed - train_unsloth.py reads the base from OCPQ_QUANTIZED_MODEL.
+- Adding event_attributes to ocpq_dataset.json — would require synthesising attributes for 20,000 rows and retraining everything. Shall we do it?
