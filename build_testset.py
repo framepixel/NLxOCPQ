@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from QueryExecutor import run_ocpq_query
+from QueryExecutor import discard_result_file, run_ocpq_query
 from convert_json import convert_to_ocpq
 
 
@@ -127,6 +127,9 @@ def build_testset(
         executed_query_json = query_json
 
     result_payload = _read_result_file(last_file)
+    # The payload is already in memory and the record does not keep the path, so release the
+    # caller-owned result file rather than leaving it in scratch.
+    discard_result_file(last_file)
 
     record = {
         # "timestamp": datetime.now(timezone.utc).isoformat(),

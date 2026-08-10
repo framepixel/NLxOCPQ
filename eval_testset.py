@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 from LogEvents import extract_ocel_schema
 from ocpq_schema import BindingBoxTree
-from QueryExecutor import run_ocpq_query
+from QueryExecutor import discard_result_file, run_ocpq_query
 try:
     from expand_models import expand_models
 except Exception:
@@ -23,6 +23,7 @@ from LLM import (
     dataset as retrieval_dataset,
     embeddings,
     nl_to_ocpq_pipeline,
+    set_failure_log_path,
     set_few_shot_enabled,
     set_few_shot_k,
     set_generation_temperature,
@@ -657,7 +658,8 @@ def run_evaluation(config_path_or_config):
             raise FileNotFoundError(f"Resume directory not found: {run_dir}")
     else:
         run_dir = output_dir / run_id
-        run_dir.mkdir(parents=True, exist_ok=False)
+        # Created further down, only once we know this is not a dry run — otherwise every
+        # `--dry-run` litters eval_runs/ with an empty directory that looks like a real run.
 
     global_cfg = {
         "backend": config.get("backend", "local-gpu"),
@@ -667,6 +669,14 @@ def run_evaluation(config_path_or_config):
         "local_dtype": config.get("local_dtype", "auto"),
         "local_quantization": config.get("local_quantization", "4bit"),
         "temperature": config.get("temperature", 0.0),
+        # None falls back to LLM.DEFAULT_FEW_SHOT_K (3). Carried here explicitly because
+        # `global_cfg` is built from a fixed key list, so a `few_shot_k` set in the config
+        # would otherwise never reach `set_few_shot_k` and would be silently ignored.
+        "few_shot_k": config.get("few_shot_k"),
+        # Raw ocpq_cli result files are large (mean 6.6 MB, tail past 700 MB) and a full
+        # matrix produces ~5550 of them. Everything the metric needs is extracted the moment
+        # they are read, so they are discarded by default; set true to keep them for debugging.
+        "keep_result_files": bool(config.get("keep_result_files", False)),
     }
 
     models = config.get("models") or []
@@ -702,6 +712,7 @@ def run_evaluation(config_path_or_config):
                 f"(0–{len(schema_enforced_values) - 1} for this config)."
             )
         schema_enforced_values = [schema_enforced_values[schema_idx_filter]]
+    keep_result_files = global_cfg["keep_result_files"]
     schema_validation = bool(config.get("schema_validation", True))
     schema_validation_when_no_schema = bool(config.get("schema_validation_when_no_schema", False))
     repeats = int(config.get("repeats", 1))
@@ -748,6 +759,13 @@ def run_evaluation(config_path_or_config):
         print(f"Dry run: schema enforcement values = {schema_enforced_values}")
         print(f"Dry run: schema_validation_when_no_schema = {schema_validation_when_no_schema}")
         return None
+
+    if not resume_from:
+        run_dir.mkdir(parents=True, exist_ok=False)
+
+    # Keep the raw-output failure log inside this run rather than at the shared default,
+    # which every concurrent array task would otherwise append to at once.
+    set_failure_log_path(run_dir / "failure_log.jsonl")
 
     checkpoint_path = None
     checkpoint_state = {}
@@ -825,6 +843,11 @@ def run_evaluation(config_path_or_config):
             gt_stdout, gt_stderr, gt_result_path = run_ocpq_query(ocel_path, str(gt_query_path))
             gt_duration = time.time() - gt_start
             gt_ids, gt_bindings_skipped = _load_result_ids(gt_result_path, gold_query)
+            # `ids` is cached and reused across every condition, so the raw file is never
+            # read again. Null the path once discarded rather than recording a dangling one.
+            if not keep_result_files:
+                discard_result_file(gt_result_path)
+                gt_result_path = None
 
             ground_truth_cache[case_key] = {
                 "result_path": gt_result_path,
@@ -952,6 +975,21 @@ def run_evaluation(config_path_or_config):
                             f"{((similarity or {}).get('combined') or {}).get('f1')}",
                         )
 
+                        # Release the raw results only now: `_classify_run_status` above reads
+                        # `query_result_file` as its "did this produce a result" signal, so
+                        # discarding earlier made every successful run look execution_failed.
+                        # Sweep every execution this run performed, not just the one whose path
+                        # was returned — the auto-fix retries in LLM.py execute the query more
+                        # than once and only the last path comes back.
+                        if not keep_result_files:
+                            for exec_entry in get_query_exec_stats():
+                                discard_result_file(exec_entry.get("result_file"))
+                            discard_result_file(query_result_file)
+                            query_result_file = None
+                            # exec_stats was summarised above and captured the path; clear it
+                            # so predictions.json never points at a file that no longer exists.
+                            exec_stats["result_file"] = None
+
                         record = {
                             "case_id": case_idx,
                             "nl_query": nl_query,
@@ -1036,28 +1074,85 @@ def run_evaluation(config_path_or_config):
     _log_phase("summary", "Writing summary.json and completing the run.")
     _write_json(run_dir / "summary.json", summary)
     _run_bb_analysis(run_dir)
+    _run_divergence_analysis(run_dir)
 
     return run_dir
 
 
+def _merge_failure_logs(shard_dirs, output_dir: Path) -> None:
+    """Concatenate the shards' raw-output failure logs into the merged run.
+
+    Each shard writes its own `failure_log.jsonl` (one writer per file), so merging is a
+    plain concatenation. Keeps the merged directory as self-contained as its predictions.
+    """
+    lines = []
+    for shard_dir in shard_dirs:
+        log_path = Path(shard_dir) / "failure_log.jsonl"
+        if not log_path.exists():
+            continue
+        with open(log_path, encoding="utf-8") as f:
+            lines.extend(line for line in f if line.strip())
+    if not lines:
+        return
+    with open(output_dir / "failure_log.jsonl", "w", encoding="utf-8") as f:
+        f.writelines(line if line.endswith("\n") else line + "\n" for line in lines)
+    print(f"Merged {len(lines)} failure-log entries from {len(shard_dirs)} shard(s).")
+
+
+def _run_divergence_analysis(run_dir: Path) -> None:
+    """Write the error-analysis report for this run.
+
+    Purely derived from `predictions.json` — it classifies how each imperfect prediction
+    differs from gold and keeps a capped set of concrete query pairs. Diagnostic only:
+    nothing here feeds `summary.json`. Failure to produce it must never fail a run that
+    otherwise completed, hence the broad guard.
+    """
+    predictions_path = run_dir / "predictions.json"
+    if not predictions_path.exists():
+        return
+    labels_path = Path(__file__).parent / "testset_bb_labels.json"
+    try:
+        from analyze_divergence import build_report
+        from slice_results_by_bb import _build_bb_index
+
+        bb_index = _build_bb_index(_read_json(labels_path)) if labels_path.exists() else {}
+        report = build_report(_read_json(predictions_path), bb_index)
+        _write_json(run_dir / "divergence_report.json", report)
+        totals = report["totals"]
+        _log_phase(
+            "divergence_analysis",
+            f"wrote divergence_report.json ({totals['diverging']}/{totals['records']} diverging, "
+            f"{len(report['examples'])} example(s) kept)",
+        )
+    except Exception as exc:  # noqa: BLE001 - analysis must not fail a completed run
+        _log_phase("divergence_analysis", f"skipped: {exc}")
+
+
 def _run_bb_analysis(run_dir: Path) -> None:
-    """Write per-BB and per-category breakdowns if the BB labels file is present."""
+    """Write per-BB and per-category breakdowns if the BB labels file is present.
+
+    Guarded: this runs after `summary.json` is written, so a failure here must not fail an
+    evaluation whose results are already on disk and already complete.
+    """
     labels_path = Path(__file__).parent / "testset_bb_labels.json"
     predictions_path = run_dir / "predictions.json"
     if not labels_path.exists() or not predictions_path.exists():
         return
-    from slice_results_by_bb import _build_bb_index, slice_by_bb, slice_by_category
-    predictions = _read_json(predictions_path)
-    labels_data = _read_json(labels_path)
-    bb_index = _build_bb_index(labels_data)
-    breakdown = slice_by_bb(predictions, bb_index)
-    category_breakdown = slice_by_category(predictions, bb_index)
-    _write_json(run_dir / "bb_breakdown.json", breakdown)
-    _write_json(run_dir / "bb_category_breakdown.json", category_breakdown)
-    _log_phase(
-        "bb_analysis",
-        f"wrote bb_breakdown.json + bb_category_breakdown.json ({len(breakdown)} config(s))",
-    )
+    try:
+        from slice_results_by_bb import _build_bb_index, slice_by_bb, slice_by_category
+        predictions = _read_json(predictions_path)
+        labels_data = _read_json(labels_path)
+        bb_index = _build_bb_index(labels_data)
+        breakdown = slice_by_bb(predictions, bb_index)
+        category_breakdown = slice_by_category(predictions, bb_index)
+        _write_json(run_dir / "bb_breakdown.json", breakdown)
+        _write_json(run_dir / "bb_category_breakdown.json", category_breakdown)
+        _log_phase(
+            "bb_analysis",
+            f"wrote bb_breakdown.json + bb_category_breakdown.json ({len(breakdown)} config(s))",
+        )
+    except Exception as exc:  # noqa: BLE001 - analysis must not fail a completed run
+        _log_phase("bb_analysis", f"skipped: {exc}")
 
 
 def _build_summary(records, repeats):
@@ -1238,11 +1333,24 @@ def _merge_shards(shard_dirs, output_dir):
         print("No records found across shards. Nothing to merge.")
         return
 
+    # Shards that had to be re-run leave both the partial and the complete directory behind,
+    # and `--merge-shards eval_runs/shard_*` picks up both. Without this, the same
+    # (case, condition, repeat) is averaged twice and combined_f1 silently shifts. Later
+    # occurrences win, so a rerun supersedes the partial it replaced.
+    deduped = {}
+    for rec in all_records:
+        deduped[_record_key(rec.get("case_id"), rec.get("config_id"), rec.get("repeat"))] = rec
+    if len(deduped) != len(all_records):
+        print(f"Dropped {len(all_records) - len(deduped)} duplicate record(s) across shards.")
+    all_records = list(deduped.values())
+
     _write_json(output_dir / "predictions.json", all_records)
     summary = _build_summary(all_records, repeats)
     summary["evaluation_phases"] = EVALUATION_PHASES
     _write_json(output_dir / "summary.json", summary)
     _run_bb_analysis(output_dir)
+    _run_divergence_analysis(output_dir)
+    _merge_failure_logs(shard_dirs, output_dir)
     print(f"Merged {len(all_records)} records from {len(shard_dirs)} shard(s) into {output_dir}")
 
 

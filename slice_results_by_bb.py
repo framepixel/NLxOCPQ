@@ -46,6 +46,14 @@ def _bb_category(bb: str) -> str:
 
 
 def _mean(vals: list) -> float | None:
+    """Mean of the present values, or None when there are none.
+
+    Drops None entries, matching `eval_testset._mean`. A record whose prediction failed to
+    execute has `similarity: null` and so contributes `combined_f1: None`; summing that
+    raised TypeError and took down the whole analysis step — which runs at the end of every
+    evaluation, so one non-executing prediction failed the shard.
+    """
+    vals = [v for v in vals if v is not None]
     return round(sum(vals) / len(vals), 4) if vals else None
 
 

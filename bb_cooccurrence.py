@@ -140,7 +140,12 @@ def main() -> None:
         else:
             print(f"Warning: {predictions_path} not found; skipping pair performance.")
 
+    # With --run_dir the output carries that run's per-pair performance, so it belongs in
+    # the run directory (CLAUDE.md 2.3) rather than the repo root, where the next run would
+    # overwrite it. An --out with an explicit directory is always honoured as given.
     out_path = Path(args.out)
+    if args.run_dir and out_path.parent == Path("."):
+        out_path = Path(args.run_dir) / out_path
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
     print(f"Wrote {out_path}")

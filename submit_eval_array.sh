@@ -11,9 +11,9 @@
 # 72 tasks = 36 conditions x 2 case-halves.
 # 36 conditions = 6 models x 3 prompt strategies x 2 schema settings.
 # The model always receives the full OCEL schema (entities + attributes + relations);
-# schema richness is a fixed pipeline behaviour, not a design variable. With 140 test
-# cases a full-condition shard (140 runs) would push the slowest model past the wall-time
-# limit, so each condition is split into two case halves (~70 runs each). %24 caps
+# schema richness is a fixed pipeline behaviour, not a design variable. With 150 test
+# cases a full-condition shard (150 runs) would push the slowest model past the wall-time
+# limit, so each condition is split into two case halves (75 runs each). %24 caps
 # concurrent tasks. Recombine afterwards with:
 #   python eval_testset.py --merge-shards eval_runs/shard_* --merge-output eval_runs/merged
 #

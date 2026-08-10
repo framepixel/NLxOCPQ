@@ -9,6 +9,8 @@
   "repeats": 1,
   "limit": 0,
   "seed": 3407,
+  "few_shot_k": 3,
+  "keep_result_files": false,
   "shuffle": false,
   "auto_expand_finetuned": true,
   "fine_tune_map": {

@@ -196,6 +196,34 @@ def get_few_shot_k():
     return few_shot_k
 
 
+def set_failure_log_path(path=None):
+    """Point the failure log at a specific file, or restore the default.
+
+    The default is relative to the working directory, and `submit_eval_array.sh` `cd`s once
+    to `$SLURM_SUBMIT_DIR` and never leaves it — so all 24 concurrently running array tasks
+    would append to one file. The payloads embed full prompt messages and exceed the write
+    buffer, so records get split across `write()` calls and interleave, corrupting exactly
+    the log you would want to read afterwards. `eval_testset.py` therefore points this at
+    its own run directory, giving every file a single writer.
+
+    Args:
+        path: Destination file, or None to restore `OCPQ_FAILURE_LOG_PATH` / the default.
+
+    Returns:
+        The path now in effect.
+    """
+    global failure_log_path
+    if path is None:
+        failure_log_path = os.getenv("OCPQ_FAILURE_LOG_PATH", "ocpq_failure_log.jsonl")
+    else:
+        failure_log_path = str(path)
+    return failure_log_path
+
+
+def get_failure_log_path():
+    return failure_log_path
+
+
 def set_generation_temperature(value):
     global generation_temperature
     if value is None:

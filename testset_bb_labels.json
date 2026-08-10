@@ -768,26 +768,6 @@
     ]
   },
   {
-    "nl_query": "Non-citizen persons must have their paperwork checked before being screened as a prospective tenant.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F4",
-      "F13",
-      "F15",
-      "C1",
-      "C3",
-      "T3"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "C",
-      "T"
-    ]
-  },
-  {
     "nl_query": "A container that is placed in stock must then be brought to the loading bay and subsequently loaded to a vehicle.",
     "bb_labels": [
       "V1",
@@ -2960,6 +2940,28 @@
       "V2",
       "F1",
       "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every non-citizen who was rejected as a prospective tenant must have had their paperwork checked first.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F13",
+      "F15",
       "S1",
       "C2",
       "C3",

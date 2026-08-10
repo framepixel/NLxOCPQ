@@ -1,2 +1,22 @@
-- Make it so that every OCPQ generated file gets deleted after it is created during the evaluation.
-- Since the root node's bindings aren't the only thing required for the results, how do I compare two queries that do the same thing but have different nodes?
+- DONE (2026-08-10) Make it so that every OCPQ generated file gets deleted after it is created during the evaluation.
+  Result files are discarded once the metric has read them (`keep_result_files: true` to retain);
+  generated query JSONs are kept deliberately as the raw-output audit trail (CLAUDE.md 2.3).
+  Investigating this found a bigger problem: results were recovered by globbing a directory shared
+  by all 24 concurrent array tasks, so a task could silently read another task's result — measured
+  at 4/12 wrong results under concurrency. Each invocation now runs in its own scratch directory.
+  See Thesis/notes/11-evaluation-readiness.md 6.3.
+- DONE Since the root node's bindings aren't the only thing required for the results, how do I compare two queries that do the same thing but have different nodes?
+  Answered as Q11 and implemented: only the root binding box is compared, located via
+  `root_node_index()` rather than assumed to be index 0, with each situation keyed as
+  (event indices, object indices, violated). Invariant to variable numbering and node count.
+  See Thesis/notes/08-metric-defect.md.
+- DONE (2026-08-10) Save the query combinations that were too different (result-wise) between the LLM and the gold query during the evaluation. Make sure it is not taking too much space. It should be mainly used to see what weaknesses/mess-ups the LLM does.
+  `analyze_divergence.py` writes divergence_report.json into every run dir and merged output.
+  No new data is captured - predictions.json already holds everything (~40 MB for the full
+  matrix), so the report is a view over it, capped at 3 examples per (class x condition).
+  Classes: schema_invalid / execution_failed / empty_result / wrong_population / over_selection /
+  under_selection / partial. `bb_dropped` names the building blocks the model failed to express.
+  Also fixed: failure_log.jsonl now lands in the run dir (24 array tasks shared one path before),
+  a crash in slice_results_by_bb._mean on any non-executing prediction, and the analysis steps are
+  now guarded so they cannot fail a completed run. See Thesis/notes/11-evaluation-readiness.md 6.4.
+- Give field types (e.g., string, bool, float) to the LLM during the prompting and explicitly ask it to cast variables that need to if using CEL. 

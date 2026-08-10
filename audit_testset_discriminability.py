@@ -23,8 +23,17 @@ Outputs (written to `--output-dir`, default `eval_runs/`):
     degenerate entries. **Proposals only** — `testset.json` is read-only and nothing is
     applied automatically.
 
+The summary is checkpointed after every entry and `--resume` reuses what is already there,
+so an interrupted run (a full pass takes over an hour, most of it on the 2.2 GB `bpic2017`
+log) can be continued rather than restarted. `--log-filter` selects entries by log substring
+and accepts a leading `!` to negate, which is how the cheap logs run first:
+
+    python audit_testset_discriminability.py --log-filter '!bpic2017' --resume
+    python audit_testset_discriminability.py --log-filter bpic2017 --resume
+
 Usage:
     python audit_testset_discriminability.py [--testset testset.json] [--limit N]
+        [--log-filter SUBSTR] [--resume]
 """
 
 import argparse
@@ -36,7 +45,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from eval_testset import _extract_result_ids, root_node_index
-from QueryExecutor import run_ocpq_query
+from QueryExecutor import discard_result_file, run_ocpq_query
 
 
 VERDICT_OK = "ok"
@@ -294,27 +303,97 @@ def _run_and_extract(ocel_path: str, query: dict, query_path: Path) -> Optional[
         return None
     if not result_path:
         return None
-    extracted = _extract_result_ids(_read_json(result_path), query)
+    try:
+        extracted = _extract_result_ids(_read_json(result_path), query)
+    finally:
+        # A full pass performs ~300 executions; the caller owns each result file and only
+        # needs the situation set, so release it immediately rather than filling scratch.
+        discard_result_file(result_path)
     return extracted[2] if extracted else None
 
 
-def audit(testset_path: str, output_dir: Path, limit: int = 0) -> dict:
-    """Execute every gold query and classify how well it discriminates."""
+def _log_selected(ocel_path: str, log_filter: str) -> bool:
+    """Whether an entry's log matches the filter. A leading `!` negates the match."""
+    negate = log_filter.startswith("!")
+    needle = log_filter[1:] if negate else log_filter
+    hit = needle.lower() in ocel_path.lower()
+    return not hit if negate else hit
+
+
+def _build_summary(testset_path: str, results: list, proposals: dict) -> dict:
+    """Aggregate per-entry records into the summary payload written to disk."""
+    ordered = sorted(results, key=lambda r: r["index"])
+    degenerate = [r for r in ordered if r["verdict"] in DEGENERATE_VERDICTS]
+    failed = [r for r in ordered if r["verdict"] == VERDICT_EXEC_FAILED]
+    return {
+        "testset_path": testset_path,
+        "total": len(ordered),
+        "ok": len(ordered) - len(degenerate) - len(failed),
+        "degenerate": len(degenerate),
+        "execution_failed": len(failed),
+        "by_verdict": {
+            verdict: sum(1 for r in ordered if r["verdict"] == verdict)
+            for verdict in sorted({r["verdict"] for r in ordered})
+        },
+        "degenerate_indices": [r["index"] for r in degenerate],
+        "proposals_available": len(proposals),
+        "entries": ordered,
+    }
+
+
+def audit(
+    testset_path: str,
+    output_dir: Path,
+    limit: int = 0,
+    log_filter: str = "",
+    resume: bool = False,
+) -> dict:
+    """Execute every gold query and classify how well it discriminates.
+
+    Args:
+        testset_path: Path to the testset JSON.
+        output_dir: Directory the summary and proposals are written to.
+        limit: Audit only the first N entries (0 = all).
+        log_filter: Case-insensitive substring; only entries whose `ocel_path` matches
+            are audited. Lets the ~1 h `bpic2017` entries run separately from the rest.
+        resume: Reuse verdicts already present in the summary file instead of re-executing
+            them. A full pass takes over an hour, so a crash must not cost the whole run.
+
+    Returns:
+        The summary dict that was written to disk.
+    """
     testset = _read_json(testset_path)
     if limit:
         testset = testset[:limit]
 
     scratch = output_dir / "_discriminability_queries"
     scratch.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "testset_discriminability.json"
+    proposals_path = output_dir / "testset_discriminability_proposals.json"
 
     results = []
     proposals = {}
+    done: dict = {}
+    if resume and summary_path.exists():
+        previous = _read_json(str(summary_path))
+        if previous.get("testset_path") == testset_path:
+            done = {r["index"]: r for r in previous.get("entries", [])}
+            proposals = _read_json(str(proposals_path)) if proposals_path.exists() else {}
+            print(f"resuming: {len(done)} entries already audited")
 
     for index, entry in enumerate(testset):
         nl_query = entry.get("nl_query", "")
         ocel_path = entry.get("ocel_path")
         gold_query = entry.get("ocpq_query")
         if not ocel_path or not gold_query:
+            continue
+        if log_filter and not _log_selected(str(ocel_path), log_filter):
+            if index in done and done[index].get("nl_query") == nl_query:
+                results.append(done[index])
+            continue
+        if index in done and done[index].get("nl_query") == nl_query:
+            results.append(done[index])
+            print(f"   [{index:3d}] cached {done[index]['verdict']}")
             continue
 
         started = time.time()
@@ -364,26 +443,13 @@ def audit(testset_path: str, output_dir: Path, limit: int = 0) -> dict:
             f"sits={total:6d} viol={violated:6d} base={baseline_note} | {nl_query[:52]}"
         )
 
-    degenerate = [r for r in results if r["verdict"] in DEGENERATE_VERDICTS]
-    failed = [r for r in results if r["verdict"] == VERDICT_EXEC_FAILED]
+        # Checkpoint after every entry: a crash mid-run then costs one query, not the run.
+        _write_json(summary_path, _build_summary(testset_path, results, proposals))
+        _write_json(proposals_path, proposals)
 
-    summary = {
-        "testset_path": testset_path,
-        "total": len(results),
-        "ok": len(results) - len(degenerate) - len(failed),
-        "degenerate": len(degenerate),
-        "execution_failed": len(failed),
-        "by_verdict": {
-            verdict: sum(1 for r in results if r["verdict"] == verdict)
-            for verdict in sorted({r["verdict"] for r in results})
-        },
-        "degenerate_indices": [r["index"] for r in degenerate],
-        "proposals_available": len(proposals),
-        "entries": results,
-    }
-
-    _write_json(output_dir / "testset_discriminability.json", summary)
-    _write_json(output_dir / "testset_discriminability_proposals.json", proposals)
+    summary = _build_summary(testset_path, results, proposals)
+    _write_json(summary_path, summary)
+    _write_json(proposals_path, proposals)
 
     print()
     print(f"total              : {summary['total']}")
@@ -419,9 +485,19 @@ def main() -> None:
     parser.add_argument("--testset", default="testset.json")
     parser.add_argument("--output-dir", default="eval_runs")
     parser.add_argument("--limit", type=int, default=0, help="Audit only the first N entries.")
+    parser.add_argument(
+        "--log-filter",
+        default="",
+        help="Only audit entries whose ocel_path contains this substring.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Keep verdicts already in the summary file instead of re-executing them.",
+    )
     args = parser.parse_args()
 
-    audit(args.testset, Path(args.output_dir), args.limit)
+    audit(args.testset, Path(args.output_dir), args.limit, args.log_filter, args.resume)
 
 
 if __name__ == "__main__":
