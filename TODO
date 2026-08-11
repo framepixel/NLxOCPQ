@@ -47,6 +47,13 @@
   gets finetune_vision_layers=False, and SFTTrainer gets the processor's inner text tokenizer.
   See Thesis/notes/11-evaluation-readiness.md 6.6.
 
+  CORPUS IS READY (2026-08-10). Regenerated at seed 3407 and fully rebuilt:
+    ocpq_dataset.json (+ .meta.json: seed + generator sha256) -> embeddings.npy
+    (+ .meta.json, hash matches) -> finetune_ocpq.jsonl (60,018 rows) -> audit clean.
+    Generator is now seeded and reproducible: same seed = byte-identical, different seed
+    differs. Time attributes 1->4 and Boolean 3->6, so no BB is >10x rarer than the testset
+    needs and none is at zero. Contamination 0/0. Leaked order-management vocabulary gone.
+
   NEXT (needs the cluster, ~8-10h each):
     1. conda create -n nlxocpq-train-v5 python=3.10; pip install -r requirements.unsloth-train-v5.txt
     2. export OCPQ_TRAIN_ENV=nlxocpq-train-v5
@@ -64,4 +71,3 @@
   (event attributes, 4,115 tokens) and angular (9,530) can keep the sections they currently
   drop. Re-measure peak context against the models that will actually run before changing it -
   scratchpad/measure_peak_context.py does this by intercepting the LLM call.
-- Adding event_attributes to ocpq_dataset.json — would require synthesising attributes for 20,000 rows and retraining everything. Shall we do it?

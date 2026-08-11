@@ -4,6 +4,8 @@
 # In[1]:
 
 
+import hashlib
+import os
 import random
 import json
 
@@ -19,6 +21,18 @@ from ocpq_schema import BindingBoxTree
 
 
 train_with_rewrites = False
+
+# Corpus generation is nothing but randomness -- 74 `random.*` draws -- and was previously
+# unseeded, so no generated corpus could be reproduced and every regeneration silently
+# produced a different training set. CLAUDE.md 2.1 fixes the canonical seed at 3407.
+#
+# Seeding is sufficient on its own here; PYTHONHASHSEED is not needed. Every `random.choice`
+# / `random.sample` draws from a list built in dict or list insertion order, or from an
+# explicitly sorted sequence (`_e2o_object`, `_o2o_pair`, `_no_direct_path_triples`), and
+# every set-derived output field is sorted before being emitted (`_query_relations`). The
+# `random` module is the only randomness source: no numpy RNG, no uuid, no clock.
+GLOBAL_SEED = int(os.getenv("OCPQ_DATASET_SEED", "3407"))
+random.seed(GLOBAL_SEED)
 
 # In[3]:
 
@@ -92,6 +106,32 @@ domains = {
         "objects": ["Policyholder", "Claim", "Policy", "Adjuster"]
     },
 
+    # String-typed domains. These model a log exported by a tool that erases attribute
+    # types -- PM4PY writes every attribute as a string -- so EVERY attribute below is
+    # declared "String", including ones that are semantically boolean ("0"/"1") or numeric
+    # ("120"/"240"). Real evaluation logs look like this (renting's `isCitizen` is a String
+    # holding "0"/"1"), while every other synthetic domain declares clean Boolean/Integer
+    # types. Without these the model only ever sees the idealised typing and has no reason
+    # to emit {"type":"String","is_in":["0"]} for something that reads like a boolean.
+    #
+    # Typing is uniform within a domain on purpose: an export tool erases all types or
+    # none, so mixing would teach that typing is arbitrary rather than a property of the
+    # source. Values stay categorical and are only ever compared for equality -- a
+    # threshold on a string-typed number would require a CEL cast, which is deliberately
+    # out of scope (see Thesis/notes/11-evaluation-readiness.md).
+    # Vocabulary verified disjoint from all 392 type/attribute names across the 11
+    # evaluation logs, same de-leaking rule as the invented domains above.
+    "gym": {
+        "events": ["Book Class", "Check In Athlete", "Start Session", "Cancel Booking",
+                   "Renew Membership", "Report Injury"],
+        "objects": ["Athlete", "ClassSession", "Membership", "Trainer", "Locker"]
+    },
+    "waste_collection": {
+        "events": ["Register Bin", "Schedule Round", "Collect Bin", "Weigh Load",
+                   "Report Contamination", "Close Round"],
+        "objects": ["Household", "Bin", "CollectionRound", "Depot", "Crew"]
+    },
+
     # Domains from actual log files (verified NOT to overlap any evaluation log's vocabulary)
     "distribution": {
         "events": ["Apply Discount", "Apply Payment", "Approve Order", "Approve Return", "Generate Invoice", 
@@ -141,8 +181,16 @@ domains = {
 # real OCEL logs where known (e.g. Container.AmountofHandlingUnits, Person.Creditscore)
 # and use plausible synthetic names elsewhere so each example stays internally consistent.
 OBJECT_ATTRIBUTES = {
+    # `Time` and `Boolean` are the two starved kinds: before the additions below the whole
+    # generator declared ONE Time attribute (`cartDate`) and three Booleans, which put F14 and
+    # F12 more than 10x rarer in training than in the testset. That ceiling is structural --
+    # the sampler cannot draw a kind that no attribute declares -- so it is raised here rather
+    # than by regenerating until the distribution looks better, which would be selection on the
+    # outcome. Added only to the invented domains: `distribution`/`procurement`/`02_p2p` have
+    # tables derived from real logs and must keep describing them faithfully.
     "e-commerce":          [("carts", "price", "Float"), ("articles", "weight", "Float"),
-                            ("carts", "cartDate", "Time")],
+                            ("carts", "cartDate", "Time"),
+                            ("carts", "isGift", "Boolean")],
     "distribution":        [("Order", "totalAmount", "Float"), ("Product", "weight", "Float")],
     "procurement":         [("Purchase Order", "amount", "Float")],
     "02_p2p":              [("Purchase Order", "amount", "Float")],
@@ -153,15 +201,37 @@ OBJECT_ATTRIBUTES = {
     "library_circulation": [("Member", "membershipYears", "Integer"),
                             ("Member", "is_student", "Boolean"),
                             ("Book", "page_count", "Integer"),
-                            ("Loan", "fineAmount", "Float")],
+                            ("Loan", "fineAmount", "Float"),
+                            ("Loan", "due_date", "Time"),
+                            ("Book", "is_reference", "Boolean")],
     "restaurant_service":  [("Guest", "partySize", "Integer"),
                             ("Guest", "isVip", "Boolean"),
                             ("Bill", "total_amount", "Float"),
-                            ("Order", "prepMinutes", "Integer")],
+                            ("Order", "prepMinutes", "Integer"),
+                            ("Order", "placedAt", "Time"),
+                            ("Table", "isOutdoor", "Boolean")],
     "insurance_claims":    [("Policyholder", "age", "Integer"),
                             ("Policyholder", "has_prior_claims", "Boolean"),
                             ("Claim", "claimAmount", "Float"),
-                            ("Policy", "coverage_limit", "Integer")],
+                            ("Policy", "coverage_limit", "Integer"),
+                            ("Claim", "filedOn", "Time")],
+
+    # String-typed domains: every attribute is declared "String" with an explicit value
+    # list, mirroring a PM4PY-style export. The 4th tuple element is read by
+    # `_domain_attributes` and rendered into the prompt as `name (String: v1, v2)`, so the
+    # model can see that `isStudent` is encoded "0"/"1" rather than true/false. Three
+    # shapes are covered because the testset needs all three: boolean-as-string,
+    # numeric-as-string, and word categoricals. Values are compared for equality only.
+    "gym":      [("Athlete", "isStudent", "String", ["0", "1"]),
+                            ("Athlete", "membership_tier", "String", ["1", "2", "3"]),
+                            ("ClassSession", "sessionStatus", "String", ["Held", "Cancelled"]),
+                            ("Membership", "is_frozen", "String", ["0", "1"]),
+                            ("Trainer", "trainerGrade", "String", ["1", "2"])],
+    "waste_collection":    [("Household", "isCommercial", "String", ["0", "1"]),
+                            ("Bin", "bin_size", "String", ["120", "240", "660"]),
+                            ("CollectionRound", "roundOutcome", "String", ["Completed", "Aborted"]),
+                            ("Crew", "shift_code", "String", ["A", "B"]),
+                            ("Depot", "depotZone", "String", ["1", "2", "3"])],
 }
 
 # Authoritative per-domain relation graphs. Every builder that needs an O2O pair or an
@@ -184,6 +254,10 @@ OBJECT_RELATIONS = {
     "restaurant_service": [("Guest", "Table"), ("Guest", "Order"), ("Order", "Dish"),
                             ("Order", "Bill"), ("Guest", "Bill")],
     "insurance_claims": [("Policyholder", "Claim"), ("Claim", "Policy"), ("Claim", "Adjuster")],
+    "gym": [("Athlete", "Membership"), ("Athlete", "ClassSession"),
+                       ("ClassSession", "Trainer"), ("Athlete", "Locker")],
+    "waste_collection": [("Household", "Bin"), ("Bin", "CollectionRound"),
+                         ("CollectionRound", "Crew"), ("CollectionRound", "Depot")],
     # Derived from Logs/01_o2c.xml E2O co-occurrence.
     "distribution": [("Customer", "Order"), ("Customer", "Invoice"), ("Invoice", "Payment"),
                       ("Order", "Shipment"), ("Invoice", "Order"), ("Order", "Product"),
@@ -236,6 +310,20 @@ EVENT_OBJECT_RELATIONS = {
                           ("Approve Claim", "Policyholder"), ("Deny Claim", "Claim"),
                           ("Deny Claim", "Policyholder"), ("Issue Settlement", "Claim"),
                           ("Issue Settlement", "Policyholder")],
+    "gym": [("Book Class", "Athlete"), ("Book Class", "ClassSession"),
+                        ("Check In Athlete", "Athlete"), ("Check In Athlete", "Locker"),
+                        ("Check In Athlete", "Membership"), ("Start Session", "ClassSession"),
+                        ("Start Session", "Trainer"), ("Cancel Booking", "Athlete"),
+                        ("Cancel Booking", "ClassSession"), ("Renew Membership", "Athlete"),
+                        ("Renew Membership", "Membership"), ("Report Injury", "Athlete"),
+                        ("Report Injury", "ClassSession"), ("Report Injury", "Trainer")],
+    "waste_collection": [("Register Bin", "Household"), ("Register Bin", "Bin"),
+                          ("Schedule Round", "CollectionRound"), ("Schedule Round", "Crew"),
+                          ("Schedule Round", "Depot"), ("Collect Bin", "Bin"),
+                          ("Collect Bin", "CollectionRound"), ("Collect Bin", "Crew"),
+                          ("Weigh Load", "CollectionRound"), ("Weigh Load", "Depot"),
+                          ("Report Contamination", "Bin"), ("Report Contamination", "Household"),
+                          ("Close Round", "CollectionRound"), ("Close Round", "Crew")],
     # Real E2O extracted from Logs/01_o2c.xml (qualifier dropped, distinct (event,object) pairs).
     "distribution": [("Apply Discount", "Order"), ("Apply Payment", "Invoice"),
                       ("Apply Payment", "Payment"), ("Approve Order", "Customer"),
@@ -300,6 +388,16 @@ OBJECT_SINGULAR = {
     "procurement": {"Goods Receipt": "goods receipt", "Purchase Requisition": "purchase requisition",
                      "Payment": "payment", "Invoice": "invoice", "Purchase Order": "purchase order",
                      "Supplier": "supplier"},
+    # The CamelCase types need an explicit split, exactly as `CreditNote` does above: the
+    # fallback in _build_no_direct_path is `name.lower()`, which turns `ClassSession` into
+    # "classsession". The *type names* stay CamelCase on purpose -- real evaluation logs use
+    # every convention (`HiringManager` and `JobRequisition` in 03_hiring, `DiagnosticEquipment`
+    # in 04_hospital, `Customer Order` in container_logistics, `purchase_order` in ocel2-p2p),
+    # so the model has to copy whatever the schema declares rather than assume one style.
+    "gym": {"Athlete": "athlete", "ClassSession": "class session", "Membership": "membership",
+             "Trainer": "trainer", "Locker": "locker"},
+    "waste_collection": {"Household": "household", "Bin": "bin",
+                          "CollectionRound": "collection round", "Depot": "depot", "Crew": "crew"},
 }
 OBJECT_SINGULAR["02_p2p"] = OBJECT_SINGULAR["procurement"]
 
@@ -2026,7 +2124,14 @@ def _census(raw_examples):
     return counts
 
 
-def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, first_rewrite=True, second_rewrite=True, output_file="ocpq_dataset.json"):
+def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, first_rewrite=True, second_rewrite=True, output_file="ocpq_dataset.json", seed=None):
+    # Re-seed per call, not only at import: that makes one invocation reproducible no matter
+    # what else drew from the shared `random` module first (an interactive session, another
+    # import). Without it, `import DatasetGenerator; generate_dataset(...)` and
+    # `python DatasetGenerator.py` could diverge.
+    effective_seed = GLOBAL_SEED if seed is None else int(seed)
+    random.seed(effective_seed)
+
     dataset = []
     seen = set()
     invalid_dropped = 0
@@ -2110,6 +2215,25 @@ def generate_dataset(num_samples=500, batch_size=4, original_sentence=True, firs
 
     with open(output_file, "w") as f:
         json.dump(dataset, f, indent=2)
+
+    # Provenance sidecar. The seed alone does not reproduce a corpus -- the code consuming the
+    # random stream has to match too -- so record a hash of this generator alongside it.
+    # Mirrors the embeddings.meta.json guard that catches embeddings built from another corpus.
+    generator_digest = hashlib.sha256()
+    with open(__file__, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            generator_digest.update(chunk)
+    meta_path = os.path.splitext(output_file)[0] + ".meta.json"
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "seed": effective_seed,
+            "rows": len(dataset),
+            "num_samples_requested": num_samples,
+            "generator_sha256": generator_digest.hexdigest(),
+            "generator": os.path.basename(__file__),
+        }, f, indent=2)
+    print(f"\nWrote {meta_path} (seed {effective_seed}, "
+          f"generator sha256 {generator_digest.hexdigest()[:12]}...)")
 
     print("\nDataset generation completed!")
     if invalid_dropped:

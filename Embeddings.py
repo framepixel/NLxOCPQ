@@ -83,6 +83,22 @@ print("Finished compute.")
 # Save embeddings to a file using numpy
 np.save('embeddings.npy', np.array(embeddings))
 
+# Record which corpus these embeddings describe. LLM.load_resources refuses to use them if
+# `ocpq_dataset.json` has changed since: the corpus can be regenerated at the same row count,
+# in which case the old array still has a matching shape and every retrieval would silently
+# return the example that was similar in the OLD corpus, at that index in the NEW one.
+import hashlib
+
+_digest = hashlib.sha256()
+with open('ocpq_dataset.json', 'rb') as _f:
+    for _chunk in iter(lambda: _f.read(1 << 20), b''):
+        _digest.update(_chunk)
+with open('embeddings.meta.json', 'w', encoding='utf-8') as _f:
+    json.dump({'corpus_sha256': _digest.hexdigest(),
+               'rows': int(np.array(embeddings).shape[0]),
+               'source': 'ocpq_dataset.json'}, _f, indent=2)
+print(f"Wrote embeddings.meta.json (corpus sha256 {_digest.hexdigest()[:12]}...)")
+
 # Alternatively, to save as a JSON file:
 # with open('embeddings.json', 'w') as f:
 #     json.dump(embeddings, f)

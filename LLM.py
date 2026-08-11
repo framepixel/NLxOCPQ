@@ -4,6 +4,7 @@
 # In[1]:
 
 
+import hashlib
 import json
 import numpy as np
 import os
@@ -25,6 +26,15 @@ from LogEvents import events_and_objects_from_ocel, extract_ocel_schema
 
 # In[2]:
 
+def _corpus_fingerprint(path='ocpq_dataset.json'):
+    """Content hash of the retrieval corpus, used to detect stale embeddings."""
+    digest = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def load_resources():
     # Load the dataset
     with open('ocpq_dataset.json', 'r') as f:
@@ -33,8 +43,40 @@ def load_resources():
     # Load the generated embeddings
     embeddings = np.load('embeddings.npy')
 
-    # Load the local embedding model so we can embed user queries on the fly.
     embedding_error = None
+
+    # Guard against embeddings generated from a DIFFERENT corpus. Row counts alone cannot
+    # catch this: `ocpq_dataset.json` was regenerated at the same 20 000 rows, so the old
+    # (20000, 384) array still lines up and every retrieval would silently return the
+    # example that was similar in the OLD corpus, at that index in the NEW one. Compare a
+    # content hash written by Embeddings.py instead, and degrade to the documented
+    # non-embedding fallback rather than retrieving nonsense.
+    meta_path = 'embeddings.meta.json'
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+            if meta.get('corpus_sha256') != _corpus_fingerprint():
+                embedding_error = (
+                    'embeddings.npy was built from a different ocpq_dataset.json '
+                    '(corpus hash mismatch) - re-run Embeddings.py'
+                )
+        except Exception as exc:  # noqa: BLE001 - a bad meta file must not be fatal
+            embedding_error = f'could not verify embeddings freshness: {exc}'
+    else:
+        embedding_error = (
+            'embeddings.meta.json is missing, so embeddings.npy cannot be checked against '
+            'ocpq_dataset.json - re-run Embeddings.py to create it'
+        )
+    if embedding_error:
+        print(
+            'Warning: embedding retrieval disabled. '
+            'Falling back to non-embedding example retrieval. '
+            f'Reason: {embedding_error}'
+        )
+        return dataset, embeddings, None, None, embedding_error
+
+    # Load the local embedding model so we can embed user queries on the fly.
     tokenizer = None
     model = None
     try:
