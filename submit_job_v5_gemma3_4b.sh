@@ -25,7 +25,7 @@ unset PYTHONHOME PYTHONPATH
 
 # Activate the experimental environment for newer models.
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
-conda activate "${OCPQ_TRAIN_ENV:-nlxocpq-spike-ministral}"
+conda activate "${OCPQ_TRAIN_ENV:-nlxocpq-train-v5}"
 
 # Use a persistent cache by default to avoid shared FS / temp filesystem issues.
 export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"

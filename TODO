@@ -56,7 +56,14 @@
 
   NEXT (needs the cluster, ~8-10h each):
     1. conda create -n nlxocpq-train-v5 python=3.10; pip install -r requirements.unsloth-train-v5.txt
-    2. export OCPQ_TRAIN_ENV=nlxocpq-train-v5
+       (nlxocpq-train-v5 is the DEFAULT in prefetch_models.sh and every submit_job_v5_*.sh,
+        so no export is needed. To reuse the spike env instead - same stack - set
+        OCPQ_TRAIN_ENV=nlxocpq-spike-ministral. Do not let the names drift apart: with both
+        envs present, a forgotten export would train in one env while the pins describe another.)
+    2. bash prefetch_models.sh  &&  VERIFY=1 bash prefetch_models.sh
+       Required: the jobs run with HF_HUB_OFFLINE=1, and Llama 3.1 8B has never been
+       downloaded on this cluster. VERIFY=1 resolves every repo local-files-only, exactly as
+       the jobs will, so if it passes they will not need the network.
     3. sbatch submit_job_v5_llama31_8b.sh / _ministral3_14b.sh / _gemma3_4b.sh
        ALL THREE are retrained in the new env - including Gemma, whose model does not change -
        so every adapter comes from one dependency stack instead of the set spanning two.

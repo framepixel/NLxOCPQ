@@ -45,9 +45,15 @@ module load Python/3.12.3
 unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER
 unset PYTHONHOME PYTHONPATH
 
-# A SEPARATE environment. Never activate nlxocpq-train-next here: Ministral 3 needs
-# transformers v5, and upgrading the env that trained the current adapters would make those
-# results unreproducible. Create it once with requirements.ministral-spike.txt.
+# A SEPARATE environment from nlxocpq-train-next: Ministral 3 needs transformers v5, and
+# upgrading the env that trained the superseded adapters would make those results
+# unreproducible. Built from requirements.unsloth-train-v5.txt (formerly named
+# requirements.ministral-spike.txt, before the spike passed and the stack became the real
+# training environment).
+#
+# This spike has already passed (2026-08-10, readiness note 6.6); the script is kept so the
+# result can be reproduced. The default below is the env the spike actually ran in. If that
+# env no longer exists, point OCPQ_SPIKE_ENV at nlxocpq-train-v5 — same stack.
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
 conda activate "${OCPQ_SPIKE_ENV:-nlxocpq-spike-ministral}"
 

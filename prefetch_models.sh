@@ -45,7 +45,7 @@ source "$HOME/miniforge3/etc/profile.d/conda.sh"
 # Any env with huggingface_hub works — this only downloads. Default matches
 # submit_job_v5_*.sh so the cache is populated by the same stack that will read it; keep the
 # two in step if you rename the environment.
-conda activate "${OCPQ_TRAIN_ENV:-nlxocpq-spike-ministral}"
+conda activate "${OCPQ_TRAIN_ENV:-nlxocpq-train-v5}"
 
 python - <<'PY'
 import os

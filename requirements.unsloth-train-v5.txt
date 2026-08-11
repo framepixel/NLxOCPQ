@@ -14,9 +14,11 @@
 #   conda create -n nlxocpq-train-v5 python=3.10 -y
 #   conda activate nlxocpq-train-v5
 #   pip install -r requirements.unsloth-train-v5.txt
-# then point the jobs at it:  export OCPQ_TRAIN_ENV=nlxocpq-train-v5
-# The submit scripts and prefetch_models.sh default to OCPQ_TRAIN_ENV=nlxocpq-spike-ministral,
-# the env the spike proved - if you keep that name, no export is needed at all.
+# `nlxocpq-train-v5` is the default in prefetch_models.sh and every submit_job_v5_*.sh, so no
+# export is needed once it exists. If you would rather reuse `nlxocpq-spike-ministral` (the env
+# the Ministral spike ran in - same stack), set OCPQ_TRAIN_ENV=nlxocpq-spike-ministral instead.
+# Do not leave the two names disagreeing: with both envs present, a forgotten export would run
+# training in an environment other than the one these pins describe.
 #
 # The versions below are the ones OBSERVED WORKING in the Ministral 3 spike on 2026-08-10
 # (readiness note 6.6) — a full 14B model loaded, tokenized and fine-tuned end to end under
