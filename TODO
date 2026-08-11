@@ -38,9 +38,30 @@
   for the accumulating strategies: 3,732 tokens with compact answers, 15,042 in the pessimistic
   bound where every CoT stage emits a maximal query - the latter overflows both Llama 3 8B and
   Phi-4 14B. _check_context_budget now warns, and summary.json records max_prompt_tokens.
-- Swap base models: Llama 3 8B -> Llama 3.1 8B, and Phi-4 14B -> Ministral 3 14B Instruct-2512
-  (256k context) if the spike passes. Spike first: needs a NEW conda env (Ministral 3 requires
-  transformers v5 + mistral-common>=1.8.6; the working env pins transformers 4.57.6 and must not
-  be upgraded). Watch for the vision encoder (Gemma-3 situation again) and the FP8 default.
-  No code change needed - train_unsloth.py reads the base from OCPQ_QUANTIZED_MODEL.
+- SPIKE PASSED (2026-08-10) Swap base models: Llama 3 8B -> Llama 3.1 8B, Phi-4 14B ->
+  Ministral 3 14B Instruct-2512 (256k context), Gemma 3 4B unchanged.
+  Ministral loaded, tokenized and fine-tuned cleanly: 14,005,980,160 params, Mistral [INST]
+  template, LoRA on the language tower only, loss 1.879 -> 0.077. Three fixes were needed in
+  train_unsloth.py, all for multimodal checkpoints: tokenizer calls now pass `text=` by keyword
+  (a processor's first positional arg is `images`, so the prompt went to PIL), get_peft_model
+  gets finetune_vision_layers=False, and SFTTrainer gets the processor's inner text tokenizer.
+  See Thesis/notes/11-evaluation-readiness.md 6.6.
+
+  NEXT (needs the cluster, ~8-10h each):
+    1. conda create -n nlxocpq-train-v5 python=3.10; pip install -r requirements.unsloth-train-v5.txt
+    2. export OCPQ_TRAIN_ENV=nlxocpq-train-v5
+    3. sbatch submit_job_v5_llama31_8b.sh / _ministral3_14b.sh / _gemma3_4b.sh
+       ALL THREE are retrained in the new env - including Gemma, whose model does not change -
+       so every adapter comes from one dependency stack instead of the set spanning two.
+    4. pip freeze the env and replace the pins in requirements.unsloth-train-v5.txt
+    5. update eval_config.json (models, fine_tune_map, labels) and the fine-tuning results
+       table in Thesis/notes/04-experimental-setup.md, which goes stale for all three
+    6. re-run the smoke check before the full 36-condition matrix
+
+- AFTER the retrains: raise SCHEMA_BLOCK_TOKEN_BUDGET (LLM.py, currently 3500).
+  It was sized for Llama 3 8B's 8k context. With Llama 3.1 (128k), Ministral 3 (256k) and
+  Gemma 3 (128k) the smallest context becomes 131,072, so the budget can rise and bpic2017
+  (event attributes, 4,115 tokens) and angular (9,530) can keep the sections they currently
+  drop. Re-measure peak context against the models that will actually run before changing it -
+  scratchpad/measure_peak_context.py does this by intercepting the LLM call.
 - Adding event_attributes to ocpq_dataset.json — would require synthesising attributes for 20,000 rows and retraining everything. Shall we do it?

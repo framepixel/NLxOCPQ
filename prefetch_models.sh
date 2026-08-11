@@ -8,11 +8,15 @@
 # wall clock — a 10-minute smoke test never got past downloading for LLaMA and Phi-4. Run
 # this once on a login node so the training jobs start with everything local.
 #
-# Usage (login node):
-#     bash prefetch_models.sh
+# This is what lets submit_job_v5_*.sh keep HF_HUB_OFFLINE=1: the jobs never touch the
+# network, so a hub outage or a rate limit cannot fail a 10-hour training run partway in.
 #
-# Then verify the cache is complete by launching a short job with HF_HUB_OFFLINE=1 — if it
-# reaches the "[train_unsloth] BOS check OK" line, nothing else needs downloading.
+# Usage (login node):
+#     bash prefetch_models.sh              # download
+#     VERIFY=1 bash prefetch_models.sh     # confirm the cache is complete, downloading nothing
+#
+# VERIFY=1 resolves every repo with local_files_only, exactly as a job with HF_HUB_OFFLINE=1
+# does — so if it passes, the jobs will not need the network. Run it before submitting.
 
 set -euo pipefail
 
@@ -38,24 +42,36 @@ export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-60}"
 export HF_HUB_DISABLE_SYMLINKS_WARNING=1
 
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
-conda activate nlxocpq-train-next
+# Any env with huggingface_hub works — this only downloads. Default matches
+# submit_job_v5_*.sh so the cache is populated by the same stack that will read it; keep the
+# two in step if you rename the environment.
+conda activate "${OCPQ_TRAIN_ENV:-nlxocpq-spike-ministral}"
 
 python - <<'PY'
 import os
 from huggingface_hub import snapshot_download
 
-# What each submit script asks for, plus the checkpoints unsloth silently substitutes.
+# What each submit_job_v5_*.sh asks for, plus the checkpoints unsloth silently substitutes.
 #
 # With load_in_4bit=True, unsloth swaps a full-precision id for its own pre-quantized
 # redistribution. That is why the previous Gemma adapter_config recorded
 # `unsloth/gemma-3-4b-it-unsloth-bnb-4bit` even though the job requested
 # `google/gemma-3-4b-it`. Both are fetched so the substitution cannot trigger a download
-# inside the job. LLaMA and Phi-4 already name unsloth ids, so no substitution applies.
+# inside the job. The other two already name unsloth 4-bit ids, so no substitution applies.
+#
+# The superseded set (unsloth/llama-3-8b-Instruct-bnb-4bit, unsloth/phi-4-unsloth-bnb-4bit)
+# is deliberately NOT listed. Those checkpoints are already cached from the earlier runs and
+# re-fetching them wastes the cluster's 150 GB quota; the old submit scripts still work if a
+# superseded run ever has to be reproduced.
 REPOS = [
-    ("unsloth/llama-3-8b-Instruct-bnb-4bit", "llama3-8b  (requested)"),
-    ("unsloth/phi-4-unsloth-bnb-4bit",       "phi4-14b   (requested)"),
-    ("google/gemma-3-4b-it",                 "gemma3-4b  (requested; gated)"),
-    ("unsloth/gemma-3-4b-it-unsloth-bnb-4bit", "gemma3-4b  (unsloth 4-bit substitution)"),
+    ("unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
+     "llama31-8b      (requested; replaces Llama 3 8B, 128k context)"),
+    ("unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit",
+     "ministral3-14b  (requested; replaces Phi-4 14B, 256k context)"),
+    ("google/gemma-3-4b-it",
+     "gemma3-4b       (requested; gated)"),
+    ("unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
+     "gemma3-4b       (unsloth 4-bit substitution)"),
 ]
 
 token = os.environ.get("HF_TOKEN") or None

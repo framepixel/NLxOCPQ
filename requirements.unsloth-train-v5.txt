@@ -1,0 +1,44 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
+
+# Fine-tuning environment for the transformers-v5 model set — conda env, Python 3.10, H100.
+# Used by submit_job_v5_*.sh for ALL THREE models (Llama 3.1 8B, Ministral 3 14B, Gemma 3 4B),
+# so every adapter in the results comes from one dependency stack.
+#
+# SEPARATE from `nlxocpq-train-next` / requirements.unsloth-train.txt on purpose. Ministral 3
+# needs transformers v5, while that env pins transformers 4.57.6 and produced the superseded
+# adapters. Upgrading it in place would have made those results unreproducible
+# (CLAUDE.md 2.2: never upgrade a package mid-experiment without a new named environment).
+# The older file stays as the provenance record of the superseded runs.
+#
+# Create with:
+#   conda create -n nlxocpq-train-v5 python=3.10 -y
+#   conda activate nlxocpq-train-v5
+#   pip install -r requirements.unsloth-train-v5.txt
+# then point the jobs at it:  export OCPQ_TRAIN_ENV=nlxocpq-train-v5
+# The submit scripts and prefetch_models.sh default to OCPQ_TRAIN_ENV=nlxocpq-spike-ministral,
+# the env the spike proved - if you keep that name, no export is needed at all.
+#
+# The versions below are the ones OBSERVED WORKING in the Ministral 3 spike on 2026-08-10
+# (readiness note 6.6) — a full 14B model loaded, tokenized and fine-tuned end to end under
+# them. Reconcile against `pip freeze` from the env that actually runs the final training and
+# replace these with exact pins in the same commit, as was done for
+# requirements.unsloth-train.txt. A pin nobody has run is worse than no pin.
+
+# Verified working in the spike. Left unpinned only where the exact build has not yet been
+# captured from the training env; pin before the results are reported.
+unsloth==2026.8.12
+unsloth_zoo
+
+# transformers v5 is a hard requirement: 4.57.6 does not know the Ministral 3 architecture.
+transformers==5.5.0
+
+# Mistral's tokenizer stack, required for correct Ministral 3 tokenization.
+mistral-common==1.11.7
+
+# Same CUDA 12.6 / H100 stack as the superseded environment, so the hardware path is unchanged.
+torch==2.10.0+cu126
+bitsandbytes==0.49.2
+accelerate==1.13.0
+peft==0.19.1
+trl==0.24.0
+datasets==4.3.0
