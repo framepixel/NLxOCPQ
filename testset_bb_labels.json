@@ -2576,6 +2576,617 @@
     ]
   },
   {
+    "nl_query": "no payment reminder should be sent out after payment has been made",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F4",
+      "C1",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every item that is picked must be either sent in a package or marked as out of stock afterwards.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C6",
+      "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Customers who place an order must have at least one payment event associated with one of their orders.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F2",
+      "S1",
+      "C2",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Orders must not remain unpaid for more than 21 days after placement.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F5",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Borrower information must be verified before the file is submitted to the underwriter.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A person whose loan was denied must not sign a loan agreement afterwards.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C5",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every signed loan agreement must be preceded by a submitted underwriting file.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Appointment denial must only occur after a request appointment event.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every handed-in credit application must eventually lead to either a signed loan agreement, a rejected application, or a denied loan.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V3",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Loan agreements should be signed within 30 days after handing in the credit application.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F5",
+      "C1",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Persons marked with skipped examination must not have their loan approved directly afterwards.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "F18",
+      "C1",
+      "C5",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every patient arrival must be preceded by a completed registration.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Initial evaluation must not occur before insurance verification has been completed.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Candidates who rejected an offer must not start onboarding afterwards.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C5",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Rescheduled containers must not depart before being reassigned to a vehicle.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C1",
+      "C5",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Only items that are linked to an order via the 'comprises' qualifier must be counted as part of that order",
+    "bb_labels": [
+      "V2",
+      "F3",
+      "S1",
+      "C2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A 'pay order' event must be related to the order object via the 'order' qualifier",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F3",
+      "S1",
+      "C2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A container must only be counted as belonging to a transport document via the 'CR for TD' relationship.",
+    "bb_labels": [
+      "V2",
+      "F3",
+      "S1",
+      "C2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "An offer letter must be sent at least 3 days (259,200 s) after the background check completes.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F6",
+      "C1",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A co-signer request must be made at least 2 days (172,800 s) before the loan agreement is signed.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F6",
+      "C1",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A vehicle that is booked twice must involve two distinct booking events.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F18",
+      "C1",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "An item must be both picked and sent in a package to be considered fulfilled",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S1",
+      "C2",
+      "C7",
+      "T4"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A container load event and its departure event must share the same object relationships within a single session.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V5",
+      "F1",
+      "F4",
+      "C1",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Each handling unit must be linked to exactly one container.",
+    "bb_labels": [
+      "V2",
+      "F2",
+      "S1",
+      "S2",
+      "C2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Containers marked 'empty' at departure time must be flagged.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F13",
+      "F17",
+      "C5",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A vehicle that departs must have been previously booked, and the booking must reference the same transport document.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "A person may not apply for a viewing appointment more than 3 times in the same process.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "S2",
+      "C2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "For any vehicle departure, at least one container must have been loaded onto the vehicle beforehand.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "C4",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Every purchase order must be approved before a payment is executed for it.",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which invoice receipts were paid after a two-way match was performed?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "L2",
+      "L3",
+      "T3"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which approval events occurred for purchase requisitions that were later linked to a request for quotation?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "F1",
+      "F4",
+      "S1",
+      "C2",
+      "C3",
+      "L2",
+      "T2"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "S",
+      "C",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which patients had a diagnostic test performed on them, and by which lab technician?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V6",
+      "F1",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which sales employees confirmed orders for which customers?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V6",
+      "F1",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
+    "nl_query": "Which hiring managers reviewed assessments for which candidates?",
+    "bb_labels": [
+      "V1",
+      "V2",
+      "V6",
+      "F1",
+      "L3",
+      "T1"
+    ],
+    "category_labels": [
+      "V",
+      "F",
+      "L",
+      "T"
+    ]
+  },
+  {
     "nl_query": "Every patient must have at least one diagnostic test ordered.",
     "bb_labels": [
       "V1",
@@ -2634,193 +3245,6 @@
     ]
   },
   {
-    "nl_query": "Every piece of diagnostic equipment must be used for more than one diagnostic test.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "A diagnostic test must be performed within one hour of the patient being registered.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F5",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "Which lab technicians performed more than one diagnostic test?",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "S1",
-      "C3",
-      "L3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "L",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "Every person who handed in a credit application must eventually sign a loan agreement.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "A person asked to provide a co-signer must eventually sign a loan agreement.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "Every non-citizen applicant must have had their application rejected.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F13",
-      "F15",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "Which applicants have a credit score above 74?",
-    "bb_labels": [
-      "V2",
-      "F18",
-      "L3",
-      "T1"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "L",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "Which applicants older than 58 have a credit score below 62?",
-    "bb_labels": [
-      "V2",
-      "F18",
-      "L3",
-      "T1"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "L",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "Applicants flagged as belonging to a protected group must have had their borrower information verified.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F13",
-      "F16",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "An applicant carrying all three discrimination factors must not have their loan denied.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F13",
-      "F15",
-      "C5",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "C",
-      "T"
-    ]
-  },
-  {
     "nl_query": "Every created purchase requisition must eventually be approved.",
     "bb_labels": [
       "V1",
@@ -2859,109 +3283,12 @@
     ]
   },
   {
-    "nl_query": "A request for quotation may only be created for a purchase requisition that was itself created first.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F4",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "Which materials were ordered in a quantity greater than 75?",
-    "bb_labels": [
-      "V2",
-      "F18",
-      "L3",
-      "T1"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "L",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "Materials with a net price above 750 must have an approved purchase requisition.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F2",
-      "F18",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "Every candidate who attended a panel interview must have completed a background check.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
     "nl_query": "Every offer that was created must eventually be returned by the customer.",
     "bb_labels": [
       "V1",
       "V2",
       "F1",
       "F4",
-      "S1",
-      "C2",
-      "C3",
-      "T2"
-    ],
-    "category_labels": [
-      "V",
-      "F",
-      "S",
-      "C",
-      "T"
-    ]
-  },
-  {
-    "nl_query": "Every non-citizen who was rejected as a prospective tenant must have had their paperwork checked first.",
-    "bb_labels": [
-      "V1",
-      "V2",
-      "F1",
-      "F4",
-      "F13",
-      "F15",
       "S1",
       "C2",
       "C3",
