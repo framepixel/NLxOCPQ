@@ -718,6 +718,52 @@ if trainer.args.per_device_eval_batch_size != eval_batch_size:
     )
 
 
+def _report_trainer_input_ids():
+    """Report the leading token IDs the model will actually train on.
+
+    `_resolve_duplicate_bos()` inspects `tokenizer`, but TRL tokenizes with
+    `_trainer_tokenizer`, and for a multimodal checkpoint those are different objects (the
+    processor vs. its inner text tokenizer). Unsloth also performs its own de-duplication
+    ("We found double BOS tokens - we shall remove one automatically") *after* the trainer
+    is built. With three mechanisms acting on the same sequence, the only trustworthy
+    statement about how many BOS tokens the model sees is a reading of the trainer's own
+    tokenized dataset — one BOS is correct, two means the repairs did not take, and zero
+    means two of them fired on the same sequence.
+    """
+    try:
+        row = trainer.train_dataset[0]
+        ids = row.get("input_ids") if hasattr(row, "get") else None
+        if not ids:
+            print("[train_unsloth] trainer dataset exposes no input_ids; skipping BOS audit.")
+            return
+
+        bos_id = getattr(_trainer_tokenizer, "bos_token_id", None)
+        leading = sum(1 for token in ids[:4] if token == bos_id) if bos_id is not None else 0
+        decoded = _trainer_tokenizer.decode(ids[:8])
+        print(f"[train_unsloth] trainer input_ids[:8] = {list(ids[:8])}")
+        print(f"[train_unsloth] decoded             = {decoded!r}")
+
+        if bos_id is None:
+            print("[train_unsloth] tokenizer exposes no bos_token_id; BOS count not checked.")
+        elif leading == 1:
+            print("[train_unsloth] BOS AUDIT OK: the model trains on exactly one leading BOS.")
+        elif leading == 0:
+            print(
+                "[train_unsloth] BOS AUDIT WARNING: no leading BOS in the trainer's input_ids. "
+                "Two de-duplication mechanisms may have fired on the same sequence."
+            )
+        else:
+            print(
+                f"[train_unsloth] BOS AUDIT WARNING: {leading} leading BOS tokens in the "
+                "trainer's input_ids; the repairs did not take effect on this path."
+            )
+    except Exception as exc:  # noqa: BLE001 - a diagnostic must never abort training
+        print(f"[train_unsloth] could not audit trainer input_ids: {exc}")
+
+
+_report_trainer_input_ids()
+
+
 class RecoveryCallback(TrainerCallback):
     def on_save(self, args, state, control, **kwargs):
         checkpoint_dir = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
