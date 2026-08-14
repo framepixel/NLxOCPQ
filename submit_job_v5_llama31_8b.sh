@@ -3,11 +3,12 @@
 #SBATCH --output=ocpq-lora-llama31-8b-%J.out
 #SBATCH --partition=c23g
 #SBATCH --gres=gpu:1
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 # 16h: the 6h22m reference run trained at max_seq_length=1024, which truncated a large share
 # of the corpus. At 4096 nothing is truncated, so mean sequence length (and wall time) rises.
 #SBATCH --time=12:00:00
+#SBATCH --account=thes2358
 
 set -euo pipefail
 
