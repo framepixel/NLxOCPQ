@@ -259,6 +259,32 @@ def _latest_checkpoint_path(output_directory):
     return str(checkpoints[-1][1])
 
 
+def _has_trainer_state(checkpoint_path):
+    """Whether a directory is a full HF trainer checkpoint rather than a bare adapter snapshot.
+
+    `adapter_config.json` is the wrong discriminator: *every* PEFT directory has one, including
+    `checkpoint-*` produced by the trainer. Testing it therefore classified real trainer
+    checkpoints as adapter snapshots, so `resume_from_checkpoint` was never passed to
+    `trainer.train()` and the optimizer state, LR-scheduler position and step count were
+    silently discarded on every resume.
+
+    `trainer_state.json` is written only by `Trainer._save_checkpoint`, alongside `optimizer.pt`
+    and `scheduler.pt`, so it is present exactly when a real resume is possible.
+
+    (`training_args.bin` would be the other candidate, but the `torch.save` monkey-patch above
+    deliberately skips it to work around the unsloth/trl SFTConfig pickling issue, so it is
+    absent from otherwise-complete checkpoints.)
+    """
+    return bool(checkpoint_path) and (Path(checkpoint_path) / "trainer_state.json").is_file()
+
+
+# Opt-in for the weights-only path, which restores adapter weights without optimizer or
+# scheduler state. Off by default: it restarts the LR schedule over converged weights.
+allow_weights_only_resume = os.getenv(
+    "OCPQ_ALLOW_WEIGHTS_ONLY_RESUME", ""
+).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _resolve_resume_checkpoint(output_directory):
     resume_setting = os.getenv("OCPQ_RESUME_FROM_CHECKPOINT", "latest").strip()
     if not resume_setting:
@@ -419,8 +445,38 @@ except TypeError:
     model = FastLanguageModel.get_peft_model(model, **_lora_kwargs)
 
 resume_checkpoint = _resolve_resume_checkpoint(output_dir)
-if resume_checkpoint and Path(resume_checkpoint).is_dir() and (Path(resume_checkpoint) / "adapter_config.json").exists():
-    print(f"Restoring adapter weights from: {resume_checkpoint}")
+resume_has_trainer_state = _has_trainer_state(resume_checkpoint)
+
+if resume_checkpoint and resume_has_trainer_state:
+    # A full trainer checkpoint. Do NOT hand-load the adapter here: `trainer.train()` is given
+    # this path below and restores weights, optimizer state, LR-scheduler position and step
+    # count together. Loading the weights here as well would be redundant at best.
+    print(
+        f"[train_unsloth] full trainer checkpoint at {resume_checkpoint}; "
+        "weights, optimizer and LR schedule will be restored by the trainer."
+    )
+elif resume_checkpoint:
+    # Weights-only: an adapter snapshot with no optimizer or scheduler state. Training would
+    # restart at step 0, re-running warmup and the full lr=2e-4 schedule over already-converged
+    # weights. That is what collapsed the GPT-OSS-20B adapter into repeating a single token, so
+    # it requires an explicit opt-in rather than a log line nobody reads.
+    if not allow_weights_only_resume:
+        raise SystemExit(
+            f"Refusing to resume from '{resume_checkpoint}': it has no trainer_state.json, so "
+            "only the adapter weights can be restored. Training would restart at step 0 and "
+            "re-apply warmup plus the full learning-rate schedule to converged weights, which "
+            "destroys the adapter.\n"
+            "  - To continue an interrupted run, point at a checkpoint-* directory "
+            "(OCPQ_RESUME_FROM_CHECKPOINT=latest).\n"
+            "  - To start over, set OCPQ_RESUME_FROM_CHECKPOINT=0.\n"
+            "  - If you really do want weights-only warm-starting, set "
+            "OCPQ_ALLOW_WEIGHTS_ONLY_RESUME=1."
+        )
+    print(
+        f"[train_unsloth] WARNING: restoring adapter weights only from {resume_checkpoint} "
+        "(no trainer state). The LR schedule restarts from step 0 over converged weights — "
+        "this can destroy the adapter. Proceeding because OCPQ_ALLOW_WEIGHTS_ONLY_RESUME is set."
+    )
     try:
         model.delete_adapter("default")
     except Exception:
@@ -822,11 +878,14 @@ def _manual_eval_loss(model, tokenizer, texts, batch_size=2):
 
 # 6. Start Training
 print("Starting Unsloth Training...")
-resume_from_checkpoint = resume_checkpoint if resume_checkpoint and not (Path(resume_checkpoint).is_dir() and (Path(resume_checkpoint) / "adapter_config.json").exists()) else None
+# Pass the checkpoint to the trainer only when it carries trainer state; see _has_trainer_state
+# for why `adapter_config.json` was the wrong test. The weights-only case has already been
+# gated (and loaded) above, so here it deliberately resolves to None.
+resume_from_checkpoint = resume_checkpoint if resume_has_trainer_state else None
 if resume_from_checkpoint:
-    print(f"Resuming from checkpoint: {resume_from_checkpoint}")
+    print(f"Resuming from checkpoint (weights + optimizer + LR schedule): {resume_from_checkpoint}")
 elif resume_checkpoint:
-    print("Resuming from adapter weights without trainer state.")
+    print("Continuing from adapter weights only; the LR schedule restarts from step 0.")
 
 try:
     trainer_stats = trainer.train(resume_from_checkpoint=resume_from_checkpoint)

@@ -137,7 +137,12 @@ unset LIBSQLITE3_SYS_USE_PKG_CONFIG
 # the results comes from ONE environment. Also multimodal, so it exercises the same
 # language-tower LoRA path as Ministral.
 : "${OCPQ_QUANTIZED_MODEL:=google/gemma-3-4b-it}"
-: "${OCPQ_MODEL_LABEL:=gemma-3-4b-it}"
+# `gemma3-4b`, not `gemma-3-4b-it`: run_label is derived from this, so the old value wrote to
+# adapters/gemma-3-4b-it-fine-tuned-quantized — the same path the superseded pre-v5 Gemma used,
+# making an adapter there ambiguous as to which lineup produced it. This matches the convention
+# the other two v5 scripts already follow (llama31-8b, ministral3-14b) and this script's own
+# --job-name=ocpq-lora-gemma3-4b.
+: "${OCPQ_MODEL_LABEL:=gemma3-4b}"
 : "${OCPQ_CHAT_TEMPLATE:=gemma-3}"
 : "${OCPQ_ATTENTION_IMPLEMENTATION:=eager}"
 
