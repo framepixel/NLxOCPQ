@@ -72,6 +72,30 @@
        table in Thesis/notes/04-experimental-setup.md, which goes stale for all three
     6. re-run the smoke check before the full 36-condition matrix
 
+- TESTSET RESTORED to 169 entries (2026-08-11), after the supervisor flagged that deleting the
+  non-discriminating entries was selection bias. Restored all 34 whose gold query was sound and
+  simply did not discriminate in its log; kept out the 28 whose gold does not encode its own
+  question (22 vacuous SAT, 6 empty result) - with a vacuous gold the scoring is INVERTED, so a
+  correct query is marked wrong (old entry 39: gold flags 0 of 4989, correct encoding flags 1268).
+  Kept only the 6 later additions the >=10-per-log floor still needed; the >=5-per-BB floor was
+  already met without any of them. All 44 departing entries are preserved with reasons in
+  testset_excluded.json - the 15 `surplus_addition` ones are drop-in restorable.
+  169 + 44 = 213 = the exact union of both prior versions. See notes/11-evaluation-readiness.md 9.
+
+- NEXT, the supervisor's second point: metrics must not rest on result-set matching alone.
+  audit_testset_discriminability.py is now a STRATIFICATION label, not a filter - a non-zero
+  degenerate count is the expected, correct result. Report overall AND on the discriminating
+  stratum. Then add query-level metrics: analyze_divergence.py already computes bb_dropped /
+  bb_invented per prediction (did the model express the right constructs?), and the audit
+  supplies each entry's no-op baseline for a "does the prediction separate from trivial" signal.
+  Design this against the settled 169-entry testset, as its own plan.
+
+- Testset ORDER: the restored entries are appended after the carried-over ones, so the
+  non-discriminating entries cluster at the end. Harmless for a full run and for --case-shard
+  (results are merged), but `limit: N` in eval_config takes the FIRST N and would sample only
+  carried-over entries. Consider a deterministic sort by (ocel_path, nl_query) before the next
+  smoke test; it changes case_id <-> entry mapping, so do it before any run worth keeping.
+
 - AFTER the retrains: raise SCHEMA_BLOCK_TOKEN_BUDGET (LLM.py, currently 3500).
   It was sized for Llama 3 8B's 8k context. With Llama 3.1 (128k), Ministral 3 (256k) and
   Gemma 3 (128k) the smallest context becomes 131,072, so the budget can rise and bpic2017

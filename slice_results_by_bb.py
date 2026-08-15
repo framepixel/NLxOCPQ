@@ -57,6 +57,27 @@ def _mean(vals: list) -> float | None:
     return round(sum(vals) / len(vals), 4) if vals else None
 
 
+def _skill_block(recs: list) -> dict:
+    """Skill figures for one group of records, read from `metrics.skill`.
+
+    Not recomputed here: `eval_testset` already writes the per-record value, and importing it
+    would be circular because it imports `_build_bb_index` from this module.
+
+    Skill is undefined where the trivial floor is 1.0, so `skill_n` reports the denominator --
+    a building block made mostly of non-discriminating entries can have a skill score backed by
+    very few records, and that must be visible rather than inferred.
+    """
+    skills = [((r.get("metrics") or {}).get("skill")) for r in recs]
+    defined = [s for s in skills if s is not None]
+    return {
+        # Result F1 renormalised against the floor: 0 means no better than a no-op query.
+        "skill_score": _mean(defined),
+        # What a clamp at 0 would hide -- how often the model did worse than doing nothing.
+        "below_floor_rate": _mean([1 if s < 0 else 0 for s in defined]),
+        "skill_n": len(defined),
+    }
+
+
 def _load_json(path: Path) -> list | dict:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -83,7 +104,13 @@ def slice_by_bb(
           config_id: {
             bb_label: {
               "n": int,
-              "combined_f1": float,
+              "result_set_f1_strict": float,   # primary, failures count as 0
+              "structural_f1": float,          # did it express the right constructs?
+              "mean_baseline_f1": float,       # what a no-op query already scores
+              "skill_score": float,            # the same F1 renormalised against that floor
+              "below_floor_rate": float,       # how often it did worse than a no-op query
+              "skill_n": int,                  # denominator: skill is undefined at floor 1.0
+              "combined_f1": float,            # deprecated alias
               "schema_valid_rate": float,
               "execution_success_rate": float,
             }
@@ -117,6 +144,25 @@ def slice_by_bb(
                 continue
             result[cid][bb] = {
                 "n": len(recs),
+                # Result-level, counting failures as 0 (see eval_testset._result_f1_values):
+                # the conditional variant alone rewards attempting fewer queries.
+                "result_set_f1_strict": _mean([
+                    0.0 if ((r.get("similarity") or {}).get("combined") or {}).get("f1") is None
+                    else ((r.get("similarity") or {}).get("combined") or {}).get("f1")
+                    for r in recs
+                ]),
+                # Query-level: did the model express this building block correctly? A BB where
+                # the result score is high but the structural score is low is the interesting
+                # case -- right rows for the wrong query.
+                "structural_f1": _mean([
+                    ((r.get("metrics") or {}).get("structural") or {}).get("f1") for r in recs
+                ]),
+                # What a no-op query already scores on these entries.
+                "mean_baseline_f1": _mean([r.get("baseline_f1") for r in recs]),
+                # Read from the record rather than recomputed: importing eval_testset here
+                # would be circular (it imports _build_bb_index from this module).
+                **_skill_block(recs),
+                # Deprecated alias of result_set_f1_executed.
                 "combined_f1": _mean([
                     (r.get("similarity") or {}).get("combined", {}).get("f1")
                     for r in recs
@@ -166,6 +212,16 @@ def slice_by_category(
                 continue
             result[cid][cat] = {
                 "n": len(recs),
+                "result_set_f1_strict": _mean([
+                    0.0 if ((r.get("similarity") or {}).get("combined") or {}).get("f1") is None
+                    else ((r.get("similarity") or {}).get("combined") or {}).get("f1")
+                    for r in recs
+                ]),
+                "structural_f1": _mean([
+                    ((r.get("metrics") or {}).get("structural") or {}).get("f1") for r in recs
+                ]),
+                "mean_baseline_f1": _mean([r.get("baseline_f1") for r in recs]),
+                **_skill_block(recs),
                 "combined_f1": _mean([
                     (r.get("similarity") or {}).get("combined", {}).get("f1")
                     for r in recs
@@ -180,7 +236,7 @@ def slice_by_category(
     return result
 
 
-def _print_ascii_table(breakdown: dict, primary_metric: str = "combined_f1") -> None:
+def _print_ascii_table(breakdown: dict, primary_metric: str = "result_set_f1_strict") -> None:
     config_ids = sorted(breakdown.keys())
     if not config_ids:
         print("No data.")
@@ -245,7 +301,7 @@ def _print_ascii_table(breakdown: dict, primary_metric: str = "combined_f1") -> 
         print(f"{bb:<{bb_col}} {n:>{col_width}}")
 
 
-def _print_category_table(breakdown: dict, primary_metric: str = "combined_f1") -> None:
+def _print_category_table(breakdown: dict, primary_metric: str = "result_set_f1_strict") -> None:
     config_ids = sorted(breakdown.keys())
     if not config_ids:
         print("No category data.")
@@ -331,8 +387,8 @@ def main() -> None:
             bb_counts[bb] += 1
     print(f"Configs: {config_count}  |  BB labels covered: {len(bb_counts)}/{len(BB_ORDER)}")
 
-    _print_ascii_table(breakdown, primary_metric="combined_f1")
-    _print_category_table(category_breakdown, primary_metric="combined_f1")
+    _print_ascii_table(breakdown, primary_metric="result_set_f1_strict")
+    _print_category_table(category_breakdown, primary_metric="result_set_f1_strict")
 
 
 if __name__ == "__main__":

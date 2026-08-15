@@ -1,26 +1,32 @@
 {
+  "_comment": "Annotated template. The configuration actually used for the matrix is eval_config.json; the smoke variant is eval_config.smoke.json. Keep this in step with the real lineup - a stale example is how the superseded llama3-8b/phi4/gpt-oss set outlived the models themselves.",
   "testset_path": "testset.json",
   "output_dir": "eval_runs",
   "backend": "local-gpu",
   "local_device": "cuda",
   "local_dtype": "auto",
+  "local_quantization": "4bit",
   "temperature": 0.0,
-  "repeats": 3,
+  "repeats": 1,
   "limit": 0,
   "seed": 3407,
   "shuffle": false,
+  "few_shot_k": 3,
+  "keep_result_files": false,
+  "result_store": true,
+  "result_store_max_situations": 200000,
   "auto_expand_finetuned": true,
   "fine_tune_map": {
-    "unsloth/llama-3-8b-Instruct-bnb-4bit": {
-      "name": "lora_model_ocpq",
-      "label": "llama3-8b-finetuned"
+    "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit": {
+      "name": "adapters/llama31-8b-fine-tuned-quantized",
+      "label": "llama31-8b-finetuned"
     },
-    "unsloth/gpt-oss-20b-unsloth-bnb-4bit": {
-      "name": "gpt-oss-20b-lora",
-      "label": "gpt-oss-20b-finetuned"
+    "unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit": {
+      "name": "adapters/ministral3-14b-fine-tuned-quantized",
+      "label": "ministral3-14b-finetuned"
     },
-    "unsloth/gemma-3-4b-it-unsloth-bnb-4bit": {
-      "name": "gemma-3-4b-it-fine-tuned-quantized",
+    "google/gemma-3-4b-it": {
+      "name": "adapters/gemma3-4b-fine-tuned-quantized",
       "label": "gemma3-4b-finetuned"
     }
   },
@@ -34,16 +40,16 @@
   ],
   "models": [
     {
-      "name": "unsloth/llama-3-8b-Instruct-bnb-4bit",
-      "label": "llama3-8b-base"
+      "name": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
+      "label": "llama31-8b-base"
     },
     {
-      "name": "unsloth/gpt-oss-20b-unsloth-bnb-4bit",
-      "label": "gpt-oss-20b"
+      "name": "unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit",
+      "label": "ministral3-14b-base"
     },
     {
-      "name": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
-      "label": "gemma3-4b"
+      "name": "google/gemma-3-4b-it",
+      "label": "gemma3-4b-base"
     }
   ]
 }

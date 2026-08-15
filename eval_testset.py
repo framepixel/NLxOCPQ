@@ -12,8 +12,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Optional
 
+import result_store
 from LogEvents import extract_ocel_schema
 from ocpq_schema import BindingBoxTree
+from tag_testset_bb import detect_bb_labels
 from QueryExecutor import discard_result_file, run_ocpq_query
 try:
     from expand_models import expand_models
@@ -23,6 +25,7 @@ from LLM import (
     dataset as retrieval_dataset,
     embeddings,
     nl_to_ocpq_pipeline,
+    get_last_schema_omissions,
     set_failure_log_path,
     set_few_shot_enabled,
     set_few_shot_k,
@@ -77,6 +80,59 @@ def _is_domain_seen(ocel_path):
     """
     basename = str(ocel_path).replace("\\", "/").rsplit("/", 1)[-1]
     return basename in _PRE_DELEAK_SEEN_LOGS
+
+
+# Discriminability stratum, keyed by nl_query -- the same join key slice_results_by_bb.py and
+# analyze_divergence.py use, and duplicate-free by construction in the testset.
+_STRATUM_PATH = Path(__file__).parent / "eval_runs" / "testset_discriminability.json"
+_NON_DISCRIMINATING = {"non_discriminating", "empty_result",
+                       "degenerate_same_as_baseline", "degenerate_empty"}  # incl. old names
+
+
+def _load_stratum_index():
+    """nl_query -> (is_discriminating, baseline_f1), from the discriminability audit.
+
+    Roughly a fifth of the testset consists of compliance rules its log fully satisfies. A
+    result-only metric hands full marks to any query on those, so results must be reported per
+    stratum and against `baseline_f1` -- the score a no-op query already achieves. Absent the
+    audit the run proceeds unlabelled rather than failing: this is reporting metadata, not a
+    precondition for producing predictions.
+    """
+    if not _STRATUM_PATH.exists():
+        print(f"Warning: {_STRATUM_PATH.name} not found; records will carry no stratum label. "
+              "Run audit_testset_discriminability.py to enable stratified reporting.")
+        return {}
+    try:
+        entries = _read_json(str(_STRATUM_PATH)).get("entries") or []
+    except Exception as exc:  # noqa: BLE001 - never fail a run over reporting metadata
+        print(f"Warning: could not read {_STRATUM_PATH.name}: {exc}")
+        return {}
+    return {
+        r["nl_query"]: (r["verdict"] not in _NON_DISCRIMINATING, r.get("baseline_f1"))
+        for r in entries if r.get("nl_query")
+    }
+
+
+def _structural_metrics(gold_query, prediction):
+    """Set-level agreement between the building blocks gold uses and those the prediction uses.
+
+    This is the query-level counterpart to the result-level comparison: it asks whether the
+    model expressed the right *constructs*, which a result comparison cannot see. It uses the
+    same 42-label vocabulary the thesis reports against, and is invariant to node numbering and
+    tree shape for the same reason the result metric is.
+
+    A prediction that does not parse yields no labels and therefore F1 0 -- the correct reading,
+    since it expressed nothing.
+    """
+    def labels(query):
+        if not isinstance(query, dict):
+            return set()
+        try:
+            return set(detect_bb_labels(query))
+        except Exception:  # noqa: BLE001 - a malformed prediction is data, not an error
+            return set()
+
+    return _set_metrics(labels(gold_query), labels(prediction))
 
 
 def _read_json(path):
@@ -431,9 +487,9 @@ def _compute_similarity(gold_ids, pred_ids):
     """Score a prediction's root-node result against the gold query's.
 
     `events` and `objects` report the flat root-node entity sets, kept for per-kind
-    breakdowns. `combined` — the primary metric behind `semantic_accuracy` — compares
-    whole situations, so it preserves which entities co-occur within one binding and
-    whether that binding violated a constraint.
+    breakdowns. `combined` — the per-record value behind `result_set_f1_strict` /
+    `result_set_f1_executed` — compares whole situations, so it preserves which entities
+    co-occur within one binding and whether that binding violated a constraint.
     """
     if gold_ids is None or pred_ids is None:
         return None
@@ -444,6 +500,61 @@ def _compute_similarity(gold_ids, pred_ids):
         "objects": _set_metrics(gold_objects, pred_objects),
         "combined": _set_metrics(gold_situations, pred_situations),
     }
+
+
+def _skill_score(f1, baseline_f1):
+    """Result F1 renormalised against what a no-op query already scores on the same entry.
+
+    Reported *beside* `result_set_f1_strict`, never instead of it. The raw F1 has a blind spot
+    the restored testset makes concrete: the mean trivial floor is 0.6124, so a model emitting
+    executable but do-nothing queries scores 0.5148 on the discriminating stratum -- more than a
+    model that fails 80% of its queries -- while doing no work at all. Skill puts that strategy
+    at exactly 0.
+
+    Each side is normalised by the distance to the bound actually being approached::
+
+        (f1 - floor) / (1 - floor)   if f1 >= floor    # headroom above trivial
+        (f1 - floor) / floor          if f1 <  floor    # distance down toward nothing
+
+    The single-denominator form `(f1 - floor) / (1 - floor)` was measured and rejected: on the
+    five entries whose floor exceeds 0.99 the denominator collapses and one wrong answer
+    contributes up to -6097, so a model at F1 0.85 everywhere scores -9.06. That magnitude
+    measures how little headroom the *item* has, not how wrong the *model* is. Normalising the
+    lower branch by `floor` -- the room there is to fall -- removes the amplification: a query
+    fetching the wrong entity type scores exactly -1 on every item, whatever its floor.
+
+    The result is bounded in [-1, 1], continuous at `f1 == floor` (both branches give 0) and
+    monotone in `f1`.
+
+    Args:
+        f1: Root situation F1 for this record. Callers pass 0.0 rather than None for a
+            prediction that did not parse or execute, matching `result_set_f1_strict`; a metric
+            that dropped those would reward attempting fewer queries.
+        baseline_f1: The entry's trivial floor, from the discriminability audit.
+
+    Returns:
+        The skill score, or None when it is undefined -- either the record carries no floor
+        (stratum join miss) or the floor is 1.0, which is exactly the 34 non-discriminating
+        entries, where a no-op query already scores full marks and there is nothing to beat.
+    """
+    if f1 is None or baseline_f1 is None:
+        return None
+    if baseline_f1 >= 1.0:
+        return None
+    if f1 >= baseline_f1:
+        return (f1 - baseline_f1) / (1.0 - baseline_f1)
+    # `f1 >= 0` always, so `f1 < baseline_f1` implies `baseline_f1 > 0`: no division by zero.
+    return (f1 - baseline_f1) / baseline_f1
+
+
+def _record_skill(record, strict=True):
+    """Skill for one prediction record, applying the strict-F1 convention by default."""
+    f1 = ((record.get("similarity") or {}).get("combined") or {}).get("f1")
+    if f1 is None:
+        if not strict:
+            return None
+        f1 = 0.0
+    return _skill_score(f1, record.get("baseline_f1"))
 
 
 def _summarize_llm_stats(stats):
@@ -677,6 +788,14 @@ def run_evaluation(config_path_or_config):
         # matrix produces ~5550 of them. Everything the metric needs is extracted the moment
         # they are read, so they are discarded by default; set true to keep them for debugging.
         "keep_result_files": bool(config.get("keep_result_files", False)),
+        # Persist the extracted root result sets so a metric can be re-derived later without
+        # re-running the matrix (40-100 GPU-hours). Two orders of magnitude smaller than the
+        # raw files above: ~100-500 MB gzipped for the whole matrix. On by default, because the
+        # one run where it is forgotten is the run whose metric turns out to be wrong.
+        "result_store": bool(config.get("result_store", True)),
+        "result_store_max_situations": int(
+            config.get("result_store_max_situations", result_store.DEFAULT_MAX_SITUATIONS)
+        ),
     }
 
     models = config.get("models") or []
@@ -713,6 +832,8 @@ def run_evaluation(config_path_or_config):
             )
         schema_enforced_values = [schema_enforced_values[schema_idx_filter]]
     keep_result_files = global_cfg["keep_result_files"]
+    result_store_enabled = global_cfg["result_store"]
+    result_store_max_situations = global_cfg["result_store_max_situations"]
     schema_validation = bool(config.get("schema_validation", True))
     schema_validation_when_no_schema = bool(config.get("schema_validation_when_no_schema", False))
     repeats = int(config.get("repeats", 1))
@@ -810,6 +931,19 @@ def run_evaluation(config_path_or_config):
     }
     _write_json(run_dir / "config_resolved.json", manifest)
 
+    # Loaded once: labelling every record keeps predictions.json self-contained, so no
+    # downstream tool has to re-derive the stratum or re-run the audit to report against it.
+    stratum_index = _load_stratum_index()
+    _log_phase("generation", f"stratum labels loaded for {len(stratum_index)} testset entries.")
+
+    # One store per run directory rather than one shared across the matrix: shards run as
+    # separate array tasks, and a per-run store keeps them from writing into the same tree.
+    # `_merge_shards` unions them afterwards, which is safe because the filenames are content
+    # addresses.
+    result_store_dir = run_dir / "result_store"
+    if result_store_enabled:
+        _log_phase("generation", f"result store enabled at {result_store_dir}")
+
     ground_truth_cache = {}
     records = list(existing_records)
     completed_keys = {
@@ -833,6 +967,36 @@ def run_evaluation(config_path_or_config):
             continue
 
         case_key = _hash_query_key(ocel_path, gold_query)
+        if case_key not in ground_truth_cache and result_store_enabled:
+            # Resume path. `ground_truth_cache` lives only in this process and this block sits
+            # above the `completed_keys` skip, so without this a resumed shard re-executes every
+            # gold query before reaching any new work -- ~15 min per shard at the audit's
+            # measured 10.8 s mean, and worse on the cluster where OCEL import dominates.
+            #
+            # Reusing the stored result is *more* reproducible than re-executing, not less:
+            # MAX_NUM_BINDINGS truncation happens after a parallel try_reduce, so a capped query
+            # is not guaranteed to reproduce its own binding set. A truncated or missing blob
+            # yields None and falls through to a real execution.
+            try:
+                cached_ids, cached_skipped = result_store.load_with_meta(
+                    result_store_dir, ocel_path, gold_query)
+            except Exception as exc:
+                cached_ids, cached_skipped = None, None
+                _log_phase("execution", f"result store read failed for case {case_idx}: {exc}")
+            if cached_ids is not None:
+                ground_truth_cache[case_key] = {
+                    "result_path": None,
+                    # Null rather than invented: no query ran, so there is no duration or output.
+                    "duration_sec": None,
+                    "stdout": None,
+                    "stderr": None,
+                    "ids": cached_ids,
+                    "bindings_skipped": cached_skipped,
+                    "blob": result_store.blob_id(ocel_path, gold_query),
+                    "source": "result_store",
+                }
+                _log_phase("execution", f"case {case_idx:03d} | gold reused from result store")
+
         if case_key not in ground_truth_cache:
             gt_dir = run_dir / "ground_truth"
             gt_dir.mkdir(parents=True, exist_ok=True)
@@ -843,6 +1007,17 @@ def run_evaluation(config_path_or_config):
             gt_stdout, gt_stderr, gt_result_path = run_ocpq_query(ocel_path, str(gt_query_path))
             gt_duration = time.time() - gt_start
             gt_ids, gt_bindings_skipped = _load_result_ids(gt_result_path, gold_query)
+            # Content-addressed, so gold is written once per entry rather than once per
+            # condition. Must happen before the file is discarded below.
+            gt_blob = None
+            if result_store_enabled:
+                try:
+                    gt_blob = result_store.store(
+                        result_store_dir, ocel_path, gold_query, gt_ids,
+                        gt_bindings_skipped, result_store_max_situations,
+                    )
+                except Exception as exc:
+                    _log_phase("execution", f"result store (gold) failed for case {case_idx}: {exc}")
             # `ids` is cached and reused across every condition, so the raw file is never
             # read again. Null the path once discarded rather than recording a dangling one.
             if not keep_result_files:
@@ -856,6 +1031,8 @@ def run_evaluation(config_path_or_config):
                 "stderr": gt_stderr,
                 "ids": gt_ids,
                 "bindings_skipped": gt_bindings_skipped,
+                "blob": gt_blob,
+                "source": "executed",
             }
 
         gt_record = ground_truth_cache[case_key]
@@ -975,6 +1152,21 @@ def run_evaluation(config_path_or_config):
                             f"{((similarity or {}).get('combined') or {}).get('f1')}",
                         )
 
+                        # Persist the extracted result set before the raw file goes away. Placed
+                        # after `_classify_run_status` for the same reason the discard is: that
+                        # function reads `query_result_file`, so nothing may run between it and
+                        # the status it produces. A store failure must never fail a completed
+                        # generation, hence the guard.
+                        pred_blob = None
+                        if result_store_enabled and pred_ids:
+                            try:
+                                pred_blob = result_store.store(
+                                    result_store_dir, ocel_path, ocpq_json, pred_ids,
+                                    pred_bindings_skipped, result_store_max_situations,
+                                )
+                            except Exception as exc:
+                                _log_phase("execution", f"result store failed for case {case_idx}: {exc}")
+
                         # Release the raw results only now: `_classify_run_status` above reads
                         # `query_result_file` as its "did this produce a result" signal, so
                         # discarding earlier made every successful run look execution_failed.
@@ -990,11 +1182,26 @@ def run_evaluation(config_path_or_config):
                             # so predictions.json never points at a file that no longer exists.
                             exec_stats["result_file"] = None
 
+                        # Strict convention, matching `result_set_f1_strict`: a prediction that
+                        # did not parse or did not execute counts as F1 0, so skill -1. Scoring
+                        # it as undefined would reward attempting fewer queries.
+                        _strict_f1 = ((similarity or {}).get("combined") or {}).get("f1")
+                        skill_value = _skill_score(
+                            0.0 if _strict_f1 is None else _strict_f1,
+                            stratum_index.get(nl_query, (None, None))[1],
+                        )
+
                         record = {
                             "case_id": case_idx,
                             "nl_query": nl_query,
                             "ocel_path": ocel_path,
                             "domain_seen": _is_domain_seen(ocel_path),
+                            # Reporting stratum. `discriminating` is False for compliance rules
+                            # the log fully satisfies, where a result-only comparison awards full
+                            # marks to any query; `baseline_f1` is what a no-op query already
+                            # scores on this entry, so a model number can be read against a floor.
+                            "discriminating": stratum_index.get(nl_query, (None, None))[0],
+                            "baseline_f1": stratum_index.get(nl_query, (None, None))[1],
                             "gold_query": gold_query,
                             "model": resolved_model["name"],
                             "model_label": resolved_model["label"],
@@ -1012,6 +1219,15 @@ def run_evaluation(config_path_or_config):
                             "evaluation_phase": "run_complete",
                             "evaluation_phase_trace": RUN_PHASE_TRACE,
                             "prediction": ocpq_json,
+                            # Blob ids in `<run_dir>/result_store`, so a record points straight
+                            # at its stored results and `--recompute` needs no re-derivation.
+                            # Both are content addresses of (log, query), so `gold` repeats
+                            # across every condition for a case and `prediction` collapses
+                            # whenever two conditions emitted the same query.
+                            "result_ref": {
+                                "gold": gt_record.get("blob"),
+                                "prediction": pred_blob,
+                            },
                             "query_stdout": query_stdout,
                             "query_result_file": query_result_file,
                             "llm": llm_stats,
@@ -1023,14 +1239,32 @@ def run_evaluation(config_path_or_config):
                                 "unsupported_filters": unsupported,
                                 "hallucinated_attributes": sorted(bad_attributes),
                                 "invalid_relations": sorted(bad_relations),
+                                # Schema sections dropped for exceeding SCHEMA_BLOCK_TOKEN_BUDGET.
+                                # `build_schema_block` has always recorded these but nothing read
+                                # them, so the budget silently truncating the two largest logs was
+                                # invisible in the results. Must stay empty: the design is that
+                                # every model always receives the complete schema.
+                                "schema_omissions": get_last_schema_omissions(),
                                 # ocpq_cli drops bindings when a query yields too many;
                                 # a comparison against a truncated result is meaningless,
                                 # so keep it identifiable after the run.
                                 "bindings_skipped": pred_bindings_skipped,
                                 "gold_bindings_skipped": gt_record.get("bindings_skipped"),
+                                # Query-level agreement: did the model express the right
+                                # constructs? A result comparison cannot see this, and on the
+                                # non-discriminating stratum it is the only informative signal.
+                                "structural": _structural_metrics(gold_query, ocpq_json),
+                                # How far above the trivial floor this prediction got, in
+                                # [-1, 1]. Reported beside the raw F1, not instead of it: a
+                                # do-nothing query scores 0 here but ~0.61 on raw F1.
+                                "skill": skill_value,
                             },
                             "similarity": similarity,
                             "ground_truth": {
+                                # "executed" or "result_store" -- on a resume the gold result is
+                                # read back rather than re-run, so a null duration here is the
+                                # reuse path, not a missing measurement.
+                                "source": gt_record.get("source"),
                                 "result_path": gt_record.get("result_path"),
                                 "duration_sec": gt_record.get("duration_sec"),
                                 "stdout": gt_record.get("stdout"),
@@ -1071,6 +1305,14 @@ def run_evaluation(config_path_or_config):
     summary = _build_summary(records, repeats)
     summary["evaluation_phases"] = EVALUATION_PHASES
     summary["evaluation_phase_trace"] = EVALUATION_PHASES
+    if result_store_enabled:
+        store_stats = result_store.stats(result_store_dir)
+        summary["result_store"] = dict(store_stats, dir=str(result_store_dir))
+        _log_phase(
+            "summary",
+            f"result store: {store_stats['blobs']} blobs, "
+            f"{store_stats['bytes'] / 1048576:.1f} MB",
+        )
     _log_phase("summary", "Writing summary.json and completing the run.")
     _write_json(run_dir / "summary.json", summary)
     _run_bb_analysis(run_dir)
@@ -1160,12 +1402,78 @@ def _build_summary(records, repeats):
     for rec in records:
         by_config[rec["config_id"]].append(rec)
 
+    def _result_f1_values(recs):
+        """(strict, executed) result-F1 lists.
+
+        `strict` scores a record that produced no comparable result as 0 -- schema-invalid or
+        non-executing counts as a failure to answer. `executed` keeps only the records that did
+        produce one. Reporting both is deliberate: `_mean` drops None, so the executed figure
+        alone is silently conditional on execution success and a model that attempts fewer
+        queries scores higher for it. The two together separate "could not produce a runnable
+        query" from "produced the wrong answer".
+        """
+        strict, executed = [], []
+        for r in recs:
+            f1 = ((r.get("similarity") or {}).get("combined") or {}).get("f1")
+            strict.append(0.0 if f1 is None else f1)
+            if f1 is not None:
+                executed.append(f1)
+        return strict, executed
+
+    def _skill_values(recs):
+        """(strict, executed, defined_count) skill lists.
+
+        Skill is undefined where the floor is 1.0 -- precisely the non-discriminating entries,
+        where a no-op query already scores full marks and there is nothing to beat. Those are
+        excluded rather than counted as 0, so the count is returned alongside: `_mean` drops
+        None, and a mean whose denominator is invisible is the defect that made `combined_f1`
+        unreadable.
+        """
+        strict, executed = [], []
+        for r in recs:
+            s = _record_skill(r, strict=True)
+            if s is not None:
+                strict.append(s)
+            e = _record_skill(r, strict=False)
+            if e is not None:
+                executed.append(e)
+        return strict, executed
+
     def _metric_bundle(recs):
+        strict_vals, executed_vals = _result_f1_values(recs)
+        executed_f1 = _mean(executed_vals)
+        structural = [((r.get("metrics") or {}).get("structural") or {}) for r in recs]
+        skill_strict, skill_executed = _skill_values(recs)
         return {
             "n": len(recs),
-            "combined_f1": _mean([
-                (r.get("similarity") or {}).get("combined", {}).get("f1") for r in recs
-            ]),
+            # Primary: every record counted, failures included.
+            "result_set_f1_strict": _mean(strict_vals),
+            # Conditional on producing a comparable result. Same value as the legacy keys below.
+            "result_set_f1_executed": executed_f1,
+            # Query-level: did it express the right building blocks? Defined whenever the
+            # prediction parses, 0 when it does not, so it needs no strict/executed split.
+            "structural_f1": _mean([s.get("f1") for s in structural]),
+            "structural_precision": _mean([s.get("precision") for s in structural]),
+            "structural_recall": _mean([s.get("recall") for s in structural]),
+            # What a no-op query already scores on these items -- the floor a model must beat.
+            "mean_baseline_f1": _mean([r.get("baseline_f1") for r in recs]),
+            # The same result comparison renormalised against that floor, in [-1, 1]: 0 means
+            # "no better than a do-nothing query", -1 "returned nothing correct", 1 "perfect".
+            # Reported *beside* result_set_f1_strict, never instead of it -- the pair is what
+            # separates a model that is right from one that is merely safe.
+            "skill_score": _mean(skill_strict),
+            # Parity with result_set_f1_executed, and misleading for the same reason: failures
+            # are excluded rather than penalised. Never report alone.
+            "skill_score_executed": _mean(skill_executed),
+            # What a clamp at 0 would have hidden: how often the model did worse than trivial.
+            "below_floor_rate": _mean([1 if s < 0 else 0 for s in skill_strict]),
+            # Denominators, so the skill figures above are never silently conditional.
+            "skill_n": len(skill_strict),
+            "skill_undefined": len(recs) - len(skill_strict),
+            # Deprecated aliases of result_set_f1_executed, kept so existing notes stay true.
+            # `semantic_accuracy` in particular overstates what is measured: this is result-set
+            # agreement, not semantic correctness.
+            "combined_f1": executed_f1,
             "schema_valid_rate": _mean([1 if r["metrics"]["schema_valid"] else 0 for r in recs]),
             "execution_success_rate": _mean(
                 [1 if (r.get("execution") or {}).get("success") else 0 for r in recs]
@@ -1195,10 +1503,35 @@ def _build_summary(records, repeats):
             "unseen": _metric_bundle([r for r in m_recs if not r.get("domain_seen")]),
         }
 
+    # Discriminability stratum. Roughly a fifth of the testset are compliance rules their log
+    # fully satisfies: correct gold queries that flag nobody, where a result-only comparison
+    # awards full marks to any query (their `mean_baseline_f1` sits near 1.0). Pooling them with
+    # the informative entries inflates the headline and compresses the differences between
+    # models. Both strata are reported and the overall figure is kept -- dropping a stratum from
+    # the headline would reintroduce at reporting time the selection bias that removing those
+    # entries from the testset caused in the first place.
+    disc_recs = [r for r in records if r.get("discriminating") is True]
+    nondisc_recs = [r for r in records if r.get("discriminating") is False]
+    by_stratum = {
+        "discriminating": _metric_bundle(disc_recs) if disc_recs else None,
+        "non_discriminating": _metric_bundle(nondisc_recs) if nondisc_recs else None,
+        "unlabelled": len([r for r in records if r.get("discriminating") is None]),
+        "by_model": {},
+    }
+    for model_label in sorted({r.get("model_label") for r in records}):
+        m_recs = [r for r in records if r.get("model_label") == model_label]
+        by_stratum["by_model"][model_label] = {
+            "discriminating": _metric_bundle([r for r in m_recs
+                                              if r.get("discriminating") is True]),
+            "non_discriminating": _metric_bundle([r for r in m_recs
+                                                  if r.get("discriminating") is False]),
+        }
+
     summary = {
         "total_records": len(records),
         "by_config": {},
         "by_domain_seen": by_domain_seen,
+        "by_stratum": by_stratum,
         "evaluation_phase": "summary",
     }
 
@@ -1276,6 +1609,21 @@ def _build_summary(records, repeats):
             if r.get("similarity")
         ])
 
+        # Strict counterpart: `_mean` drops None, so the values above are computed only over
+        # records that produced a comparable result. Substituting 0 for the rest is what makes
+        # the primary metric self-contained and immune to scoring well by attempting less.
+        strict_vals, _executed_vals = _result_f1_values(recs)
+        result_set_f1_strict = _mean(strict_vals)
+        _structural = [((r.get("metrics") or {}).get("structural") or {}) for r in recs]
+        structural_f1 = _mean([s.get("f1") for s in _structural])
+        structural_precision = _mean([s.get("precision") for s in _structural])
+        structural_recall = _mean([s.get("recall") for s in _structural])
+        mean_baseline_f1 = _mean([r.get("baseline_f1") for r in recs])
+        # `_metric_bundle` above computes the same figures for the stratum/domain splits; this
+        # per-condition block is a separate code path, so anything added there must be added
+        # here too or it is silently missing from by_config.
+        _skill_strict, _skill_executed = _skill_values(recs)
+
         summary["by_config"][config_id] = {
             "meta": {
                 "model_label": recs[0].get("model_label"),
@@ -1298,6 +1646,33 @@ def _build_summary(records, repeats):
                 "object_jaccard": object_jaccard,
                 "object_precision": object_precision,
                 "object_recall": object_recall,
+                # PRIMARY. Every record counted: a prediction that did not parse or did not
+                # execute scores 0 rather than being dropped from the mean.
+                "result_set_f1_strict": result_set_f1_strict,
+                # Conditional on producing a comparable result. Read together with
+                # execution_success_rate, never alone -- on its own it rewards attempting fewer
+                # queries, since failures are excluded rather than penalised.
+                "result_set_f1_executed": combined_f1,
+                # Query-level agreement over the 42 building blocks: did the model express the
+                # right constructs? This is the only informative signal on the entries whose
+                # log fully complies, where result comparison gives everyone full marks.
+                "structural_f1": structural_f1,
+                "structural_precision": structural_precision,
+                "structural_recall": structural_recall,
+                # The floor: what a no-op query already scores on these items.
+                "mean_baseline_f1": mean_baseline_f1,
+                # Result F1 renormalised against that floor, in [-1, 1]. 0 = no better than a
+                # do-nothing query, -1 = nothing correct, 1 = perfect. Read next to
+                # result_set_f1_strict: a model emitting trivial queries scores ~0.61 there and
+                # exactly 0 here, which is the distinction the raw F1 cannot make.
+                "skill_score": _mean(_skill_strict),
+                # Parity with result_set_f1_executed; misleading alone for the same reason.
+                "skill_score_executed": _mean(_skill_executed),
+                "below_floor_rate": _mean([1 if s < 0 else 0 for s in _skill_strict]),
+                "skill_n": len(_skill_strict),
+                "skill_undefined": len(recs) - len(_skill_strict),
+                # Deprecated aliases of result_set_f1_executed. `semantic_accuracy` overstates
+                # what is measured -- this is result-set agreement, not semantic correctness.
                 "combined_f1": combined_f1,
                 "semantic_accuracy": combined_f1,
                 "combined_precision": combined_precision,
@@ -1315,6 +1690,103 @@ def _build_summary(records, repeats):
         }
 
     return summary
+
+
+def _recompute_metrics(run_dir, output_dir=None, store_dir=None):
+    """Rebuild every metric of a finished run from its stored result sets. No GPU, no ocpq_cli.
+
+    The point of the result store: a matrix costs 40-100 GPU-hours, so a metric that turns out
+    to be wrong -- as `combined_f1` did twice -- must be fixable without re-running it. Edit
+    `_compute_similarity`, `_structural_metrics` or `_metric_bundle`, then run this.
+
+    Everything downstream of the model is re-derived: the result similarity from the stored
+    situation sets, the structural metric from the record's own queries, and the stratum labels
+    from the discriminability audit. Everything upstream -- the generated query, timings, LLM
+    stats -- is carried over untouched.
+
+    Non-destructive by default. Overwriting a finished run's `predictions.json` in place is how
+    the discriminability audit destroyed completed work three times; the default writes to a
+    sibling directory instead.
+
+    Args:
+        run_dir: A finished run (or merged) directory containing `predictions.json`.
+        output_dir: Where to write. Defaults to `<run_dir>_recomputed`.
+        store_dir: Result store to read. Defaults to `<run_dir>/result_store`.
+    """
+    run_dir = Path(run_dir)
+    predictions_path = run_dir / "predictions.json"
+    if not predictions_path.exists():
+        raise FileNotFoundError(f"No predictions.json in {run_dir}")
+
+    store_dir = Path(store_dir) if store_dir else run_dir / "result_store"
+    if not store_dir.is_dir():
+        raise FileNotFoundError(
+            f"No result store at {store_dir}. A run recorded before the store existed, or with "
+            "`result_store: false`, can only be rescored by re-executing its queries."
+        )
+
+    output_dir = Path(output_dir) if output_dir else run_dir.parent / f"{run_dir.name}_recomputed"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    records = _read_json(predictions_path)
+    stratum_index = _load_stratum_index()
+
+    unavailable = {"gold_missing": 0, "prediction_missing": 0}
+    changed = 0
+    for rec in records:
+        ocel_path = rec.get("ocel_path")
+        gold_query = rec.get("gold_query")
+        prediction = rec.get("prediction")
+
+        gold_ids = result_store.load(store_dir, ocel_path, gold_query) if gold_query else None
+        # A prediction that never parsed has nothing to look up; that is a genuine null, not a
+        # missing blob, so it must not be counted as unavailable.
+        pred_ids = result_store.load(store_dir, ocel_path, prediction) if prediction else None
+
+        before = json.dumps(rec.get("similarity"), sort_keys=True)
+        if gold_ids is None:
+            unavailable["gold_missing"] += 1
+            rec["similarity"] = None
+        else:
+            if prediction and pred_ids is None and rec.get("similarity") is not None:
+                # The run scored this record, so its blob should exist. Truncated or absent
+                # means the recomputed number would be silently wrong -- report it, never guess.
+                unavailable["prediction_missing"] += 1
+            rec["similarity"] = _compute_similarity(gold_ids, pred_ids)
+        if json.dumps(rec.get("similarity"), sort_keys=True) != before:
+            changed += 1
+
+        rec.setdefault("metrics", {})["structural"] = _structural_metrics(gold_query, prediction)
+        is_disc, baseline_f1 = stratum_index.get(rec.get("nl_query"), (None, None))
+        rec["discriminating"] = is_disc
+        rec["baseline_f1"] = baseline_f1
+        # Derived last: it reads the similarity and floor set just above, so a run recorded
+        # before the skill score existed gains it here without re-executing anything.
+        rec["metrics"]["skill"] = _record_skill(rec)
+
+    repeats = 1
+    manifest = _load_json_if_exists(run_dir / "config_resolved.json")
+    if manifest:
+        repeats = (manifest.get("config") or {}).get("repeats", 1)
+
+    _write_json(output_dir / "predictions.json", records)
+    summary = _build_summary(records, repeats)
+    summary["evaluation_phases"] = EVALUATION_PHASES
+    summary["recomputed_from"] = str(run_dir)
+    summary["recompute_unavailable"] = unavailable
+    summary["result_store"] = dict(result_store.stats(store_dir), dir=str(store_dir))
+    _write_json(output_dir / "summary.json", summary)
+    _run_bb_analysis(output_dir)
+    _run_divergence_analysis(output_dir)
+
+    total_unavailable = unavailable["gold_missing"] + unavailable["prediction_missing"]
+    print(
+        f"Recomputed {len(records)} record(s) from {run_dir} into {output_dir}\n"
+        f"  similarity changed for {changed} record(s)\n"
+        f"  unavailable: {total_unavailable} "
+        f"(gold {unavailable['gold_missing']}, prediction {unavailable['prediction_missing']})"
+    )
+    return output_dir
 
 
 def _merge_shards(shard_dirs, output_dir):
@@ -1354,6 +1826,21 @@ def _merge_shards(shard_dirs, output_dir):
     _write_json(output_dir / "predictions.json", all_records)
     summary = _build_summary(all_records, repeats)
     summary["evaluation_phases"] = EVALUATION_PHASES
+
+    # Union every shard's result store into the merged directory, so the merged run can be
+    # rescored with `--recompute` on its own. Safe without conflict resolution: the filename is
+    # a content address, so an id present in two shards names the same (log, query) pair.
+    store_sources = [Path(d) / "result_store" for d in shard_dirs]
+    if any(p.is_dir() for p in store_sources):
+        merged_store = output_dir / "result_store"
+        copied = result_store.union_into(merged_store, store_sources)
+        stats = result_store.stats(merged_store)
+        summary["result_store"] = dict(stats, dir=str(merged_store))
+        print(
+            f"Merged result store: {stats['blobs']} blobs "
+            f"({copied} copied, {stats['bytes'] / 1048576:.1f} MB)"
+        )
+
     _write_json(output_dir / "summary.json", summary)
     _run_bb_analysis(output_dir)
     _run_divergence_analysis(output_dir)
@@ -1378,14 +1865,26 @@ def main():
         help="Merge predictions.json files from multiple shard run-dirs into a combined summary.")
     parser.add_argument("--merge-output", metavar="DIR", default="eval_runs/merged",
         help="Output directory for merged results (default: eval_runs/merged).")
+    parser.add_argument("--recompute", metavar="DIR",
+        help="Rebuild all metrics of a finished run from its stored result sets. No GPU and no "
+             "ocpq_cli: use this after changing a metric instead of re-running the matrix.")
+    parser.add_argument("--recompute-output", metavar="DIR", default=None,
+        help="Where --recompute writes (default: <DIR>_recomputed). The source run is never "
+             "modified.")
+    parser.add_argument("--result-store", metavar="DIR", default=None,
+        help="Result store for --recompute (default: <DIR>/result_store).")
     args = parser.parse_args()
 
     if args.merge_shards:
         _merge_shards(args.merge_shards, args.merge_output)
         return
 
+    if args.recompute:
+        _recompute_metrics(args.recompute, args.recompute_output, args.result_store)
+        return
+
     if not args.config:
-        parser.error("--config is required unless --merge-shards is used.")
+        parser.error("--config is required unless --merge-shards or --recompute is used.")
 
     def _apply_shard_filters(cfg):
         if args.model_idx is not None:

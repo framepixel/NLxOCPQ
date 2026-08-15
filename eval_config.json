@@ -11,19 +11,21 @@
   "seed": 3407,
   "few_shot_k": 3,
   "keep_result_files": false,
+  "result_store": true,
+  "result_store_max_situations": 200000,
   "shuffle": false,
   "auto_expand_finetuned": true,
   "fine_tune_map": {
-    "unsloth/llama-3-8b-Instruct-bnb-4bit": {
-      "name": "adapters/llama3-8b-fine-tuned-quantized",
-      "label": "llama3-8b-finetuned"
+    "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit": {
+      "name": "adapters/llama31-8b-fine-tuned-quantized",
+      "label": "llama31-8b-finetuned"
     },
-    "unsloth/phi-4-unsloth-bnb-4bit": {
-      "name": "adapters/phi4-14b-fine-tuned-quantized",
-      "label": "phi4-14b-finetuned"
+    "unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit": {
+      "name": "adapters/ministral3-14b-fine-tuned-quantized",
+      "label": "ministral3-14b-finetuned"
     },
     "google/gemma-3-4b-it": {
-      "name": "adapters/gemma-3-4b-it-fine-tuned-quantized",
+      "name": "adapters/gemma3-4b-fine-tuned-quantized",
       "label": "gemma3-4b-finetuned"
     }
   },
@@ -37,16 +39,16 @@
   ],
   "models": [
     {
-      "name": "unsloth/llama-3-8b-Instruct-bnb-4bit",
-      "label": "llama3-8b-base"
+      "name": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
+      "label": "llama31-8b-base"
     },
     {
-      "name": "unsloth/phi-4-unsloth-bnb-4bit",
-      "label": "phi4-14b-base"
+      "name": "unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit",
+      "label": "ministral3-14b-base"
     },
     {
       "name": "google/gemma-3-4b-it",
-      "label": "gemma3-4b"
+      "label": "gemma3-4b-base"
     }
   ]
 }

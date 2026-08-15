@@ -1,27 +1,35 @@
-"""Audit `testset.json` for entries the evaluation metric cannot discriminate.
+"""Label each `testset.json` entry with how well a result-only metric can score it.
 
-A test case is only usable when its gold result is a *proper non-trivial subset*. Two
-degenerate shapes make a case worthless regardless of how good the metric is:
+**This is a stratification tool, not a filter.** It was once used to decide which entries to
+delete; that was selection bias — removing items because models can pass them accidentally
+changes the population being measured instead of fixing the instrument. Its output is now a
+reported stratum, and a non-zero `non_discriminating` count is the expected, correct result.
 
-* **Empty result** — any broken model query that also returns nothing scores a perfect F1.
-* **Whole population, nothing distinguishing it** — any query that merely binds the right
-  object type scores a perfect F1 without expressing the constraint at all. For compliance
-  queries this shows up as a 0% or 100% violation rate.
+An entry is `non_discriminating` when the gold result equals what a *no-op baseline* returns —
+the same query with its constraints, size filters, labels and children stripped away. That
+happens for two very different reasons, and only the first is a defect:
 
-The known cause of the 0%-violation class is OCPQ's `SAT` constraint being *vacuously*
-satisfied: `SAT` is violated only when an existing child binding carries its own violation,
-so an empty child set satisfies it trivially. The fix is to make absence itself the
-violation via `SizeFilter{NumChilds, child_name, min: 1}` on the parent.
+* **Defective gold** — e.g. OCPQ's `SAT` is violated only when an existing child binding
+  carries its own violation, so an empty child set satisfies it vacuously and the query cannot
+  detect the violation its own NL describes. The repair is to make absence itself the violation
+  via `SizeFilter{NumChilds, child_name, min: 1}` on the parent.
+* **A compliance rule the log fully satisfies** — the gold query is *correct*, binds every
+  candidate, and flags nobody because nothing in that log breaks the rule. Nothing is wrong
+  with the entry; a result-only metric simply cannot tell a correct query from a lazy one on it.
 
-Result-set extraction is imported from `eval_testset.py` rather than reimplemented, so this
-audit always measures exactly what the evaluation measures (CLAUDE.md: no metric logic
-outside `eval_testset.py`).
+`baseline_f1` quantifies exactly that: the F1 the no-op baseline already scores against gold.
+On a fully-compliant entry it is ~1.0, meaning a model expressing nothing still earns full
+marks — so every model score must be read against this floor.
+
+Result-set extraction and scoring are imported from `eval_testset.py` rather than
+reimplemented, so this audit measures exactly what the evaluation measures (CLAUDE.md 2.5: no
+metric logic outside `eval_testset.py`).
 
 Outputs (written to `--output-dir`, default `eval_runs/`):
-  * `testset_discriminability.json` — per-entry verdict and counts.
-  * `testset_discriminability_proposals.json` — proposed replacement gold queries for
-    degenerate entries. **Proposals only** — `testset.json` is read-only and nothing is
-    applied automatically.
+  * `testset_discriminability.json` — per-entry verdict, counts and `baseline_f1`.
+  * `testset_discriminability_proposals.json` — proposed replacement gold queries. **Proposals
+    only** — `testset.json` is read-only and nothing is applied automatically. Treat these as
+    leads for the *defective* class above; a fully-compliant entry needs no repair.
 
 The summary is checkpointed after every entry and `--resume` reuses what is already there,
 so an interrupted run (a full pass takes over an hour, most of it on the 2.2 GB `bpic2017`
@@ -44,20 +52,27 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from eval_testset import _extract_result_ids, root_node_index
+from eval_testset import _extract_result_ids, _set_metrics, root_node_index
 from QueryExecutor import discard_result_file, run_ocpq_query
 
 
+# Verdict names. `non_discriminating` was called `degenerate_same_as_baseline` while this script
+# was used to *filter* the testset. It is now a stratification label, and "degenerate" actively
+# misdescribes what those entries are: compliance rules their log fully satisfies, whose gold
+# query is correct and simply flags nobody. Deleting them was the wrong remedy (it is selection
+# bias); reporting them as their own stratum, against the trivial floor below, is the right one.
 VERDICT_OK = "ok"
-VERDICT_EMPTY = "degenerate_empty"
-VERDICT_SAME_AS_BASELINE = "degenerate_same_as_baseline"
+VERDICT_EMPTY = "empty_result"
+VERDICT_SAME_AS_BASELINE = "non_discriminating"
 VERDICT_EXEC_FAILED = "execution_failed"
 VERDICT_BASELINE_FAILED = "baseline_execution_failed"
 
-DEGENERATE_VERDICTS = {
+# Entries a result-only metric cannot score meaningfully. Not "bad entries".
+NON_DISCRIMINATING_VERDICTS = {
     VERDICT_EMPTY,
     VERDICT_SAME_AS_BASELINE,
 }
+DEGENERATE_VERDICTS = NON_DISCRIMINATING_VERDICTS  # backwards-compatible alias
 
 # Filters that express linkage between entities rather than an assertion about them.
 # The no-op baseline keeps these so it stays bounded; every other filter is query logic
@@ -323,19 +338,39 @@ def _log_selected(ocel_path: str, log_filter: str) -> bool:
 def _build_summary(testset_path: str, results: list, proposals: dict) -> dict:
     """Aggregate per-entry records into the summary payload written to disk."""
     ordered = sorted(results, key=lambda r: r["index"])
-    degenerate = [r for r in ordered if r["verdict"] in DEGENERATE_VERDICTS]
+    nondisc = [r for r in ordered if r["verdict"] in NON_DISCRIMINATING_VERDICTS]
     failed = [r for r in ordered if r["verdict"] == VERDICT_EXEC_FAILED]
+
+    def _mean_floor(rows):
+        vals = [r["baseline_f1"] for r in rows if r.get("baseline_f1") is not None]
+        return round(sum(vals) / len(vals), 4) if vals else None
+
     return {
         "testset_path": testset_path,
         "total": len(ordered),
-        "ok": len(ordered) - len(degenerate) - len(failed),
-        "degenerate": len(degenerate),
+        "ok": len(ordered) - len(nondisc) - len(failed),
+        "non_discriminating": len(nondisc),
         "execution_failed": len(failed),
         "by_verdict": {
             verdict: sum(1 for r in ordered if r["verdict"] == verdict)
             for verdict in sorted({r["verdict"] for r in ordered})
         },
-        "degenerate_indices": [r["index"] for r in degenerate],
+        "non_discriminating_indices": [r["index"] for r in nondisc],
+        # The floor, per stratum. A trivial no-op query already scores this much against gold,
+        # so any model number has to be read against it. On the non-discriminating stratum this
+        # should sit at ~1.0, which is the quantitative statement of why those entries cannot be
+        # scored by result comparison alone.
+        "mean_baseline_f1": {
+            "overall": _mean_floor(ordered),
+            "discriminating": _mean_floor([r for r in ordered
+                                           if r["verdict"] == VERDICT_OK]),
+            "non_discriminating": _mean_floor(nondisc),
+        },
+        # Deprecated aliases, kept so notes and scripts written against the older naming stay
+        # true. "degenerate" described these entries when this script was a filter; it is wrong
+        # now that they are a reported stratum.
+        "degenerate": len(nondisc),
+        "degenerate_indices": [r["index"] for r in nondisc],
         "proposals_available": len(proposals),
         "entries": ordered,
     }
@@ -381,6 +416,16 @@ def audit(
             proposals = _read_json(str(proposals_path)) if proposals_path.exists() else {}
             print(f"resuming: {len(done)} entries already audited")
 
+    # Seed the checkpoint with everything already known, validated against the CURRENT testset.
+    # Without this, an interrupted run destroys completed work: `results` starts empty and only
+    # grows as the walk re-reaches each index, so a checkpoint written at index 57 contains 57
+    # entries and the file loses every cached row beyond it. That cost a completed 159-entry
+    # pass more than once. Keyed by index so a fresh result simply replaces its cached row.
+    results_by_index = {
+        i: r for i, r in done.items()
+        if i < len(testset) and testset[i].get("nl_query") == r.get("nl_query")
+    }
+
     for index, entry in enumerate(testset):
         nl_query = entry.get("nl_query", "")
         ocel_path = entry.get("ocel_path")
@@ -388,12 +433,9 @@ def audit(
         if not ocel_path or not gold_query:
             continue
         if log_filter and not _log_selected(str(ocel_path), log_filter):
-            if index in done and done[index].get("nl_query") == nl_query:
-                results.append(done[index])
-            continue
-        if index in done and done[index].get("nl_query") == nl_query:
-            results.append(done[index])
-            print(f"   [{index:3d}] cached {done[index]['verdict']}")
+            continue  # already carried in results_by_index if it was audited before
+        if index in results_by_index:
+            print(f"   [{index:3d}] cached {results_by_index[index]['verdict']}")
             continue
 
         started = time.time()
@@ -415,6 +457,14 @@ def audit(
         total = len(situations)
         violated = sum(1 for _e, _o, is_violated in situations if is_violated)
 
+        # The trivial floor: what the no-op baseline query already scores against gold under the
+        # evaluation's own metric. This is what makes "this entry is uninformative" a number
+        # rather than an assertion -- on a fully-compliant entry the floor is ~1.0, so a model
+        # that expresses nothing still earns full marks, and any model score has to be read
+        # against it. Scored with eval_testset._set_metrics so the floor and the reported metric
+        # are computed by the same code (CLAUDE.md 2.5).
+        baseline_scores = _set_metrics(situations, baseline_situations)
+
         record = {
             "index": index,
             "nl_query": nl_query,
@@ -426,9 +476,12 @@ def audit(
             "baseline_situations": (
                 len(baseline_situations) if baseline_situations is not None else None
             ),
+            "baseline_f1": (baseline_scores or {}).get("f1"),
+            "baseline_precision": (baseline_scores or {}).get("precision"),
+            "baseline_recall": (baseline_scores or {}).get("recall"),
             "duration_sec": round(time.time() - started, 3),
         }
-        results.append(record)
+        results_by_index[index] = record
 
         if verdict in DEGENERATE_VERDICTS:
             proposal = _propose_fix(entry, verdict, baseline_situations, scratch, index)
@@ -444,19 +497,28 @@ def audit(
         )
 
         # Checkpoint after every entry: a crash mid-run then costs one query, not the run.
-        _write_json(summary_path, _build_summary(testset_path, results, proposals))
+        _write_json(summary_path, _build_summary(testset_path,
+                                                 list(results_by_index.values()),
+                                                 proposals))
         _write_json(proposals_path, proposals)
 
-    summary = _build_summary(testset_path, results, proposals)
+    summary = _build_summary(testset_path, list(results_by_index.values()), proposals)
     _write_json(summary_path, summary)
     _write_json(proposals_path, proposals)
 
+    floors = summary["mean_baseline_f1"]
     print()
     print(f"total              : {summary['total']}")
-    print(f"discriminating     : {summary['ok']}")
-    print(f"degenerate         : {summary['degenerate']}  -> {summary['degenerate_indices']}")
+    print(f"discriminating     : {summary['ok']}   (trivial floor {floors['discriminating']})")
+    print(f"non-discriminating : {summary['non_discriminating']}   "
+          f"(trivial floor {floors['non_discriminating']})")
     print(f"execution failed   : {summary['execution_failed']}")
     print(f"auto-proposed fixes: {summary['proposals_available']}")
+    print()
+    print("Non-discriminating entries are NOT defects: their gold query is correct and the log "
+          "simply complies.")
+    print("They are a reported stratum, not a deletion list. The floor is what a no-op query "
+          "already scores.")
     print()
     print(f"wrote {output_dir / 'testset_discriminability.json'}")
     print(f"wrote {output_dir / 'testset_discriminability_proposals.json'}")

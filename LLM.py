@@ -370,12 +370,22 @@ _ATTR_TYPE_DISPLAY = {
 }
 
 # Upper bound on the rendered schema block, in estimated tokens. Deliberately ONE value for
-# every model: giving a 256k-context model more schema than an 8k one would mean the models
+# every model: giving a 256k-context model more schema than a smaller one would mean the models
 # see different prompts, which confounds the model-vs-model comparison the thesis rests on.
-# Sized for the smallest context in the model set, leaving room for the rules block, the
-# few-shot examples, and the reserved generation budget. Nothing else caps the prompt —
-# the local backend tokenizes without `max_length` — so this is the only guard.
-SCHEMA_BLOCK_TOKEN_BUDGET = int(os.getenv("OCPQ_SCHEMA_TOKEN_BUDGET", "3500"))
+# Nothing else caps the prompt — the local backend tokenizes without `max_length` — so this is
+# the only guard.
+#
+# Caps the schema SECTION, not the whole prompt. The largest rendered block across the eleven
+# evaluation logs is 10,493 tokens (angular_github_commits_ocel.xml; bpic2017 is 4,846, every
+# other log is under 1,500), so any ceiling from ~11k upward renders identical prompts. 17000 is
+# headroom above that measurement, not a whole-prompt figure.
+#
+# The previous 3500 was sized for Llama 3 8B's 8k context and silently dropped sections for
+# angular and bpic2017, contradicting the design stated in eval_testset.py — that every model
+# always receives the complete schema, richness not being a design variable. With Llama 3 and
+# Phi-4 replaced, the smallest context in the set is Gemma 3 4B at 128k (Llama 3.1 128k,
+# Ministral 3 256k), so the block no longer needs capping below its natural size.
+SCHEMA_BLOCK_TOKEN_BUDGET = int(os.getenv("OCPQ_SCHEMA_TOKEN_BUDGET", "17000"))
 
 # Schema text is name-heavy, so it tokenizes denser than prose. Used only to keep the block
 # under budget, never to report a metric, so an approximation is sufficient and avoids
@@ -531,8 +541,9 @@ def build_schema_block(schema, level=None):
     )
 
     # Event attributes come last because they are the least often needed and by far the
-    # largest: bpic2017 declares 494 of them (~15 000 tokens, more than Llama-3-8B's entire
-    # context) and angular 277. Budget-gated, so those two logs simply go without.
+    # largest: bpic2017 declares 494 of them and angular 277. Ordered last so that if the budget
+    # ever does bind, this is the section that goes rather than the entity or relation lists.
+    # At the current 17000 budget nothing is dropped for any of the eleven evaluation logs.
     _add(_render_attribute_section("EVENT ATTRIBUTES:", event_types,
                                    schema.get("event_attributes")), "event_attributes")
 

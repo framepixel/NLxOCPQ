@@ -198,6 +198,16 @@ def _example(record: dict, failure_class: str, diagnosis: dict) -> dict:
         "prompt_strategy": record.get("prompt_strategy"),
         "schema_enforced": record.get("schema_enforced"),
         "domain_seen": record.get("domain_seen"),
+        # Stratum + floor, so a retained example can be read in context: on a
+        # non-discriminating entry the trivial baseline already scores ~1.0, which changes what
+        # a given failure class means.
+        "discriminating": record.get("discriminating"),
+        "baseline_f1": record.get("baseline_f1"),
+        "structural_f1": ((record.get("metrics") or {}).get("structural") or {}).get("f1"),
+        # F1 against the floor, in [-1, 1]. A negative value on a retained example says the
+        # prediction did worse than a do-nothing query -- which the raw `f1` below can hide
+        # entirely when the floor is high.
+        "skill": ((record.get("metrics") or {}).get("skill")),
         "class": failure_class,
         "nl_query": record.get("nl_query"),
         "ocel_path": record.get("ocel_path"),
