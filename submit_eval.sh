@@ -35,16 +35,11 @@ conda activate "${OCPQ_EVAL_ENV:-nlxocpq-eval-v5}"
 export LD_LIBRARY_PATH="/cvmfs/software.hpc.rwth.de/Linux/RH8/x86_64/intel/skylake_avx512/software/intel-compilers/2024.2.0/compiler/2024.2/lib:${LD_LIBRARY_PATH:-}"
 
 # Fail here rather than hours in: LLM.py imports sklearn and openai unguarded at module level.
-python - <<'PY' || exit 1
-import importlib, sys
-missing = [m for m in ("torch", "transformers", "peft", "safetensors", "huggingface_hub",
-                       "numpy", "sklearn", "openai", "pydantic")
-           if importlib.util.find_spec(m) is None]
-if missing:
-    print(f"FATAL: environment is missing {missing}", file=sys.stderr)
-    sys.exit(1)
-print("eval dependencies OK")
-PY
+if [ ! -f "./check_eval_deps.py" ]; then
+  echo "FATAL: ./check_eval_deps.py not found — copy the current NLxOCPQ files to the cluster." >&2
+  exit 1
+fi
+python "./check_eval_deps.py" --verbose || exit 1
 
 echo "Starting eval_testset at: $(date)"
 echo "Python: $(which python)"; python --version

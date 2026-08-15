@@ -51,16 +51,11 @@ export LD_LIBRARY_PATH="/cvmfs/software.hpc.rwth.de/Linux/RH8/x86_64/intel/skyla
 
 # The first thing worth smoke-testing is the environment itself: LLM.py imports sklearn and
 # openai unguarded at module level, so a gap here kills every job before a model loads.
-python - <<'PY' || exit 1
-import importlib, sys
-missing = [m for m in ("torch", "transformers", "peft", "safetensors", "huggingface_hub",
-                       "numpy", "sklearn", "openai", "pydantic")
-           if importlib.util.find_spec(m) is None]
-if missing:
-    print(f"FATAL: environment is missing {missing}", file=sys.stderr)
-    sys.exit(1)
-print("eval dependencies OK")
-PY
+if [ ! -f "$PROJECT_DIR/check_eval_deps.py" ]; then
+  echo "FATAL: $PROJECT_DIR/check_eval_deps.py not found — copy the current NLxOCPQ files to the cluster." >&2
+  exit 1
+fi
+python "$PROJECT_DIR/check_eval_deps.py" --verbose || exit 1
 
 [ -f "$HOME/.hf_token" ] && export HF_TOKEN="$(cat "$HOME/.hf_token")"
 

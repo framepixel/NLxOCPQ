@@ -20,6 +20,15 @@ DST_ENV="${OCPQ_EVAL_ENV:-nlxocpq-eval-v5}"
 # Only these may be added. Anything else that changes version is a collateral upgrade.
 NEW_PACKAGES=(scikit-learn openai)
 
+# Resolve relative to this script rather than the caller's cwd.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPS_CHECK="$SCRIPT_DIR/check_eval_deps.py"
+if [ ! -f "$DEPS_CHECK" ]; then
+  echo "FATAL: $DEPS_CHECK not found." >&2
+  echo "It is a companion file of this script and must be copied to the cluster too." >&2
+  exit 1
+fi
+
 source "$HOME/miniforge3/etc/profile.d/conda.sh"
 
 if ! conda env list | awk '{print $1}' | grep -qx "$SRC_ENV"; then
@@ -58,7 +67,7 @@ pip install --disable-pip-version-check "${NEW_PACKAGES[@]}"
 
 echo "== Verifying the eval imports"
 # Uses the same checker the jobs run, so a green build here means a green pre-flight there.
-python "$(dirname "$0")/check_eval_deps.py" --verbose
+python "$DEPS_CHECK" --verbose
 
 echo "== Checking nothing else moved"
 AFTER="$(mktemp)"
