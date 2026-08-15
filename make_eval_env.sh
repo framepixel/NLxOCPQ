@@ -57,18 +57,8 @@ pip install --disable-pip-version-check --dry-run "${NEW_PACKAGES[@]}" 2>&1 | ta
 pip install --disable-pip-version-check "${NEW_PACKAGES[@]}"
 
 echo "== Verifying the eval imports"
-python - <<'PY'
-import importlib, sys
-required = ("torch", "transformers", "peft", "safetensors", "huggingface_hub",
-            "numpy", "sklearn", "openai", "pydantic")
-missing = [m for m in required if importlib.util.find_spec(m) is None]
-if missing:
-    print(f"FATAL: still missing {missing}", file=sys.stderr)
-    sys.exit(1)
-import torch, transformers
-print(f"   torch {torch.__version__} | transformers {transformers.__version__}")
-print("   all eval imports resolve")
-PY
+# Uses the same checker the jobs run, so a green build here means a green pre-flight there.
+python "$(dirname "$0")/check_eval_deps.py" --verbose
 
 echo "== Checking nothing else moved"
 AFTER="$(mktemp)"
