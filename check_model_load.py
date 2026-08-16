@@ -71,6 +71,27 @@ def main():
                 raise RuntimeError(f"{type(tok).__name__} has no apply_chat_template "
                                    "-- a processor leaked through instead of a tokenizer")
             print(f"     context limit   : {LLM._model_context_limit()}")
+            # Recorded because it drives generation speed and is resolved implicitly: nothing in
+            # this project sets `attn_implementation`, so transformers picks it (None -> sdpa,
+            # falling back to eager when unsupported). Gemma 3 is 5-13x slower per run than
+            # Ministral 14B and it is worth knowing from the artifact, not from assumption,
+            # which kernel each model actually ended up on.
+            cfg = getattr(model, "config", None)
+            attn = getattr(cfg, "_attn_implementation", None)
+            text_cfg = getattr(cfg, "text_config", None)
+            print(f"     attention       : {attn}"
+                  + (f" (text_config: {getattr(text_cfg, '_attn_implementation', None)})"
+                     if text_cfg is not None else ""))
+            # Gemma 2 defaulted attn_logit_softcapping to 50.0, which sdpa cannot express; Gemma 3
+            # defaults it to None. Where it IS set, a non-eager kernel silently drops the tanh and
+            # you are running a different model, not merely different arithmetic.
+            for attr in ("attn_logit_softcapping", "final_logit_softcapping"):
+                val = getattr(cfg, attr, None)
+                if val is None and text_cfg is not None:
+                    val = getattr(text_cfg, attr, None)
+                if val is not None:
+                    print(f"     {attr}: {val}  <- kernel choice is NOT numerically neutral here")
+            print(f"     vocab size      : {getattr(cfg, 'vocab_size', None) or getattr(text_cfg, 'vocab_size', None)}")
 
             resp = LLM._call_local_gpu_chat_completion(
                 messages=[{"role": "user", "content": "Reply with the single word: ready"}],
