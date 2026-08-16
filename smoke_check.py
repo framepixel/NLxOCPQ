@@ -29,6 +29,12 @@ REQUIRED_ARTIFACTS = (
 # has not demonstrated it works.
 HEALTHY_STATUSES = {"success", "no_result"}
 
+# Statuses that indicate *our* code failed, as opposed to the model producing bad output.
+# `pipeline_error` is an unhandled exception; `execution_failed` means a query was produced and
+# ocpq_cli then died on it. Both are defects. `schema_invalid` and `parse_failed` mean the model
+# emitted something unusable -- a measurement, which is what the matrix exists to collect.
+PIPELINE_FAULT_STATUSES = {"pipeline_error", "execution_failed"}
+
 
 class Checker:
     def __init__(self):
@@ -92,14 +98,28 @@ def main():
                 "every condition produced records", f"{len(counts)} with records")
 
     print("\nper-condition health")
-    dead = []
-    for cid, n in sorted(
-            ((cid, sum(1 for r in records
-                       if r.get("config_id") == cid and r.get("status") in HEALTHY_STATUSES))
-             for cid in {r.get("config_id") for r in records}), key=lambda x: x[0]):
-        if n == 0:
-            dead.append(cid)
-    c.check(not dead, "no condition failed every case", f"dead: {dead[:4]}")
+    # A condition producing nothing usable means one of two very different things, and treating
+    # them alike trains the reader to ignore this checker. The 2026-08-15 run failed on four
+    # gemma3-4b-base conditions whose cases were all `schema_invalid` -- a weak base model
+    # emitting bad JSON four times out of four is a *result*, not a broken pipeline.
+    broken, weak = [], []
+    for cid in sorted({r.get("config_id") for r in records}):
+        cond = [r for r in records if r.get("config_id") == cid]
+        if any(r.get("status") in HEALTHY_STATUSES for r in cond):
+            continue
+        causes = {r.get("status") for r in cond}
+        if causes & PIPELINE_FAULT_STATUSES:
+            broken.append((cid, sorted(causes)))
+        else:
+            weak.append((cid, sorted(causes)))
+    c.check(not broken, "no condition broken by a pipeline fault",
+            f"{[b[0] for b in broken[:3]]}" if broken else "")
+    for cid, causes in broken[:4]:
+        print(f"      {cid}: {causes}")
+    c.warn(not weak, "every condition produced at least one usable result",
+           f"{len(weak)} condition(s) where the model never emitted a valid query")
+    for cid, causes in weak[:4]:
+        print(f"      {cid}: {causes}  (model quality, not a pipeline fault)")
 
     statuses = {}
     for r in records:

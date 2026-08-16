@@ -16,6 +16,7 @@ asserted.
 """
 import argparse
 import sys
+from pathlib import Path
 
 # Third-party modules reached on the evaluation path (eval_testset -> LLM/QueryExecutor/...).
 REQUIRED = [
@@ -31,9 +32,58 @@ REQUIRED = [
 ]
 
 
+def check_data_files(config_path):
+    """Verify the input data a run needs. Returns a list of problems.
+
+    Imports are not the only way a job can waste GPU hours. The 2026-08-15 smoke run completed
+    and produced 144 records with *no stratum labels at all*, because
+    `eval_runs/testset_discriminability.json` had not been copied to the cluster: the code warns
+    and carries on, which is right for a partial run but meant three GPU-hours of unusable
+    strata. Data absence is cheap to detect here and expensive to detect afterwards.
+    """
+    import json
+
+    here = Path(__file__).resolve().parent
+    problems = []
+
+    required = [
+        ("testset.json", "the evaluation testset"),
+        ("testset_bb_labels.json", "building-block labels for the per-BB breakdown"),
+        ("eval_runs/testset_discriminability.json",
+         "stratum labels and the trivial floor (skill metrics are dead without it)"),
+        ("ocpq_dataset.json", "few-shot retrieval corpus"),
+        ("embeddings.npy", "few-shot retrieval embeddings"),
+    ]
+    for rel, why in required:
+        if not (here / rel).exists():
+            problems.append(f"missing {here / rel} — {why}")
+
+    # The OCEL logs are referenced by relative path from the testset; a missing one fails only
+    # when that case is reached, potentially hours in.
+    testset_path = here / "testset.json"
+    if testset_path.exists():
+        try:
+            rows = json.loads(testset_path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            problems.append(f"testset.json is unreadable: {exc}")
+            rows = []
+        missing_logs = sorted({
+            row["ocel_path"] for row in rows
+            if row.get("ocel_path") and not (here / row["ocel_path"]).exists()
+        })
+        for log in missing_logs[:5]:
+            problems.append(f"missing OCEL log {(here / log)}")
+        if len(missing_logs) > 5:
+            problems.append(f"... and {len(missing_logs) - 5} more missing OCEL log(s)")
+
+    return problems
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--verbose", action="store_true", help="print resolved versions")
+    ap.add_argument("--skip-data", action="store_true",
+                    help="check imports only, without the input-data files")
     args = ap.parse_args()
 
     failures = []
@@ -57,7 +107,18 @@ def main():
         print("\nBuild the eval environment with:  bash make_eval_env.sh", file=sys.stderr)
         return 1
 
-    print(f"eval dependencies OK ({len(versions)} modules)")
+    data_problems = [] if args.skip_data else check_data_files(None)
+    if data_problems:
+        print("FATAL: required input data is missing.", file=sys.stderr)
+        for line in data_problems:
+            print(f"  - {line}", file=sys.stderr)
+        print("\nCopy the current NLxOCPQ files to the cluster, including eval_runs/ "
+              "(a plain rsync that excludes it drops the discriminability audit).",
+              file=sys.stderr)
+        return 1
+
+    suffix = "" if args.skip_data else " + input data"
+    print(f"eval dependencies OK ({len(versions)} modules{suffix})")
     return 0
 
 

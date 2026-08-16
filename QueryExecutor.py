@@ -84,6 +84,32 @@ _CLI_MODE = None  # None=unknown, "subcommand", or "bare"
 _CLI_MODE_LOCK = threading.Lock()
 
 
+# Upper bound on captured CLI output, in characters. ocpq_cli evaluates bindings across rayon
+# worker threads, and a malformed predicted query makes every one of them panic separately: a
+# single bad query in the 2026-08-15 smoke test produced 46,016 identical
+# "index out of bounds" lines, 6.8 MB of log across only 144 runs. The same text is stored in
+# `query_stdout` on every record, so an uncapped dump inflates predictions.json too. Head and
+# tail are both kept because the first lines identify the panic and the last usually carry the
+# CLI's own summary.
+_MAX_CLI_OUTPUT_CHARS = int(os.getenv("OCPQ_CLI_OUTPUT_CHAR_CAP", "8000"))
+
+
+def _clip_cli_output(text):
+    """Bound a CLI stdout/stderr dump, stating explicitly how much was dropped."""
+    if not text or len(text) <= _MAX_CLI_OUTPUT_CHARS:
+        return text
+    head = _MAX_CLI_OUTPUT_CHARS * 2 // 3
+    tail = _MAX_CLI_OUTPUT_CHARS - head
+    omitted = len(text) - head - tail
+    omitted_lines = text.count("\n", head, len(text) - tail)
+    return (
+        f"{text[:head]}\n"
+        f"[... {omitted} characters / ~{omitted_lines} lines omitted "
+        f"(cap {_MAX_CLI_OUTPUT_CHARS}); ocpq_cli panics once per worker thread ...]\n"
+        f"{text[-tail:]}"
+    )
+
+
 def _cargo_invocation(cargo_cmd, cli_dir):
     """Build the cargo prefix that runs `ocpq_cli` regardless of the working directory.
 
@@ -266,10 +292,13 @@ def run_ocpq_query(ocel_path, query_result_file):
                 process.returncode, cmd, output=stdout, stderr=stderr
             )
             
+        # Clipped before printing *and* before returning, so the cap protects the stored record
+        # as much as the console.
+        stdout = _clip_cli_output(stdout.strip() if stdout else stdout)
         print("--- Query Execution Result ---")
-        print(stdout.strip())
+        print(stdout)
         print("-----------------------------\n")
-        
+
         result_file = _collect_exported_result(run_dir)
         if result_file is None:
             shutil.rmtree(run_dir, ignore_errors=True)
@@ -311,11 +340,17 @@ def run_ocpq_query(ocel_path, query_result_file):
             
             stdout_dump = e.stdout.strip() if e.stdout else ""
             stderr_dump = e.stderr.strip() if e.stderr else ""
-            
-            # Filter stderr to only include the panic message if it exists
+
+            # Filter stderr to only include the panic message if it exists. Note this matches
+            # only main-thread panics; the high-volume ones come from rayon workers
+            # ("thread '<unnamed>'"), which is why the clip below is the real bound.
             if "thread 'main'" in stderr_dump:
                 stderr_dump = stderr_dump[stderr_dump.find("thread 'main'"):]
-                
+
+            stdout_dump = _clip_cli_output(stdout_dump)
+            stderr_dump = _clip_cli_output(stderr_dump)
+
+
             if stdout_dump:
                 print("Stdout Dump:\n", stdout_dump)
             if stderr_dump:

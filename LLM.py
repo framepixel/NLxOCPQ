@@ -760,6 +760,56 @@ def _bitsandbytes_quantization_config(torch_module, quantization_mode, resolved_
     )
 
 
+def _load_text_generation_model(model_name, **kwargs):
+    """Load a checkpoint for text generation under whichever auto class it is registered for.
+
+    `AutoModelForCausalLM` is not universal. Multimodal checkpoints may be registered only under
+    `AutoModelForImageTextToText`, and which ones varies by transformers release: on 5.5.0
+    Gemma 3 loads fine as a causal LM while Ministral 3 raises
+
+        Unrecognized configuration class Mistral3Config for this kind of AutoModel:
+        AutoModelForCausalLM
+
+    That killed all 48 Ministral runs of the 2026-08-15 smoke test -- a third of the matrix
+    producing nothing. Because the split does not follow architecture families, this reacts to
+    the actual error rather than encoding a mapping of which models are multimodal, which would
+    drift with every transformers upgrade.
+
+    The image-text-to-text wrapper generates from `input_ids` alone; no pixel inputs are needed.
+    """
+    from transformers import AutoModelForCausalLM
+
+    try:
+        return AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
+    except ValueError as exc:
+        if "Unrecognized configuration class" not in str(exc):
+            raise
+        try:
+            from transformers import AutoModelForImageTextToText
+        except ImportError:
+            raise exc
+        print(
+            f"[model load] {model_name} is not registered for AutoModelForCausalLM; "
+            "loading via AutoModelForImageTextToText (multimodal checkpoint)."
+        )
+        return AutoModelForImageTextToText.from_pretrained(model_name, **kwargs)
+
+
+def _as_tokenizer(tokenizer_or_processor):
+    """Return the tokenizer, unwrapping a processor if one came back.
+
+    `AutoTokenizer` on a multimodal repo can yield a processor whose first positional argument is
+    `images`, not `text` -- the failure the Ministral training spike hit. Unwrapping keeps every
+    downstream call (`apply_chat_template`, `__call__`, `pad_token`) operating on a tokenizer.
+    """
+    inner = getattr(tokenizer_or_processor, "tokenizer", None)
+    if inner is not None and hasattr(inner, "apply_chat_template"):
+        print(f"[model load] unwrapped {type(tokenizer_or_processor).__name__} -> "
+              f"{type(inner).__name__}")
+        return inner
+    return tokenizer_or_processor
+
+
 def _ensure_local_gpu_model_loaded():
     global local_model
     global local_tokenizer
@@ -854,8 +904,8 @@ def _ensure_local_gpu_model_loaded():
             # mismatch between training and inference bitsandbytes), causing every forward
             # pass to raise a bare AssertionError with empty message. Loading only the
             # LoRA A/B tensors (keys containing "lora_") sidesteps the issue entirely.
-            base = AutoModelForCausalLM.from_pretrained(base_model_name, **auth_kwargs, **model_kwargs)
-            tokenizer = AutoTokenizer.from_pretrained(base_model_name, use_fast=True, trust_remote_code=True, **auth_kwargs)
+            base = _load_text_generation_model(base_model_name, **auth_kwargs, **model_kwargs)
+            tokenizer = _as_tokenizer(AutoTokenizer.from_pretrained(base_model_name, use_fast=True, trust_remote_code=True, **auth_kwargs))
 
             # Compatibility shim: get_peft_model / load_state_dict inspect Params4bit-
             # specific attributes (compress_statistics, quant_type, …) on the freshly
@@ -902,6 +952,19 @@ def _ensure_local_gpu_model_loaded():
                 _loaded = len(_lora_sd) - len(_unexpected)
                 print(f"[adapter load] injected {_loaded}/{len(_lora_sd)} LoRA tensors "
                       f"({len(_unexpected)} unexpected)")
+                # Any unmatched key means the fine-tuning is only partly applied, which produces
+                # a silently degraded model rather than an error -- the worst outcome in an
+                # evaluation. Both working adapters report 0 unexpected, so nothing legitimate is
+                # being rejected here. A multimodal wrapper nests the decoder (e.g. under
+                # `model.language_model.*`), so a name shift shows up as unexpected keys; the
+                # sample below is what a prefix mapping would be written from.
+                if _unexpected:
+                    _sample = ", ".join(_unexpected[:3])
+                    raise RuntimeError(
+                        f"Adapter only partially applied: {_loaded}/{len(_lora_sd)} tensors "
+                        f"matched, {len(_unexpected)} did not. Unmatched keys look like: "
+                        f"{_sample}. Loading would give a half-fine-tuned model."
+                    )
                 if _loaded <= 0:
                     raise RuntimeError("No LoRA tensors matched the model's parameter names.")
             finally:
@@ -914,10 +977,10 @@ def _ensure_local_gpu_model_loaded():
 
         elif merged_weights:
             # Directory appears to contain merged weights; load directly from the directory
-            tokenizer = AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs)
+            tokenizer = _as_tokenizer(AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs))
             if tokenizer.pad_token is None and tokenizer.eos_token is not None:
                 tokenizer.pad_token = tokenizer.eos_token
-            model = AutoModelForCausalLM.from_pretrained(hf_model, **auth_kwargs, **model_kwargs)
+            model = _load_text_generation_model(hf_model, **auth_kwargs, **model_kwargs)
 
         else:
             raise RuntimeError(
@@ -926,10 +989,10 @@ def _ensure_local_gpu_model_loaded():
 
     else:
         # Normal HF hub id or remote model
-        tokenizer = AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs)
+        tokenizer = _as_tokenizer(AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs))
         if tokenizer.pad_token is None and tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(hf_model, **auth_kwargs, **model_kwargs)
+        model = _load_text_generation_model(hf_model, **auth_kwargs, **model_kwargs)
 
     if not any(param.is_cuda for param in model.parameters()):
         raise RuntimeError(
@@ -963,17 +1026,37 @@ def _model_context_limit():
     return value if isinstance(value, int) and value > 0 else None
 
 
+class PromptTooLongError(RuntimeError):
+    """The prompt alone exceeds the model's context, so no generation budget can rescue it."""
+
+
 def _check_context_budget(prompt_tokens, max_tokens):
-    """Warn when a prompt plus its generation budget will not fit the context window.
+    """Guard the context window: raise when hopeless, warn when merely tight.
 
     Nothing in this path truncates: the tokenizer is called without `max_length` and
     `generation_config.max_length` is set to None, so an oversized prompt is not clipped —
     it degrades or errors during generation. Without this the failure would surface only as
     unexplained garbage output in the results.
+
+    Two distinct cases, and conflating them is what made the 2026-08-15 smoke test spend five
+    OOM retries on a single case:
+
+    * **Prompt alone over the limit** — unrecoverable. `call_hf_with_retry` responds to OOM by
+      shrinking `max_tokens`, which cannot help when the *prompt* is 1.2M tokens against a 131k
+      context. Raising here turns a five-attempt death spiral (ending in a 1,444 GiB allocation
+      request) into one fast, correctly-classified failure.
+    * **Prompt plus generation budget over the limit** — recoverable by generating less, which
+      is exactly what the retry loop does. Warn and let it proceed.
     """
     limit = _model_context_limit()
     if not limit:
         return
+    if prompt_tokens > limit:
+        raise PromptTooLongError(
+            f"Prompt is {prompt_tokens} tokens against a {limit}-token context: no generation "
+            "budget can make this fit. Usually runaway conversation history rather than the "
+            f"schema block (currently capped at {SCHEMA_BLOCK_TOKEN_BUDGET} tokens)."
+        )
     needed = prompt_tokens + int(max_tokens or 0)
     if needed <= limit:
         return
@@ -1121,7 +1204,37 @@ def _build_response_format(schema_name, schema, enforce_schema=True):
 
 # In[7]:
 
+# Upper bound on a single message's content, in characters. A well-formed OCPQ query serialises
+# to 1-3 KB and the largest gold query in the testset is under 3 KB, so this never binds on a
+# valid exchange. It exists for the pathological case: the chain-of-thought-plus pipeline and the
+# repair loops append the model's own output back into the history, and one 2026-08-15 smoke case
+# compounded that into a 1,245,363-token prompt.
+MESSAGE_CONTENT_CHAR_CAP = int(os.getenv("OCPQ_MESSAGE_CHAR_CAP", "20000"))
+
+
+def _clamp_message_history(messages):
+    """Truncate over-long message contents, marking what was dropped.
+
+    Applied at the single point where messages are dispatched to a model rather than at the ~10
+    `messages.append` sites, so no future append can bypass it. Returns a new list; the caller's
+    history is left intact, so nothing downstream sees a silently rewritten transcript.
+    """
+    clamped = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, str) and len(content) > MESSAGE_CONTENT_CHAR_CAP:
+            omitted = len(content) - MESSAGE_CONTENT_CHAR_CAP
+            message = dict(message, content=(
+                content[:MESSAGE_CONTENT_CHAR_CAP]
+                + f"\n[... {omitted} characters omitted: message exceeded the "
+                  f"{MESSAGE_CONTENT_CHAR_CAP}-character cap ...]"
+            ))
+        clamped.append(message)
+    return clamped
+
+
 def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries=5):
+    messages = _clamp_message_history(messages)
     if hf_backend == "local-gpu":
         current_max_tokens = max_tokens
         for attempt in range(max_retries):
@@ -1139,6 +1252,10 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
                     response_format=response_format,
                 )
                 return response
+            except PromptTooLongError:
+                # Never retried: the retry shrinks max_tokens, and the prompt is what does not
+                # fit. Retrying cost five attempts and a 1,444 GiB allocation request once.
+                raise
             except RuntimeError as exc:
                 is_oom = "out of memory" in str(exc).lower()
                 if is_oom and attempt < max_retries - 1:
