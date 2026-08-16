@@ -168,6 +168,32 @@ def _config_fingerprint(config):
     return hashlib.sha256(json.dumps(safe, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
+# Source files whose contents determine what a run produces. Hashed into every run manifest so
+# shards evaluated at different times can be proven to have come from the same pipeline.
+_PIPELINE_SOURCE_FILES = (
+    "eval_testset.py", "LLM.py", "QueryExecutor.py", "ocpq_schema.py",
+    "LogEvents.py", "result_store.py", "expand_models.py", "tag_testset_bb.py",
+)
+
+
+def _pipeline_fingerprint():
+    """Hash of the evaluation source, so code drift between shards is detectable.
+
+    `config_fingerprint` covers configuration and `testset_hash` covers the data, but nothing
+    covered the code. That matters when the matrix is launched in waves -- running Llama and
+    Ministral now and Gemma next week is scientifically sound *only* if the pipeline is identical
+    for both, and an edit to a prompt strategy in between would otherwise leave no trace. Recorded
+    per run and compared at merge time.
+    """
+    here = Path(__file__).resolve().parent
+    digest = hashlib.sha256()
+    for name in sorted(_PIPELINE_SOURCE_FILES):
+        path = here / name
+        digest.update(name.encode("utf-8"))
+        digest.update(_sha256_file(path).encode("utf-8") if path.is_file() else b"MISSING")
+    return digest.hexdigest()
+
+
 def _record_key(case_id, config_id, repeat):
     return f"{case_id}:{config_id}:{repeat}"
 
@@ -917,6 +943,9 @@ def run_evaluation(config_path_or_config):
         "testset_path": str(testset_abs),
         "testset_hash": testset_hash,
         "config_fingerprint": config_fingerprint,
+        # Identifies the evaluation source that produced this shard. Shards merged into one
+        # result set must agree on it, or they are not comparable.
+        "pipeline_fingerprint": _pipeline_fingerprint(),
         "resume_from": str(resume_from) if resume_from else None,
         "records": len(valid_testset),
         "loaded_records": len(testset),
@@ -1795,6 +1824,7 @@ def _merge_shards(shard_dirs, output_dir):
 
     all_records = []
     repeats = 1
+    fingerprints = defaultdict(list)
     for shard_dir in shard_dirs:
         shard_path = Path(shard_dir)
         predictions_path = shard_path / "predictions.json"
@@ -1807,6 +1837,7 @@ def _merge_shards(shard_dirs, output_dir):
         if cfg_path.exists():
             manifest = _read_json(cfg_path)
             repeats = manifest.get("config", {}).get("repeats", repeats)
+            fingerprints[manifest.get("pipeline_fingerprint")].append(shard_path.name)
 
     if not all_records:
         print("No records found across shards. Nothing to merge.")
@@ -1823,9 +1854,22 @@ def _merge_shards(shard_dirs, output_dir):
         print(f"Dropped {len(all_records) - len(deduped)} duplicate record(s) across shards.")
     all_records = list(deduped.values())
 
+    # Shards launched in separate waves -- e.g. Llama and Ministral now, Gemma after a decision --
+    # are only comparable if the pipeline was identical for all of them. Recorded in the summary
+    # rather than merely printed, so a mixed merge cannot be lost from the record.
+    summary_fingerprints = {fp: sorted(v) for fp, v in fingerprints.items()}
+    if len(fingerprints) > 1:
+        print("\n*** WARNING: shards were produced by DIFFERENT pipeline versions ***")
+        for fp, shards in summary_fingerprints.items():
+            print(f"  {str(fp)[:16]}: {len(shards)} shard(s) e.g. {shards[:3]}")
+        print("  These results are not strictly comparable. Re-run the affected shards with a "
+              "single pipeline version, or state the difference explicitly.\n")
+
     _write_json(output_dir / "predictions.json", all_records)
     summary = _build_summary(all_records, repeats)
     summary["evaluation_phases"] = EVALUATION_PHASES
+    summary["pipeline_fingerprints"] = summary_fingerprints
+    summary["pipeline_consistent"] = len(fingerprints) <= 1
 
     # Union every shard's result store into the merged directory, so the merged run can be
     # rescored with `--recompute` on its own. Safe without conflict resolution: the filename is
