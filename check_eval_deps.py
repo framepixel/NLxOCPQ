@@ -15,6 +15,7 @@ asserted.
     python check_eval_deps.py --verbose  # print resolved versions
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -30,6 +31,27 @@ REQUIRED = [
     ("openai", "imported unconditionally by LLM.py:19; unused when backend=local-gpu"),
     ("pydantic", "BindingBoxTree schema validation"),
 ]
+
+
+def _resolve_ocel_path(raw_path, anchor_dir):
+    """Resolve a testset `ocel_path` the way the evaluation does.
+
+    Mirrors `eval_testset._resolve_ocel_path`, deliberately rather than importing it: importing
+    `eval_testset` pulls in `LLM`, which calls `load_resources()` at module level and costs ~13 s
+    plus an embedding-model load — far too heavy for a preflight whose job is to fail in
+    milliseconds.
+
+    The separator normalisation is the whole point. `testset.json` stores Windows-style
+    `..\\Logs\\03_hiring.xml`; on Linux that is a single filename containing backslashes, so a
+    naive `exists()` reports every log as missing. That false alarm blocked a smoke run.
+    `scratchpad/test_path_resolution.py` asserts this function agrees with the evaluation's on
+    every testset entry, so the duplication cannot drift unnoticed.
+    """
+    normalized = str(raw_path).replace("\\", os.sep).replace("/", os.sep)
+    candidate = Path(normalized)
+    if candidate.is_absolute():
+        return candidate
+    return (Path(anchor_dir) / candidate).resolve()
 
 
 def check_data_files(config_path):
@@ -69,7 +91,7 @@ def check_data_files(config_path):
             rows = []
         missing_logs = sorted({
             row["ocel_path"] for row in rows
-            if row.get("ocel_path") and not (here / row["ocel_path"]).exists()
+            if row.get("ocel_path") and not _resolve_ocel_path(row["ocel_path"], here).exists()
         })
         for log in missing_logs[:5]:
             problems.append(f"missing OCEL log {(here / log)}")
