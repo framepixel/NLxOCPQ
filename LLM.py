@@ -660,10 +660,27 @@ def parse_llm_json(content):
         try:
             # Fallback: convert python-like string (with single quotes) to Python dict
             py_content = clean_content.replace("null", "None").replace("true", "True").replace("false", "False")
-            return ast.literal_eval(py_content)
+            parsed = ast.literal_eval(py_content)
         except Exception as e:
             print(f"Failed to decode JSON. Error: {e}\nRaw output:\n{content}")
             return None
+
+        # `literal_eval` accepts Python literals that JSON has no concept of. The one that bites
+        # is `...`, which models emit constantly as an abbreviation placeholder: it evaluates to
+        # `Ellipsis`, so the result *looks* like a parsed dict and only fails later, deep inside
+        # `json.dumps`, as "Object of type ellipsis is not JSON serializable". That surfaced as an
+        # unhandled `pipeline_error` -- our defect -- rather than the `parse_failed` it really is,
+        # and it hit 2 of the first 29 runs of the 2026-08-16 smoke test.
+        #
+        # A round-trip through `json.dumps` catches the whole family (ellipsis, sets, bytes,
+        # complex) rather than special-casing the one we happened to see.
+        try:
+            json.dumps(parsed)
+        except (TypeError, ValueError) as exc:
+            print(f"Parsed output is not JSON-serialisable ({exc}); treating as unparseable.\n"
+                  f"Raw output:\n{content}")
+            return None
+        return parsed
 
 
 def get_validation_error_text(ocpq_json):

@@ -30,10 +30,16 @@ REQUIRED_ARTIFACTS = (
 HEALTHY_STATUSES = {"success", "no_result"}
 
 # Statuses that indicate *our* code failed, as opposed to the model producing bad output.
-# `pipeline_error` is an unhandled exception; `execution_failed` means a query was produced and
-# ocpq_cli then died on it. Both are defects. `schema_invalid` and `parse_failed` mean the model
-# emitted something unusable -- a measurement, which is what the matrix exists to collect.
-PIPELINE_FAULT_STATUSES = {"pipeline_error", "execution_failed"}
+# `pipeline_error` is an unhandled exception in the harness -- always a defect.
+#
+# `execution_failed` is deliberately NOT here. ocpq_cli only ever runs on a model-produced query,
+# and it panics rather than erroring cleanly when that query is semantically invalid (an
+# out-of-range variable index, say). So an isolated execution_failed is downstream of model
+# quality, and failing a whole condition for it would flag a weak model as a broken pipeline.
+# Infrastructure failure -- a missing CLI, an unreadable log -- shows up instead as execution
+# failure across *everything*, which `EXECUTION_FAILURE_ALARM_RATE` below catches.
+PIPELINE_FAULT_STATUSES = {"pipeline_error"}
+EXECUTION_FAILURE_ALARM_RATE = 0.5
 
 
 class Checker:
@@ -128,6 +134,12 @@ def main():
     healthy = sum(v for k, v in statuses.items() if k in HEALTHY_STATUSES)
     c.warn(healthy >= 0.5 * len(records), "at least half of all runs healthy",
            f"{healthy}/{len(records)}")
+    # Scattered execution failures are bad queries; near-universal ones are a broken CLI or
+    # unreadable logs, which no amount of model quality would explain.
+    exec_failed = statuses.get("execution_failed", 0)
+    c.check(exec_failed <= EXECUTION_FAILURE_ALARM_RATE * len(records),
+            f"execution failures below {EXECUTION_FAILURE_ALARM_RATE:.0%} (else infrastructure)",
+            f"{exec_failed}/{len(records)}")
 
     print("\nmodels")
     labels = sorted({r.get("model_label") for r in records if r.get("model_label")})

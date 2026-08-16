@@ -5,7 +5,13 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
-#SBATCH --time=04:00:00
+# 6h. Measured 2026-08-16: 141 of 144 runs took 4h01m, so a 4h limit missed the finish by three
+# runs. Gemma 3 4B dominates -- despite being the smallest model it is 5-13x slower per run than
+# Ministral 14B (381 s/run at worst against 28 s), because Gemma 3 requires eager attention and
+# cannot use the fused kernels the others get. It alone accounted for 68% of the wall time.
+# This does not threaten the matrix: there each array task runs one model, and the worst
+# projected shard (gemma3-4b-finetuned x grammar-guided, 85 cases) is ~9h against a 14h limit.
+#SBATCH --time=06:00:00
 #SBATCH --account=thes2358
 
 # Pre-launch smoke test for the 36-condition matrix.
