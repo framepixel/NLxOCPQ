@@ -52,9 +52,22 @@ echo "Python: $(which python)"; python --version
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 echo
 
+# OCPQ_MODEL_CHECK_CONFIG points at a candidate config, so a model can be proven to load before
+# ~8h of training is queued against it. Defaults to the real matrix config.
+CHECK_CONFIG="${OCPQ_MODEL_CHECK_CONFIG:-eval_config.json}"
+case "$CHECK_CONFIG" in
+  /*) ;;
+  *) CHECK_CONFIG="$PROJECT_DIR/$CHECK_CONFIG" ;;
+esac
+if [ ! -f "$CHECK_CONFIG" ]; then
+  echo "FATAL: config not found: $CHECK_CONFIG" >&2
+  exit 1
+fi
+echo "Config: $CHECK_CONFIG"
+
 if [ -n "${OCPQ_MODEL_IDX:-}" ]; then
   # shellcheck disable=SC2086
-  python "$PROJECT_DIR/check_model_load.py" --model-idx ${OCPQ_MODEL_IDX}
+  python "$PROJECT_DIR/check_model_load.py" --config "$CHECK_CONFIG" --model-idx ${OCPQ_MODEL_IDX}
 else
-  python "$PROJECT_DIR/check_model_load.py"
+  python "$PROJECT_DIR/check_model_load.py" --config "$CHECK_CONFIG"
 fi

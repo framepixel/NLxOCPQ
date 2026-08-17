@@ -53,11 +53,16 @@ from huggingface_hub import snapshot_download
 
 # What each submit_job_v5_*.sh asks for, plus the checkpoints unsloth silently substitutes.
 #
-# With load_in_4bit=True, unsloth swaps a full-precision id for its own pre-quantized
-# redistribution. That is why the previous Gemma adapter_config recorded
-# `unsloth/gemma-3-4b-it-unsloth-bnb-4bit` even though the job requested
-# `google/gemma-3-4b-it`. Both are fetched so the substitution cannot trigger a download
-# inside the job. The other two already name unsloth 4-bit ids, so no substitution applies.
+# RULE: every training job must request an unsloth PRE-QUANTIZED id. With load_in_4bit=True
+# unsloth silently swaps a full-precision id for its own redistribution, so the adapter is
+# trained against weights that differ from what inference loads. Gemma 3 requested
+# `google/gemma-3-4b-it` and hit exactly that; worse, the substituted artifact cannot be
+# loaded for inference at all ("FP4 quantization state not initialized", job 3015021), so the
+# divergence could not be repaired afterwards. Requesting the unsloth id directly means no
+# substitution can occur and only ONE repo per model needs caching.
+#
+# The two Gemma entries below are the exception, kept because that adapter already exists and
+# both ids are needed to reproduce it. Do not copy that pattern for new models.
 #
 # The superseded set (unsloth/llama-3-8b-Instruct-bnb-4bit, unsloth/phi-4-unsloth-bnb-4bit)
 # is deliberately NOT listed. Those checkpoints are already cached from the earlier runs and
@@ -68,6 +73,8 @@ REPOS = [
      "llama31-8b      (requested; replaces Llama 3 8B, 128k context)"),
     ("unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit",
      "ministral3-14b  (requested; replaces Phi-4 14B, 256k context)"),
+    ("unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit",
+     "ministral3-3b   (requested; replaces Gemma 3 4B, 256k context)"),
     ("google/gemma-3-4b-it",
      "gemma3-4b       (requested; gated)"),
     ("unsloth/gemma-3-4b-it-unsloth-bnb-4bit",

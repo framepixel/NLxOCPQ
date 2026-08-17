@@ -407,6 +407,33 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     attn_implementation = attention_implementation,
 )
 
+# 2b. Did unsloth substitute the checkpoint?
+# With load_in_4bit=True it silently swaps a full-precision id for its own pre-quantized
+# redistribution, and the LoRA is then trained against weights that are NOT what inference will
+# load. Gemma 3 was trained that way for a full cycle before anyone noticed, and it could not be
+# repaired afterwards: the substituted artifact cannot be loaded for inference at all ("FP4
+# quantization state not initialized", job 3015021).
+#
+# Reported here, at load time, rather than only at save time — this is the last moment where
+# aborting costs minutes instead of hours. The fix is always the same: request the unsloth
+# pre-quantized id directly, as the Llama 3.1, Ministral 14B and Ministral 3B scripts do.
+_loaded_base = (
+    getattr(getattr(model, "config", None), "_name_or_path", None)
+    or getattr(getattr(model, "config", None), "name_or_path", None)
+)
+if _loaded_base and selected_model_name and _loaded_base != selected_model_name:
+    print("=" * 78)
+    print("WARNING: unsloth substituted the requested checkpoint.")
+    print(f"  requested : {selected_model_name}")
+    print(f"  loaded    : {_loaded_base}")
+    print("  The adapter will be trained against the loaded checkpoint. Unless inference loads")
+    print("  that same id, the LoRA will be applied to different weights. Request the unsloth")
+    print("  pre-quantized id directly to avoid this.")
+    print("=" * 78, flush=True)
+else:
+    print(f"[model load] base checkpoint confirmed, no substitution: {selected_model_name}",
+          flush=True)
+
 # 3. Add LoRA Adapters
 # Multimodal checkpoints (Ministral 3, Gemma 3) carry a vision tower alongside the language
 # model. This is a text-only task, so say so explicitly: otherwise unsloth applies its

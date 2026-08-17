@@ -1,0 +1,37 @@
+{
+  "testset_path": "testset.json",
+  "output_dir": "eval_runs",
+  "backend": "local-gpu",
+  "local_device": "cuda",
+  "local_dtype": "auto",
+  "local_quantization": "4bit",
+  "temperature": 0.0,
+  "repeats": 1,
+  "limit": 0,
+  "seed": 3407,
+  "few_shot_k": 3,
+  "keep_result_files": false,
+  "result_store": true,
+  "result_store_max_situations": 200000,
+  "shuffle": false,
+  "auto_expand_finetuned": true,
+  "fine_tune_map": {},
+  "schema_enforced": [
+    true,
+    false
+  ],
+  "schema_validation": true,
+  "schema_validation_when_no_schema": false,
+  "prompt_strategies": [
+    "schema-allowed-entities-only",
+    "schema-grammar-guided",
+    "schema-chain-of-thought-plus"
+  ],
+  "models": [
+    {
+      "name": "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit",
+      "label": "ministral3-3b-base"
+    }
+  ],
+  "_comment": "Throwaway config for check_model_load.py only -- NOT an evaluation config. Verifies a candidate base model loads and generates before ~8h of training is queued against it. Run with: OCPQ_MODEL_IDX=\"0\" OCPQ_MODEL_CHECK_CONFIG=eval_config.candidate.json sbatch submit_model_check.sh   ... index 0 only: with no fine_tune_map entry, expand_models synthesises a '<name>-finetuned' model that does not exist yet."
+}
