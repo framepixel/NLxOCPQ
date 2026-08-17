@@ -67,7 +67,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("run_dir", help="Smoke run directory (eval_runs/smoke/<run_id>)")
-    ap.add_argument("--expected-conditions", type=int, default=EXPECTED_CONDITIONS)
+    ap.add_argument("--expected-conditions", type=int, default=None,
+                    help="Override; by default derived from the run's own resolved config.")
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -87,10 +88,30 @@ def main():
     resolved = json.loads((run_dir / "config_resolved.json").read_text(encoding="utf-8"))
     limit = int((resolved.get("config") or {}).get("limit") or 0)
 
+    # Derived from the run's own config rather than hardcoded, so a subset smoke (e.g. Gemma only,
+    # 12 conditions) is checked against what it actually intended to run. A fixed 36 would fail
+    # every subset run and teach the reader to pass --expected-conditions without thinking.
+    cfg = resolved.get("config") or {}
+    try:
+        from expand_models import expand_models
+        expected_models = len(expand_models(cfg)["models"])
+    except Exception:  # noqa: BLE001 - fall back rather than fail the check
+        expected_models = len(cfg.get("models") or [])
+    n_strategies = len(resolved.get("prompt_strategies") or cfg.get("prompt_strategies") or [])
+    n_schemas = len(resolved.get("schema_enforced") or cfg.get("schema_enforced") or [])
+
+    expected_conditions = args.expected_conditions
+    if expected_conditions is None:
+        expected_conditions = expected_models * n_strategies * n_schemas or EXPECTED_CONDITIONS
+    if not expected_models:
+        expected_models = len({r.get("model_label") for r in records if r.get("model_label")})
+    print(f"expecting {expected_conditions} condition(s) "
+          f"({expected_models} models x {n_strategies} strategies x {n_schemas} schema)\n")
+
     print("\nconditions")
     by_config = summary.get("by_config") or {}
-    c.check(len(by_config) == args.expected_conditions,
-            f"all {args.expected_conditions} conditions present", f"got {len(by_config)}")
+    c.check(len(by_config) == expected_conditions,
+            f"all {expected_conditions} conditions present", f"got {len(by_config)}")
     if limit:
         wrong = {cid: b["metrics"].get("n") for cid, b in by_config.items()
                  if (b.get("metrics") or {}).get("n") != limit}
@@ -100,7 +121,7 @@ def main():
             counts[r.get("config_id")] = counts.get(r.get("config_id"), 0) + 1
         wrong = {cid: n for cid, n in counts.items() if n != limit}
         c.check(not wrong, f"every condition ran all {limit} cases", str(dict(list(wrong.items())[:3])))
-        c.check(len(counts) == args.expected_conditions,
+        c.check(len(counts) == expected_conditions,
                 "every condition produced records", f"{len(counts)} with records")
 
     print("\nper-condition health")
@@ -143,7 +164,11 @@ def main():
 
     print("\nmodels")
     labels = sorted({r.get("model_label") for r in records if r.get("model_label")})
-    c.check(len(labels) == 6, "all six models produced records", f"{labels}")
+    # Derived like the condition count: a Gemma-only smoke has 2 models, the full one has 6.
+    # A model silently missing is the failure this catches -- Ministral produced nothing at all
+    # in the 2026-08-15 run.
+    c.check(len(labels) == expected_models,
+            f"all {expected_models} models produced records", f"{labels}")
 
     print("\nstratum labels")
     unlabelled = [r.get("case_id") for r in records if r.get("discriminating") is None]

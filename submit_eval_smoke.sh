@@ -83,12 +83,21 @@ if [ -d "$OCPQ_CLI_DIR" ]; then
   cargo build -q --release --manifest-path "$OCPQ_CLI_DIR/Cargo.toml"
 fi
 
+# OCPQ_SMOKE_CONFIG selects a subset smoke rather than duplicating this script per model set.
+# e.g. OCPQ_SMOKE_CONFIG=$PWD/eval_config.smoke.gemma.json -> 12 conditions instead of 36.
+SMOKE_CONFIG="${OCPQ_SMOKE_CONFIG:-$PROJECT_DIR/eval_config.smoke.json}"
+if [ ! -f "$SMOKE_CONFIG" ]; then
+  echo "FATAL: smoke config not found: $SMOKE_CONFIG" >&2
+  exit 1
+fi
+echo "Smoke config: $SMOKE_CONFIG"
+
 # Apply OCPQ_SMOKE_LIMIT by deriving a config rather than editing the committed one, so a
-# tweaked slice can never leak into a later run.
-SMOKE_CONFIG="$PROJECT_DIR/eval_config.smoke.json"
+# tweaked slice can never leak into a later run. Derives from the *resolved* config above.
 if [ -n "${OCPQ_SMOKE_LIMIT:-}" ]; then
+  SMOKE_SRC="$SMOKE_CONFIG"
   SMOKE_CONFIG="${TMPDIR:-/tmp}/eval_config.smoke.$SLURM_JOB_ID.json"
-  python - "$PROJECT_DIR/eval_config.smoke.json" "$SMOKE_CONFIG" "$OCPQ_SMOKE_LIMIT" <<'PY'
+  python - "$SMOKE_SRC" "$SMOKE_CONFIG" "$OCPQ_SMOKE_LIMIT" <<'PY'
 import json, sys
 src, dst, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
 cfg = json.load(open(src, encoding="utf-8"))
@@ -108,9 +117,16 @@ echo "smoke eval exit code: $rc"
 [ "$rc" -eq 0 ] || exit "$rc"
 
 # The run finishing is necessary, not sufficient. Assert the shape of what it produced.
-RUN_DIR="$(ls -1dt "$PROJECT_DIR"/eval_runs/smoke/*/ 2>/dev/null | head -n 1)"
-if [ -z "$RUN_DIR" ]; then
-  echo "FATAL: smoke run produced no run directory under eval_runs/smoke" >&2
+# Taken from eval_testset's own report rather than by globbing a hardcoded directory, which
+# silently picked the wrong (or no) run as soon as a config set a different output_dir.
+RUN_DIR="$(sed -n 's/^Evaluation complete\. Outputs saved in //p' nlxocpq-eval-smoke.log | tail -n 1)"
+case "$RUN_DIR" in
+  /*) ;;                                  # already absolute
+  "") ;;                                  # handled below
+  *) RUN_DIR="$PROJECT_DIR/$RUN_DIR" ;;   # eval_testset reports a path relative to its cwd
+esac
+if [ -z "$RUN_DIR" ] || [ ! -d "$RUN_DIR" ]; then
+  echo "FATAL: could not determine the smoke run directory from the evaluation output" >&2
   exit 1
 fi
 echo "Checking $RUN_DIR"

@@ -902,15 +902,20 @@ def _ensure_local_gpu_model_loaded():
                     "Include 'base_model_name_or_path' in adapter_config.json or specify the base model explicitly."
                 )
 
-            # NOTE: adapters trained before 2026-08-06 record unsloth's pre-quantized
-            # redistribution here instead of the checkpoint the training run requested,
-            # because unsloth substitutes it when load_in_4bit=True. For Gemma-3 that
-            # redistribution ships a vision-tower layer with a missing quant_state ("FP4
-            # quantization state not initialized"), so it used to be redirected to
-            # `google/gemma-3-4b-it` at load time. `train_unsloth.py` now writes the
-            # requested checkpoint into adapter_config.json at save time, so no per-model
-            # redirect is needed. Re-train, or fix `base_model_name_or_path` by hand, if you
-            # hit that error with an older adapter.
+            # This field decides which weights the LoRA is injected into, so it must name the
+            # checkpoint the adapter was actually TRAINED against — not the one the training job
+            # requested. unsloth substitutes its own pre-quantized redistribution whenever
+            # load_in_4bit=True, and `train_unsloth._restore_requested_base_model_name` used to
+            # overwrite this field with the requested name afterwards. The v5 Gemma adapter was
+            # therefore trained on `unsloth/gemma-3-4b-it-unsloth-bnb-4bit` but evaluated against
+            # freshly-quantized `google/gemma-3-4b-it`, and scored *below its own base* as a
+            # result. Both were corrected on 2026-08-16: that function now records the requested
+            # name in a separate key, and the Gemma adapter_config was repaired by hand (its
+            # original is kept alongside as adapter_config.json.orig).
+            #
+            # If an older adapter fails here with "FP4 quantization state not initialized", it
+            # predates the manual LoRA injection below, which bypasses the PeftModel path that
+            # error came from.
 
             # Load the base model with 4-bit quantization so its Params4bit layers are
             # properly initialised. The adapter's LoRA A/B weights are then injected

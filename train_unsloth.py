@@ -920,21 +920,27 @@ if enable_final_eval:
         raise
 
 def _restore_requested_base_model_name(adapter_dir, requested_model_name):
-    """Record the base model we asked for in the saved adapter config.
+    """Record the requested checkpoint *alongside* the one actually trained against.
 
     When `load_in_4bit=True`, unsloth silently swaps the requested checkpoint for its own
     pre-quantized redistribution, and that substituted name is what lands in
-    `adapter_config.json`. Inference then has to special-case the mismatch: for Gemma the
-    unsloth redistribution additionally ships a vision-tower layer with a missing
-    quant_state, so `LLM.py` had to redirect the base back to `google/gemma-3-4b-it` at load
-    time. Writing the requested name here makes the adapter self-describing and lets that
-    redirect go away.
+    `adapter_config.json`.
 
-    The LoRA weights are unaffected — only the provenance string changes.
+    This function used to **overwrite** `base_model_name_or_path` with the requested name, on the
+    reasoning that it made the adapter self-describing. It did the opposite: `LLM.py` reads that
+    field to decide which base to load, so the adapter was then applied at inference to weights it
+    had never been trained on. For the v5 Gemma run — requested `google/gemma-3-4b-it`, trained
+    against `unsloth/gemma-3-4b-it-unsloth-bnb-4bit` — that produced a fine-tuned model scoring
+    *below its own base* (12% against 21%), which is what exposed it.
+
+    `base_model_name_or_path` must therefore stay factual: whatever was really trained against.
+    The requested checkpoint is preserved separately, so no provenance is lost.
+
+    The LoRA weights are unaffected either way — only provenance strings change.
 
     Args:
         adapter_dir: Directory `save_pretrained` just wrote.
-        requested_model_name: The checkpoint this run actually asked for.
+        requested_model_name: The checkpoint this run asked for, recorded for the record.
     """
     config_path = os.path.join(adapter_dir, "adapter_config.json")
     if not requested_model_name or not os.path.exists(config_path):
@@ -951,13 +957,22 @@ def _restore_requested_base_model_name(adapter_dir, requested_model_name):
     if saved_name == requested_model_name:
         return
 
-    adapter_config["base_model_name_or_path"] = requested_model_name
+    # Deliberately does NOT touch base_model_name_or_path: `saved_name` is the checkpoint unsloth
+    # actually trained against, and inference must load exactly that.
+    adapter_config["ocpq_requested_base_model"] = requested_model_name
+    adapter_config["ocpq_substitution_note"] = (
+        f"unsloth substituted {saved_name!r} for the requested {requested_model_name!r} "
+        "(it does this when load_in_4bit=True). base_model_name_or_path names the checkpoint "
+        "actually trained against, which is what inference must load."
+    )
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(adapter_config, f, indent=2)
     except Exception as exc:
-        print(f"Warning: could not write {config_path} to fix base model name: {exc}")
+        print(f"Warning: could not write {config_path} to record base model provenance: {exc}")
         return
+    print(f"[adapter save] unsloth substituted '{saved_name}' for requested "
+          f"'{requested_model_name}'; base_model_name_or_path left factual.")
 
     print(
         "[adapter save] base_model_name_or_path "
