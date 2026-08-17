@@ -15,6 +15,8 @@
 # Required: the personal allocation is exhausted (-101%, 0 GPU-h consumable) while the project
 # still holds ~945 GPU-h. Without this the array is rejected at submission.
 #SBATCH --account=thes2358
+# Site default may be --export=NONE; options are passed as arguments regardless, this is belt-and-braces.
+#SBATCH --export=ALL
 
 # 72 tasks = 36 conditions x 2 case-halves.
 # 36 conditions = 6 models x 3 prompt strategies x 2 schema settings.
@@ -37,8 +39,11 @@
 # Verify this mapping against expand_models() without a GPU:
 #   python check_shard_map.py
 #
-# To resume shards that died, resubmit with OCPQ_RESUME=1. Without it a resubmitted task
-# starts from zero, because run_id embeds a timestamp and so names a fresh directory.
+# To resume shards that died, resubmit with the --resume ARGUMENT:
+#   sbatch --array=48-71%24 submit_eval_array.sh --resume
+# Without it a resubmitted task starts from zero, because run_id embeds a timestamp and so
+# names a fresh directory. It must be an argument, not OCPQ_RESUME=1: this cluster does not
+# propagate the submitting environment into jobs.
 
 cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"
 
@@ -118,8 +123,24 @@ CASE_HALF=$(( TASK % 2 ))
 
 # Resume, opt-in. A dead shard's checkpoint is useless unless the resubmitted task is pointed at
 # the directory it wrote, and run_id embeds a timestamp so the default is always a fresh one.
+#
+# Requested by ARGUMENT, not environment: this cluster does not propagate the submitting
+# environment into jobs (verified in jobs 3015021 and 3015720), so `OCPQ_RESUME=1 sbatch ...`
+# would have been silently ignored and a dead 14-hour shard would have restarted from zero —
+# exactly what resume exists to prevent. The env var is kept as a fallback.
+#
+#   sbatch --array=48-71%24 submit_eval_array.sh --resume
+OCPQ_RESUME_REQUESTED="${OCPQ_RESUME:-0}"
+for arg in "$@"; do
+  case "$arg" in
+    --resume) OCPQ_RESUME_REQUESTED=1 ;;
+    *) echo "Warning: ignoring unrecognised argument '$arg'" >&2 ;;
+  esac
+done
+echo "Resume requested: ${OCPQ_RESUME_REQUESTED}"
+
 RESUME_ARGS=()
-if [ "${OCPQ_RESUME:-0}" = "1" ]; then
+if [ "$OCPQ_RESUME_REQUESTED" = "1" ]; then
   SHARD_GLOB="$PROJECT_DIR/eval_runs/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}_c${CASE_HALF}of2_*"
   # Newest by mtime. Ambiguity is not resolved silently: if nothing matches we stop, because
   # continuing would quietly restart a 14-hour shard from zero.

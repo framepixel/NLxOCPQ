@@ -13,6 +13,8 @@
 # projected shard (gemma3-4b-finetuned x grammar-guided, 85 cases) is ~9h against a 14h limit.
 #SBATCH --time=06:00:00
 #SBATCH --account=thes2358
+# Site default may be --export=NONE; options are passed as arguments regardless, this is belt-and-braces.
+#SBATCH --export=ALL
 
 # Pre-launch smoke test for the 36-condition matrix.
 #
@@ -21,10 +23,12 @@
 # run would only reveal task by task, hours apart. The array's index arithmetic is checked
 # separately and without a GPU by check_shard_map.py.
 #
-# 36 conditions x 4 cases = 144 runs. Override the slice with OCPQ_SMOKE_LIMIT (2 for a faster
-# ~1h pass, 4 for the log coverage the seed was chosen to give).
+# 36 conditions x 4 cases = 144 runs. Options are ARGUMENTS, not environment variables --
+# this cluster does not propagate the submitting environment into jobs.
 #
 #   sbatch submit_eval_smoke.sh
+#   sbatch submit_eval_smoke.sh --limit 2                               # faster ~1h pass
+#   sbatch submit_eval_smoke.sh --config eval_config.smoke.gemma.json   # subset
 #   python smoke_check.py eval_runs/smoke/<run_id>
 #
 # smoke_check.py is what makes this a test: the job exiting 0 only means nothing crashed.
@@ -83,9 +87,30 @@ if [ -d "$OCPQ_CLI_DIR" ]; then
   cargo build -q --release --manifest-path "$OCPQ_CLI_DIR/Cargo.toml"
 fi
 
-# OCPQ_SMOKE_CONFIG selects a subset smoke rather than duplicating this script per model set.
-# e.g. OCPQ_SMOKE_CONFIG=$PWD/eval_config.smoke.gemma.json -> 12 conditions instead of 36.
+# Options come from ARGUMENTS, not the environment: this cluster does not propagate the
+# submitting environment into jobs (verified in jobs 3015021 and 3015720). Env vars are kept as
+# a fallback for direct (non-sbatch) invocation.
+#
+#   sbatch submit_eval_smoke.sh                                        # full 36-condition smoke
+#   sbatch submit_eval_smoke.sh --config eval_config.smoke.gemma.json  # subset
+#   sbatch submit_eval_smoke.sh --limit 2                              # faster slice
+SMOKE_CONFIG_ARG=""
+SMOKE_LIMIT_ARG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --config) SMOKE_CONFIG_ARG="$2"; shift 2 ;;
+    --limit)  SMOKE_LIMIT_ARG="$2";  shift 2 ;;
+    *) echo "Warning: ignoring unrecognised argument '$1'" >&2; shift ;;
+  esac
+done
+[ -n "$SMOKE_CONFIG_ARG" ] && OCPQ_SMOKE_CONFIG="$SMOKE_CONFIG_ARG"
+[ -n "$SMOKE_LIMIT_ARG" ] && OCPQ_SMOKE_LIMIT="$SMOKE_LIMIT_ARG"
+
 SMOKE_CONFIG="${OCPQ_SMOKE_CONFIG:-$PROJECT_DIR/eval_config.smoke.json}"
+case "$SMOKE_CONFIG" in
+  /*) ;;
+  *) SMOKE_CONFIG="$PROJECT_DIR/$SMOKE_CONFIG" ;;
+esac
 if [ ! -f "$SMOKE_CONFIG" ]; then
   echo "FATAL: smoke config not found: $SMOKE_CONFIG" >&2
   exit 1

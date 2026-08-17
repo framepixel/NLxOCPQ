@@ -7,12 +7,18 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --time=00:40:00
 #SBATCH --account=thes2358
+# Site default may be --export=NONE; options are passed as arguments regardless, this is belt-and-braces.
+#SBATCH --export=ALL
 
 # Load each model once and generate one short reply. Minutes, against the ~1.5 h a full smoke
 # run costs, so a loader or adapter problem is found before booking the long job.
 #
-#   sbatch submit_model_check.sh              # all six models
-#   OCPQ_MODEL_IDX="3" sbatch submit_model_check.sh    # just ministral3-14b-finetuned
+#   sbatch submit_model_check.sh                          # all six models
+#   sbatch submit_model_check.sh --model-idx 3            # just ministral3-14b-finetuned
+#   sbatch submit_model_check.sh --config eval_config.candidate.json --model-idx 0
+#
+# Options are ARGUMENTS, not environment variables: this cluster does not propagate the
+# submitting environment into jobs.
 #
 # Uses the same environment block as the eval jobs, so a green result here means the eval jobs
 # will load the same way.
@@ -52,22 +58,22 @@ echo "Python: $(which python)"; python --version
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 echo
 
-# OCPQ_MODEL_CHECK_CONFIG points at a candidate config, so a model can be proven to load before
-# ~8h of training is queued against it. Defaults to the real matrix config.
-CHECK_CONFIG="${OCPQ_MODEL_CHECK_CONFIG:-eval_config.json}"
-case "$CHECK_CONFIG" in
-  /*) ;;
-  *) CHECK_CONFIG="$PROJECT_DIR/$CHECK_CONFIG" ;;
-esac
-if [ ! -f "$CHECK_CONFIG" ]; then
-  echo "FATAL: config not found: $CHECK_CONFIG" >&2
-  exit 1
+# Options come from ARGUMENTS, not the environment. This cluster does not propagate the
+# submitting environment into jobs: `OCPQ_MODEL_IDX=... sbatch ...` arrived empty in jobs
+# 3015021 and 3015720, which silently checked all six models against the default config instead
+# of the one requested. Anything after the script name is always passed through by SLURM, so
+# that is the reliable channel. The environment variables are kept as a fallback for anyone
+# running this script directly rather than through sbatch.
+#
+#   sbatch submit_model_check.sh                                   # all models, matrix config
+#   sbatch submit_model_check.sh --model-idx 4 5                   # just those two
+#   sbatch submit_model_check.sh --config eval_config.candidate.json --model-idx 0
+CHECK_ARGS=("$@")
+if [ ${#CHECK_ARGS[@]} -eq 0 ]; then
+  [ -n "${OCPQ_MODEL_CHECK_CONFIG:-}" ] && CHECK_ARGS+=(--config "$OCPQ_MODEL_CHECK_CONFIG")
+  # shellcheck disable=SC2206
+  [ -n "${OCPQ_MODEL_IDX:-}" ] && CHECK_ARGS+=(--model-idx ${OCPQ_MODEL_IDX})
 fi
-echo "Config: $CHECK_CONFIG"
+echo "check_model_load args: ${CHECK_ARGS[*]:-(none — all models, default config)}"
 
-if [ -n "${OCPQ_MODEL_IDX:-}" ]; then
-  # shellcheck disable=SC2086
-  python "$PROJECT_DIR/check_model_load.py" --config "$CHECK_CONFIG" --model-idx ${OCPQ_MODEL_IDX}
-else
-  python "$PROJECT_DIR/check_model_load.py" --config "$CHECK_CONFIG"
-fi
+python "$PROJECT_DIR/check_model_load.py" "${CHECK_ARGS[@]}"

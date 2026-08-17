@@ -10,9 +10,11 @@
 #SBATCH --time=20:00:00
 # Required: the personal allocation is exhausted (-101%) while the project holds ~945 GPU-h.
 #SBATCH --account=thes2358
+# Site default may be --export=NONE; options are passed as arguments regardless, this is belt-and-braces.
+#SBATCH --export=ALL
 
 # Single-job form: all 36 conditions x 169 cases in one process. For the real matrix prefer
-# submit_eval_array.sh, which shards it across 72 tasks and supports OCPQ_RESUME=1.
+# submit_eval_array.sh, which shards it across 72 tasks and supports --resume.
 
 cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"
 
