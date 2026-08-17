@@ -902,20 +902,23 @@ def _ensure_local_gpu_model_loaded():
                     "Include 'base_model_name_or_path' in adapter_config.json or specify the base model explicitly."
                 )
 
-            # This field decides which weights the LoRA is injected into, so it must name the
-            # checkpoint the adapter was actually TRAINED against — not the one the training job
-            # requested. unsloth substitutes its own pre-quantized redistribution whenever
-            # load_in_4bit=True, and `train_unsloth._restore_requested_base_model_name` used to
-            # overwrite this field with the requested name afterwards. The v5 Gemma adapter was
-            # therefore trained on `unsloth/gemma-3-4b-it-unsloth-bnb-4bit` but evaluated against
-            # freshly-quantized `google/gemma-3-4b-it`, and scored *below its own base* as a
-            # result. Both were corrected on 2026-08-16: that function now records the requested
-            # name in a separate key, and the Gemma adapter_config was repaired by hand (its
-            # original is kept alongside as adapter_config.json.orig).
+            # This field decides which weights the LoRA is injected into, and for Gemma 3 it does
+            # NOT name the checkpoint the adapter was trained against. unsloth substitutes its own
+            # pre-quantized redistribution when load_in_4bit=True, then
+            # `train_unsloth._restore_requested_base_model_name` redirects this field back to the
+            # requested checkpoint.
             #
-            # If an older adapter fails here with "FP4 quantization state not initialized", it
-            # predates the manual LoRA injection below, which bypasses the PeftModel path that
-            # error came from.
+            # That divergence is deliberate and unavoidable, not an oversight. Pointing Gemma at
+            # the artifact it was actually trained on was tried on 2026-08-16 (job 3015021) and
+            # both its arms failed to generate a token: bitsandbytes raises "FP4 quantization
+            # state not initialized" and asserts inside fix_4bit_weight_quant_state_from_module.
+            # The redistribution is unusable for inference. Llama and Ministral are unaffected —
+            # their requested checkpoint already IS the unsloth artifact, so nothing is redirected
+            # and train and eval agree.
+            #
+            # Consequence to disclose: Gemma's LoRA is applied to weights quantized by bnb rather
+            # than by unsloth. Both are nf4 over the same checkpoint and should be close, but they
+            # are not provably identical. See adapters/*/ocpq_provenance.json.
 
             # Load the base model with 4-bit quantization so its Params4bit layers are
             # properly initialised. The adapter's LoRA A/B weights are then injected

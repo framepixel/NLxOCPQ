@@ -1,0 +1,8 @@
+{
+  "trained_against": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
+  "evaluated_against": "google/gemma-3-4b-it",
+  "requested_by_training_job": "google/gemma-3-4b-it",
+  "why_they_differ": "unsloth substitutes its own pre-quantized redistribution when load_in_4bit=True, so the LoRA was trained against that artifact (confirmed: it injects 476/476 tensors with 0 unexpected). That redistribution CANNOT be used for inference -- bitsandbytes raises 'FP4 quantization state not initialized' followed by an AssertionError in fix_4bit_weight_quant_state_from_module. Verified on 2026-08-16 (job 3015021): both the base and fine-tuned Gemma arms failed to generate a single token from it, while Llama and Ministral load from their unsloth artifacts without issue. Evaluation therefore loads google/gemma-3-4b-it and re-quantizes with bnb nf4 + double_quant.",
+  "consequence": "Gemma's adapter is applied to weights quantized by a different tool than the ones it was trained on. Both are nf4 over the same underlying checkpoint, so they should be close, but they are not provably identical. This is a limitation to disclose, not a defect that can currently be removed: the training base is unloadable for inference.",
+  "recorded": "2026-08-16"
+}

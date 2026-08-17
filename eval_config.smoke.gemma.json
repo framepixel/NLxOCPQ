@@ -18,7 +18,7 @@
   "result_store_max_situations": 200000,
   "auto_expand_finetuned": true,
   "fine_tune_map": {
-    "unsloth/gemma-3-4b-it-unsloth-bnb-4bit": {
+    "google/gemma-3-4b-it": {
       "name": "adapters/gemma3-4b-fine-tuned-quantized",
       "label": "gemma3-4b-finetuned"
     }
@@ -36,7 +36,7 @@
   ],
   "models": [
     {
-      "name": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
+      "name": "google/gemma-3-4b-it",
       "label": "gemma3-4b-base"
     }
   ]

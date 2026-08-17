@@ -920,27 +920,29 @@ if enable_final_eval:
         raise
 
 def _restore_requested_base_model_name(adapter_dir, requested_model_name):
-    """Record the requested checkpoint *alongside* the one actually trained against.
+    """Point the saved adapter at the checkpoint the job requested, and record what it displaced.
 
     When `load_in_4bit=True`, unsloth silently swaps the requested checkpoint for its own
     pre-quantized redistribution, and that substituted name is what lands in
-    `adapter_config.json`.
+    `adapter_config.json`. `LLM.py` reads that field to decide which base to load.
 
-    This function used to **overwrite** `base_model_name_or_path` with the requested name, on the
-    reasoning that it made the adapter self-describing. It did the opposite: `LLM.py` reads that
-    field to decide which base to load, so the adapter was then applied at inference to weights it
-    had never been trained on. For the v5 Gemma run — requested `google/gemma-3-4b-it`, trained
-    against `unsloth/gemma-3-4b-it-unsloth-bnb-4bit` — that produced a fine-tuned model scoring
-    *below its own base* (12% against 21%), which is what exposed it.
+    So this redirect creates a real train/eval divergence: the LoRA is trained against unsloth's
+    artifact and evaluated against the requested one. That is not the preferred outcome — but for
+    Gemma 3 it is the only workable one. Pointing inference at the substituted artifact was tried
+    on 2026-08-16 (job 3015021) and **both Gemma arms failed to generate a single token**:
+    bitsandbytes raises "FP4 quantization state not initialized" and then asserts inside
+    `fix_4bit_weight_quant_state_from_module`. Llama and Ministral load from their unsloth
+    artifacts without trouble, so this is a defect in that particular redistribution.
 
-    `base_model_name_or_path` must therefore stay factual: whatever was really trained against.
-    The requested checkpoint is preserved separately, so no provenance is lost.
+    The divergence therefore stays, and what changed is that it is no longer *silent*: it is
+    logged at save time and written to `ocpq_provenance.json` beside the adapter. It went
+    unnoticed for a full evaluation cycle precisely because nothing recorded it.
 
-    The LoRA weights are unaffected either way — only provenance strings change.
+    The LoRA weights are unaffected — only which base they are injected into.
 
     Args:
         adapter_dir: Directory `save_pretrained` just wrote.
-        requested_model_name: The checkpoint this run asked for, recorded for the record.
+        requested_model_name: The checkpoint this run asked for.
     """
     config_path = os.path.join(adapter_dir, "adapter_config.json")
     if not requested_model_name or not os.path.exists(config_path):
@@ -957,22 +959,39 @@ def _restore_requested_base_model_name(adapter_dir, requested_model_name):
     if saved_name == requested_model_name:
         return
 
-    # Deliberately does NOT touch base_model_name_or_path: `saved_name` is the checkpoint unsloth
-    # actually trained against, and inference must load exactly that.
-    adapter_config["ocpq_requested_base_model"] = requested_model_name
-    adapter_config["ocpq_substitution_note"] = (
-        f"unsloth substituted {saved_name!r} for the requested {requested_model_name!r} "
-        "(it does this when load_in_4bit=True). base_model_name_or_path names the checkpoint "
-        "actually trained against, which is what inference must load."
-    )
+    adapter_config["base_model_name_or_path"] = requested_model_name
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(adapter_config, f, indent=2)
     except Exception as exc:
-        print(f"Warning: could not write {config_path} to record base model provenance: {exc}")
+        print(f"Warning: could not write {config_path} to fix base model name: {exc}")
         return
-    print(f"[adapter save] unsloth substituted '{saved_name}' for requested "
-          f"'{requested_model_name}'; base_model_name_or_path left factual.")
+
+    # The substitution used to happen silently, which is how the Gemma train/eval divergence went
+    # unnoticed. Record it in a sidecar rather than in adapter_config.json, which PEFT parses as a
+    # LoraConfig and warns about on every load for unknown keys.
+    provenance_path = os.path.join(adapter_dir, "ocpq_provenance.json")
+    try:
+        with open(provenance_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "trained_against": saved_name,
+                "evaluated_against": requested_model_name,
+                "requested_by_training_job": requested_model_name,
+                "why_they_differ": (
+                    "unsloth substituted its own pre-quantized redistribution when "
+                    "load_in_4bit=True. base_model_name_or_path is redirected to the requested "
+                    "checkpoint because inference must load something that works; see "
+                    "11-evaluation-readiness.md for whether the substituted artifact is usable "
+                    "for this model."
+                ),
+            }, f, indent=2)
+    except Exception as exc:
+        print(f"Warning: could not write {provenance_path}: {exc}")
+
+    print(f"[adapter save] NOTE: unsloth trained against '{saved_name}' but "
+          f"base_model_name_or_path was set to the requested '{requested_model_name}'. "
+          f"Inference will apply this LoRA to differently-quantized weights — recorded in "
+          f"{os.path.basename(provenance_path)}.")
 
     print(
         "[adapter save] base_model_name_or_path "

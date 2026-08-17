@@ -7,7 +7,7 @@
     "parent_library": "transformers.models.gemma3.modeling_gemma3",
     "unsloth_fixed": true
   },
-  "base_model_name_or_path": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
+  "base_model_name_or_path": "google/gemma-3-4b-it",
   "bias": "none",
   "corda_config": null,
   "ensure_weight_tying": false,
@@ -40,7 +40,5 @@
   "use_bdlora": null,
   "use_dora": false,
   "use_qalora": false,
-  "use_rslora": false,
-  "ocpq_requested_base_model": "google/gemma-3-4b-it",
-  "ocpq_provenance_note": "Corrected 2026-08-16. unsloth substitutes its own pre-quantized redistribution when load_in_4bit=True; the v5 training log confirms this LoRA was trained against unsloth/gemma-3-4b-it-unsloth-bnb-4bit. train_unsloth._restore_requested_base_model_name had rewritten this field to the requested checkpoint, so evaluation was applying the adapter to differently-quantized weights. LoRA tensors are unchanged."
+  "use_rslora": false
 }

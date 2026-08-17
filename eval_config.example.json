@@ -25,7 +25,7 @@
       "name": "adapters/ministral3-14b-fine-tuned-quantized",
       "label": "ministral3-14b-finetuned"
     },
-    "unsloth/gemma-3-4b-it-unsloth-bnb-4bit": {
+    "google/gemma-3-4b-it": {
       "name": "adapters/gemma3-4b-fine-tuned-quantized",
       "label": "gemma3-4b-finetuned"
     }
@@ -51,7 +51,7 @@
       "label": "ministral3-14b-base"
     },
     {
-      "name": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
+      "name": "google/gemma-3-4b-it",
       "label": "gemma3-4b-base"
     }
   ]
