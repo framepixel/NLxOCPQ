@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -219,13 +220,56 @@ def _log_phase(phase, message):
     print(f"[{phase}] {message}")
 
 
+def _declared_type_names(node_data: Any, key: str) -> set:
+    """Type names declared by one `newEventVars` / `newObjectVars` entry.
+
+    OCPQ serialises these as an object mapping a variable index to a list of type names, and
+    gold queries always have that shape. A *prediction* is free to emit anything that parses
+    as JSON, so the shape must be treated as data: a wrong shape is a wrong answer that scores
+    0, never an exception.
+
+    Both the dict form and a bare list of type names are read, because a model that emitted
+    `"newObjectVars": ["orders"]` has still referenced `orders` and should be charged for it
+    by `hallucinated_entity_rate`. Anything else contributes nothing.
+
+    Defect this fixes (2026-08-18, job 3039375): `.values()` was called on whatever the model
+    put here. A prediction whose `newObjectVars` was a list raised AttributeError from inside
+    the scoring block and killed the evaluation at run 48 of 48. `--resume` would have replayed
+    the same case and died the same way, so no re-run could have recovered it.
+
+    Args:
+        node_data: The `Box[0]` payload of one node.
+        key: Either `"newEventVars"` or `"newObjectVars"`.
+
+    Returns:
+        The set of type-name strings declared under that key.
+    """
+    if not isinstance(node_data, dict):
+        return set()
+    raw = node_data.get(key)
+    if isinstance(raw, dict):
+        groups = list(raw.values())
+    elif isinstance(raw, list):
+        groups = raw
+    else:
+        return set()
+
+    names = set()
+    for group in groups:
+        if isinstance(group, str):
+            names.add(group)
+        elif isinstance(group, list):
+            names.update(v for v in group if isinstance(v, str))
+    return names
+
+
 def _extract_query_entities(ocpq_json):
     events = set()
     objects = set()
     if not isinstance(ocpq_json, dict):
         return events, objects
 
-    for node in ocpq_json.get("nodes", []):
+    for node in ocpq_json.get("nodes", []) or []:
         if not isinstance(node, dict):
             continue
         box = node.get("Box", [])
@@ -234,12 +278,8 @@ def _extract_query_entities(ocpq_json):
         node_data = box[0]
         if not isinstance(node_data, dict):
             continue
-        for values in node_data.get("newEventVars", {}).values():
-            if isinstance(values, list):
-                events.update(v for v in values if isinstance(v, str))
-        for values in node_data.get("newObjectVars", {}).values():
-            if isinstance(values, list):
-                objects.update(v for v in values if isinstance(v, str))
+        events.update(_declared_type_names(node_data, "newEventVars"))
+        objects.update(_declared_type_names(node_data, "newObjectVars"))
     return events, objects
 
 
@@ -296,14 +336,10 @@ def _schema_grounding_errors(ocpq_json, ocel_path):
             if not isinstance(box, list) or not box or not isinstance(box[0], dict):
                 continue
             data = box[0]
-            ev_types = {
-                v for vs in (data.get("newEventVars") or {}).values()
-                if isinstance(vs, list) for v in vs if isinstance(v, str)
-            }
-            ob_types = {
-                v for vs in (data.get("newObjectVars") or {}).values()
-                if isinstance(vs, list) for v in vs if isinstance(v, str)
-            }
+            # Same tolerance as `_extract_query_entities`: `or {}` guarded against null but
+            # not against a list, which is truthy and has no `.values()`.
+            ev_types = _declared_type_names(data, "newEventVars")
+            ob_types = _declared_type_names(data, "newObjectVars")
             for f in (data.get("filters") or []):
                 if not isinstance(f, dict):
                     continue
@@ -581,6 +617,57 @@ def _record_skill(record, strict=True):
             return None
         f1 = 0.0
     return _skill_score(f1, record.get("baseline_f1"))
+
+
+def _truncation_counts(records) -> dict:
+    """How often `ocpq_cli` truncated a result, with the denominator stated explicitly.
+
+    The backend cancels evaluation once a query's expansion exceeds its internal limit
+    (`150_000_000` in `shared/src/binding_box/structs.rs`), prints `Too much to handle!` and
+    exports a *partial* result set. Comparing against a partial set is not a neutral loss: the
+    queries that trigger it are the ones that over-select wildly, so truncation preferentially
+    discards false positives and **inflates** the score. One such record scored 0.881 in job
+    3039375 while returning a fraction of what its query actually selects.
+
+    The flag was recorded per record but never aggregated, so the rate could only be had by
+    grepping `predictions.json`. It is reported rather than acted on: whether these records
+    should be scored 0 is a separate decision (`--truncation-policy`), and one worth making from
+    a measured rate rather than in advance.
+
+    `gold_bindings_skipped_n` is the number that decides it. Gold queries are handcrafted and
+    their largest result is 53,399 root situations, so truncation there is unlikely -- but it is
+    not ruled out, and if it happens the entry is unscoreable for *every* model rather than
+    evidence about any one of them.
+
+    Args:
+        records: Prediction records, each optionally carrying `metrics.bindings_skipped` and
+            `metrics.gold_bindings_skipped`.
+
+    Returns:
+        The four summary keys. `bindings_skipped_rate` is None when nothing executed.
+    """
+    pred_truncated = 0
+    gold_truncated = 0
+    # Denominator: records that produced a parseable result. `_load_result_ids` returns a None
+    # flag when there was no file to read, and those records cannot be truncated -- counting
+    # them would dilute the rate with schema failures, which are already their own metric.
+    with_result = 0
+    for record in records:
+        metrics = record.get("metrics") or {}
+        pred_flag = metrics.get("bindings_skipped")
+        if pred_flag is not None:
+            with_result += 1
+            if pred_flag:
+                pred_truncated += 1
+        if metrics.get("gold_bindings_skipped"):
+            gold_truncated += 1
+
+    return {
+        "bindings_skipped_n": pred_truncated,
+        "bindings_skipped_denominator": with_result,
+        "bindings_skipped_rate": (pred_truncated / with_result) if with_result else None,
+        "gold_bindings_skipped_n": gold_truncated,
+    }
 
 
 def _summarize_llm_stats(stats):
@@ -1139,8 +1226,49 @@ def run_evaluation(config_path_or_config):
                         llm_stats = _summarize_llm_stats(get_llm_call_stats())
                         exec_stats = _summarize_exec_stats(get_query_exec_stats())
 
-                        pred_ids, pred_bindings_skipped = _load_result_ids(query_result_file, ocpq_json)
-                        similarity = _compute_similarity(gt_record.get("ids"), pred_ids)
+                        # Everything below derives metrics from model-authored JSON, and a
+                        # prediction is data rather than a control path: whatever the model
+                        # emitted must be scorable, or scored 0, but never fatal. The generation
+                        # call above is already guarded this way; this block was not, and on
+                        # 2026-08-18 (job 3039375) a `newObjectVars` emitted as a list took the
+                        # whole evaluation down at run 48 of 48. That shape is now handled in
+                        # `_declared_type_names` — this guard exists for the shapes nobody has
+                        # thought of yet, which a 6,084-run matrix is far likelier to meet than
+                        # a 48-run smoke.
+                        #
+                        # A failure is recorded on the record as `scoring_error`, never silently
+                        # averaged: `similarity` is None, so the strict metric treats it as 0 by
+                        # the same convention as an unparseable prediction, and the field makes
+                        # the distinction visible when reporting.
+                        scoring_error = None
+                        try:
+                            pred_ids, pred_bindings_skipped = _load_result_ids(
+                                query_result_file, ocpq_json
+                            )
+                            similarity = _compute_similarity(gt_record.get("ids"), pred_ids)
+                            pred_events, pred_objects = _extract_query_entities(ocpq_json)
+                            gold_events, gold_objects = _extract_query_entities(gold_query)
+                            hallucinated = bool(
+                                pred_events - gold_events or pred_objects - gold_objects
+                            )
+                            unsupported = _contains_unsupported_filter(ocpq_json)
+                            # Grounding metrics: did the model invent an attribute name (the
+                            # `isMarried` -> `is_Married` failure) or link two entity types that
+                            # the log never relates? Post-hoc only; never fed back to the model.
+                            bad_attributes, bad_relations = _schema_grounding_errors(
+                                ocpq_json, ocel_path
+                            )
+                        except Exception as exc:  # noqa: BLE001 - malformed prediction, not a bug
+                            scoring_error = f"{type(exc).__name__}: {exc}"
+                            pred_ids, pred_bindings_skipped = None, None
+                            similarity = None
+                            hallucinated = False
+                            unsupported = False
+                            bad_attributes, bad_relations = set(), set()
+                            _log_phase(
+                                "error",
+                                f"case {case_idx:03d} | scoring failed, record kept: {scoring_error}",
+                            )
 
                         schema_valid = False
                         if isinstance(ocpq_json, dict):
@@ -1149,17 +1277,6 @@ def run_evaluation(config_path_or_config):
                                 schema_valid = True
                             except Exception:
                                 schema_valid = False
-
-                        pred_events, pred_objects = _extract_query_entities(ocpq_json)
-                        gold_events, gold_objects = _extract_query_entities(gold_query)
-                        hallucinated = bool(pred_events - gold_events or pred_objects - gold_objects)
-                        unsupported = _contains_unsupported_filter(ocpq_json)
-                        # Grounding metrics: did the model invent an attribute name (the
-                        # `isMarried` -> `is_Married` failure) or link two entity types that
-                        # the log never relates? Post-hoc only; never fed back to the model.
-                        bad_attributes, bad_relations = _schema_grounding_errors(
-                            ocpq_json, ocel_path
-                        )
                         final_status = _classify_run_status(
                             pipeline_status,
                             error,
@@ -1244,6 +1361,11 @@ def run_evaluation(config_path_or_config):
                             "status": final_status,
                             "pipeline_status": pipeline_status,
                             "error": error,
+                            # Set only when metric derivation itself failed on this record, as
+                            # opposed to `error`, which reports a failure of the generation
+                            # pipeline. Non-null means the metrics here are defaults, not
+                            # measurements; count these when reporting rather than averaging them.
+                            "scoring_error": scoring_error,
                             "traceback": trace,
                             "evaluation_phase": "run_complete",
                             "evaluation_phase_trace": RUN_PHASE_TRACE,
@@ -1513,6 +1635,10 @@ def _build_summary(records, repeats):
             "invalid_relation_rate": _mean(
                 [1 if r["metrics"].get("invalid_relations") else 0 for r in recs]
             ),
+            # How often the backend gave up and returned a partial result. Not a failure rate:
+            # these records are scored as measured, and that score is inflated. See
+            # `_truncation_counts`.
+            **_truncation_counts(recs),
         }
 
     # Leakage split: seen vs unseen domains, overall and per model. If the fine-tuning gain
@@ -1715,13 +1841,98 @@ def _build_summary(records, repeats):
                 "llm_duration_sec": llm_duration,
                 "exec_duration_sec": exec_duration,
                 "total_duration_sec": total_duration,
+                # Same four keys `_metric_bundle` adds to by_stratum / by_domain_seen. Added in
+                # both places on purpose: this block is the separate code path the comment above
+                # `_skill_strict` warns about.
+                **_truncation_counts(recs),
             },
         }
 
     return summary
 
 
-def _recompute_metrics(run_dir, output_dir=None, store_dir=None):
+TRUNCATION_POLICIES = ("as-measured", "strict-zero")
+
+
+def _apply_truncation_policy(records, policy: str) -> dict:
+    """Apply a truncation policy to already-scored records, in place.
+
+    `as-measured` changes nothing: a partial result is compared as it stands. That is the default
+    and the reported primary, but it is not neutral -- see `_truncation_counts` for why it
+    inflates. This function exists so the alternative can be produced from the same run.
+
+    `strict-zero` splits on *who* was truncated, because that changes what the truncation is
+    evidence of:
+
+    * **Gold truncated** -> the entry is unscoreable for every model, so it is excluded for all
+      of them. Excluding on a model-independent criterion introduces no selection bias.
+    * **Prediction only** -> scored 0. The model emitted a query that cannot be evaluated, which
+      is the same reading `_result_f1_values` already applies to one that does not parse or does
+      not execute.
+
+    Deliberately absent: excluding on the prediction side. That is the selection bias CLAUDE.md
+    warns about with the non-discriminating entries -- a model whose worst queries are quietly
+    removed outscores one that fails honestly.
+
+    Zeroed records keep their original scores under `similarity_as_measured`, so the transform is
+    auditable rather than lossy, and `execution.success` is left alone: the query *did* execute,
+    and the answer is unusable rather than absent.
+
+    Args:
+        records: Prediction records, mutated in place.
+        policy: One of `TRUNCATION_POLICIES`.
+
+    Returns:
+        A report of what was done, for the summary.
+
+    Raises:
+        ValueError: If `policy` is not recognised.
+    """
+    if policy not in TRUNCATION_POLICIES:
+        raise ValueError(f"Unknown truncation policy {policy!r}; expected one of {TRUNCATION_POLICIES}")
+
+    report = {
+        "truncation_policy": policy,
+        "excluded_gold_truncated": 0,
+        "zeroed_prediction_truncated": 0,
+    }
+    if policy == "as-measured":
+        return report
+
+    # Entry-level, resolved before any record is touched: gold is executed once per entry and
+    # reused from the store, so every record of an entry must be treated identically even if one
+    # of them carries a stale flag.
+    gold_truncated_entries = {
+        (r.get("ocel_path"), r.get("nl_query"))
+        for r in records
+        if (r.get("metrics") or {}).get("gold_bindings_skipped")
+    }
+
+    for rec in records:
+        metrics = rec.setdefault("metrics", {})
+        if (rec.get("ocel_path"), rec.get("nl_query")) in gold_truncated_entries:
+            rec["excluded_reason"] = "gold_truncated"
+            report["excluded_gold_truncated"] += 1
+            continue
+        if not metrics.get("bindings_skipped"):
+            continue
+
+        similarity = rec.get("similarity")
+        if isinstance(similarity, dict) and isinstance(similarity.get("combined"), dict):
+            rec["similarity_as_measured"] = copy.deepcopy(similarity)
+            for key in ("f1", "precision", "recall"):
+                if key in similarity["combined"]:
+                    similarity["combined"][key] = 0.0
+            # Skill reads the combined F1, so it has to follow rather than keep a value derived
+            # from the score that was just withdrawn.
+            metrics["skill"] = _record_skill(rec)
+            report["zeroed_prediction_truncated"] += 1
+
+    return report
+
+
+def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
+                       truncation_policy: str = "as-measured"):
     """Rebuild every metric of a finished run from its stored result sets. No GPU, no ocpq_cli.
 
     The point of the result store: a matrix costs 40-100 GPU-hours, so a metric that turns out
@@ -1741,6 +1952,8 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None):
         run_dir: A finished run (or merged) directory containing `predictions.json`.
         output_dir: Where to write. Defaults to `<run_dir>_recomputed`.
         store_dir: Result store to read. Defaults to `<run_dir>/result_store`.
+        truncation_policy: How to treat results the backend truncated. Defaults to
+            `as-measured`, which changes nothing; see `_apply_truncation_policy`.
     """
     run_dir = Path(run_dir)
     predictions_path = run_dir / "predictions.json"
@@ -1767,10 +1980,19 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None):
         gold_query = rec.get("gold_query")
         prediction = rec.get("prediction")
 
-        gold_ids = result_store.load(store_dir, ocel_path, gold_query) if gold_query else None
+        # `load_with_meta`, not `load`: the store carries the CLI's truncation flag alongside the
+        # situations, and `--truncation-policy` must act on the stored truth rather than on a
+        # record field carried over from whatever the original run believed.
+        gold_ids, gold_skipped = (
+            result_store.load_with_meta(store_dir, ocel_path, gold_query)
+            if gold_query else (None, None)
+        )
         # A prediction that never parsed has nothing to look up; that is a genuine null, not a
         # missing blob, so it must not be counted as unavailable.
-        pred_ids = result_store.load(store_dir, ocel_path, prediction) if prediction else None
+        pred_ids, pred_skipped = (
+            result_store.load_with_meta(store_dir, ocel_path, prediction)
+            if prediction else (None, None)
+        )
 
         before = json.dumps(rec.get("similarity"), sort_keys=True)
         if gold_ids is None:
@@ -1786,6 +2008,13 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None):
             changed += 1
 
         rec.setdefault("metrics", {})["structural"] = _structural_metrics(gold_query, prediction)
+        # Refreshed from the store for the same reason it is read from there: a run recorded
+        # before the flag was stored keeps whatever it had, and a stored None does not overwrite
+        # a recorded True.
+        if pred_skipped is not None:
+            rec["metrics"]["bindings_skipped"] = pred_skipped
+        if gold_skipped is not None:
+            rec["metrics"]["gold_bindings_skipped"] = gold_skipped
         is_disc, baseline_f1 = stratum_index.get(rec.get("nl_query"), (None, None))
         rec["discriminating"] = is_disc
         rec["baseline_f1"] = baseline_f1
@@ -1793,16 +2022,23 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None):
         # before the skill score existed gains it here without re-executing anything.
         rec["metrics"]["skill"] = _record_skill(rec)
 
+    truncation = _apply_truncation_policy(records, truncation_policy)
+
     repeats = 1
     manifest = _load_json_if_exists(run_dir / "config_resolved.json")
     if manifest:
         repeats = (manifest.get("config") or {}).get("repeats", 1)
 
+    # Excluded records stay in predictions.json -- nothing is thrown away, it is only kept out of
+    # the aggregation, so the exclusion can be inspected and reversed.
+    scored_records = [r for r in records if not r.get("excluded_reason")]
+
     _write_json(output_dir / "predictions.json", records)
-    summary = _build_summary(records, repeats)
+    summary = _build_summary(scored_records, repeats)
     summary["evaluation_phases"] = EVALUATION_PHASES
     summary["recomputed_from"] = str(run_dir)
     summary["recompute_unavailable"] = unavailable
+    summary["truncation"] = truncation
     summary["result_store"] = dict(result_store.stats(store_dir), dir=str(store_dir))
     _write_json(output_dir / "summary.json", summary)
     _run_bb_analysis(output_dir)
@@ -1811,6 +2047,9 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None):
     total_unavailable = unavailable["gold_missing"] + unavailable["prediction_missing"]
     print(
         f"Recomputed {len(records)} record(s) from {run_dir} into {output_dir}\n"
+        f"  truncation policy: {truncation['truncation_policy']} "
+        f"(zeroed {truncation['zeroed_prediction_truncated']}, "
+        f"excluded {truncation['excluded_gold_truncated']})\n"
         f"  similarity changed for {changed} record(s)\n"
         f"  unavailable: {total_unavailable} "
         f"(gold {unavailable['gold_missing']}, prediction {unavailable['prediction_missing']})"
@@ -1917,6 +2156,12 @@ def main():
              "modified.")
     parser.add_argument("--result-store", metavar="DIR", default=None,
         help="Result store for --recompute (default: <DIR>/result_store).")
+    parser.add_argument("--truncation-policy", choices=TRUNCATION_POLICIES, default="as-measured",
+        help="How --recompute treats results ocpq_cli truncated ('Too much to handle!'). "
+             "'as-measured' (default) compares the partial result as it stands, which flatters "
+             "over-selecting queries. 'strict-zero' scores a truncated prediction 0 and excludes "
+             "entries whose GOLD was truncated, for every model. Run both and report the "
+             "difference; it is a sensitivity analysis, not a correction.")
     args = parser.parse_args()
 
     if args.merge_shards:
@@ -1924,7 +2169,8 @@ def main():
         return
 
     if args.recompute:
-        _recompute_metrics(args.recompute, args.recompute_output, args.result_store)
+        _recompute_metrics(args.recompute, args.recompute_output, args.result_store,
+                           truncation_policy=args.truncation_policy)
         return
 
     if not args.config:

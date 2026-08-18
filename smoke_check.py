@@ -217,6 +217,27 @@ def main():
     c.check(not omissions, "no schema sections dropped for any log",
             f"{len(omissions)} record(s) with omissions")
 
+    print("\nscoring integrity")
+    # `scoring_error` is set when metric derivation itself threw on a record — the failure mode
+    # that took job 3039375 down at run 48 of 48. eval_testset now survives it and keeps the
+    # record with default metrics, which is right for a 14-hour shard but would be silent here.
+    # A smoke run exists to make it loud: any occurrence is a shape nobody has handled yet.
+    scoring_errors = [r for r in records if r.get("scoring_error")]
+    c.check(not scoring_errors, "no record failed metric derivation",
+            f"{len(scoring_errors)} record(s): "
+            f"{sorted({r.get('scoring_error') for r in scoring_errors})}")
+
+    # A warning, not a failure: the backend truncating a result is the model's doing, not the
+    # pipeline's. It matters because a truncated result is scored as measured and that score is
+    # inflated -- job 3039375 had one at 0.881. Gold truncation is different in kind: it would
+    # make the entry unscoreable for every model, so it is checked separately.
+    truncated = [r for r in records if (r.get("metrics") or {}).get("bindings_skipped")]
+    c.warn(not truncated, "no query result was truncated by the backend",
+           f"{len(truncated)}/{len(records)} truncated — see --truncation-policy")
+    gold_truncated = [r for r in records if (r.get("metrics") or {}).get("gold_bindings_skipped")]
+    c.check(not gold_truncated, "no GOLD result was truncated",
+            f"{len(gold_truncated)} record(s) — those entries are unscoreable for every model")
+
     print("\ngold execution")
     sources = {}
     for r in records:
