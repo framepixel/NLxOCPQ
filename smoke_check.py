@@ -92,11 +92,23 @@ def main():
     # 12 conditions) is checked against what it actually intended to run. A fixed 36 would fail
     # every subset run and teach the reader to pass --expected-conditions without thinking.
     cfg = resolved.get("config") or {}
-    try:
-        from expand_models import expand_models
-        expected_models = len(expand_models(cfg)["models"])
-    except Exception:  # noqa: BLE001 - fall back rather than fail the check
-        expected_models = len(cfg.get("models") or [])
+    cfg_models = [m for m in (cfg.get("models") or []) if isinstance(m, dict)]
+    # `config_resolved.json` stores the config *after* `auto_expand_finetuned` has run --
+    # eval_testset reassigns `config = expand_models(config)` before building the manifest -- so
+    # expanding it a second time doubles the expectation. The first smoke run that ever reached
+    # this code (job 3048695) reported "expecting 72 condition(s) (12 models x 3 x 2)" against a
+    # perfectly correct 36/6 and failed three checks for it.
+    #
+    # `expand_models` stamps every entry it synthesises with `auto_generated`, so that marker is
+    # the reliable way to tell an already-expanded config from a raw one.
+    if any(m.get("auto_generated") for m in cfg_models):
+        expected_models = len(cfg_models)
+    else:
+        try:
+            from expand_models import expand_models
+            expected_models = len(expand_models(cfg)["models"])
+        except Exception:  # noqa: BLE001 - fall back rather than fail the check
+            expected_models = len(cfg_models)
     n_strategies = len(resolved.get("prompt_strategies") or cfg.get("prompt_strategies") or [])
     n_schemas = len(resolved.get("schema_enforced") or cfg.get("schema_enforced") or [])
 
