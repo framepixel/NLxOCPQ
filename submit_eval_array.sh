@@ -32,7 +32,9 @@
 # Task -> (model, strategy, schema, case-half) mapping:
 #   MODEL_IDX    = TASK / 12       (0..5) 0,1=llama31-8b base/ft
 #                                         2,3=ministral3-14b base/ft
-#                                         4,5=gemma3-4b base/ft
+#                                         4,5=ministral3-3b base/ft
+# Indices 4,5 were gemma3-4b until 2026-08-18. Ministral 3 3B replaced it IN PLACE so the
+# mapping, and any wave command written against it, stays valid. Verify with check_shard_map.py.
 #   STRATEGY_IDX = (TASK % 12) / 4 (0..2) per eval_config.prompt_strategies order
 #   SCHEMA_IDX   = (TASK % 4) / 2  (0..1) per eval_config.schema_enforced order
 #   CASE_HALF    = TASK % 2        (0..1) case slice i of 2

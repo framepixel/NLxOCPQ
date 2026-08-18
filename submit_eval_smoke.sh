@@ -6,11 +6,11 @@
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 # 6h. Measured 2026-08-16: 141 of 144 runs took 4h01m, so a 4h limit missed the finish by three
-# runs. Gemma 3 4B dominates -- despite being the smallest model it is 5-13x slower per run than
-# Ministral 14B (381 s/run at worst against 28 s), because Gemma 3 requires eager attention and
-# cannot use the fused kernels the others get. It alone accounted for 68% of the wall time.
-# This does not threaten the matrix: there each array task runs one model, and the worst
-# projected shard (gemma3-4b-finetuned x grammar-guided, 85 cases) is ~9h against a 14h limit.
+# runs. That measurement included Gemma 3 4B, which alone accounted for 68% of the wall time --
+# despite being the smallest model it ran 5-13x slower per run than Ministral 14B (381 s/run at
+# worst against 28 s). Gemma was replaced by Ministral 3 3B on 2026-08-18, whose vocabulary is
+# 131,072 against Gemma's 262,208 and which shares the 14B's architecture, so the full smoke
+# should now finish well inside this limit. The 6h is kept until a full run re-measures it.
 #SBATCH --time=06:00:00
 #SBATCH --account=thes2358
 # Site default may be --export=NONE; options are passed as arguments regardless, this is belt-and-braces.

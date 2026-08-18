@@ -15,7 +15,12 @@
   "result_store_max_situations": 200000,
   "shuffle": false,
   "auto_expand_finetuned": true,
-  "fine_tune_map": {},
+  "fine_tune_map": {
+    "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit": {
+      "name": "adapters/ministral3-3b-fine-tuned-quantized",
+      "label": "ministral3-3b-finetuned"
+    }
+  },
   "schema_enforced": [
     true,
     false
@@ -33,5 +38,5 @@
       "label": "ministral3-3b-base"
     }
   ],
-  "_comment": "Throwaway config for check_model_load.py only -- NOT an evaluation config. Verifies a candidate base model loads and generates before ~8h of training is queued against it. Run with: sbatch submit_model_check.sh --config eval_config.candidate.json --model-idx 0 ... index 0 only, because with no fine_tune_map entry expand_models synthesises a '<name>-finetuned' model that does not exist yet. Options must be ARGUMENTS: this cluster does not propagate the submitting environment into jobs."
+  "_comment": "Throwaway config for check_model_load.py only -- NOT an evaluation config. Index 0 is the base model (verified 2026-08-17, job 3015981, before training was queued); index 1 is the adapter trained on it (job 3021705, finished 2026-08-18). The fine_tune_map entry was empty while only the base existed, because expand_models then synthesises a '<name>-finetuned' path that does not exist. Run with: sbatch submit_model_check.sh --config eval_config.candidate.json --model-idx 1. Options must be ARGUMENTS: this cluster does not propagate the submitting environment into jobs."
 }
