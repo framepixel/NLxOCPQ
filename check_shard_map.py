@@ -53,10 +53,18 @@ def main():
         if not ok:
             failures.append(name)
 
+    # Fall back to the config sitting next to this script. The default is relative, so
+    # `python NLxOCPQ/check_shard_map.py` from $HOME reported "FATAL: eval_config.json not found"
+    # -- indistinguishable, moments before launching the matrix, from the config actually being
+    # missing. Anchoring on the script's own directory makes the check work from anywhere.
     cfg_path = Path(args.config)
     if not cfg_path.is_file():
-        print(f"FATAL: {cfg_path} not found")
-        return 1
+        beside_script = Path(__file__).resolve().parent / args.config
+        if beside_script.is_file():
+            cfg_path = beside_script
+        else:
+            print(f"FATAL: {cfg_path} not found (also looked in {beside_script.parent})")
+            return 1
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
 
     if expand_models is None:
