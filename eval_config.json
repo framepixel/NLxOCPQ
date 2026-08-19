@@ -15,8 +15,8 @@
   "result_store_max_situations": 200000,
   "shuffle": false,
   "auto_expand_finetuned": true,
-  "case_timeout_sec": null,
-  "case_timeout_sec_note": "Wall-clock budget per case, generation through execution. Set from the wave-1 duration distribution (p99, rounded up) and keep it above ocpq_cli_timeout_sec (300) so the CLI's own timeout still fires first. check_shard_map.py refuses to pass while this is null.",
+  "case_timeout_sec": 600,
+  "case_timeout_sec_note": "Wall-clock budget per case, generation through execution. Calibrated 2026-08-19 from the 4056 pre-cap wave-1 records: p50=36.0 p90=85.9 p95=103.7 p99=157.8 max=377.0 sec. 600 is ~1.6x the observed maximum and ~3.8x p99, and sits above ocpq_cli_timeout_sec (300) so the backend's own timeout still fires first for a pure execution hang. It is therefore a bound on pathology, not a budget that trims the normal distribution: no observed case came within 220s of it. A cap tight enough to actually bind would have to sit below 300 and would make the CLI timeout unreachable.",
   "fine_tune_map": {
     "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit": {
       "name": "adapters/llama31-8b-fine-tuned-quantized",

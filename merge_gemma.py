@@ -56,6 +56,76 @@ BASE_OUT = HERE / "adapters" / "gemma3-4b-base-16bit"
 MAX_SEQ_LEN = 4096
 
 PROMPT = "Return a JSON object with a single key \"ok\" set to true."
+# Slice of the next-token logit vector stored beside each checkpoint as a reference. Gemma 3's
+# vocabulary is ~262k, so the whole vector is not worth persisting; a fixed prefix plus the argmax
+# is enough to tell a faithful reload from a mis-mapped one.
+REF_LOGIT_SLICE = 512
+REF_FILE = "ocpq_reference_logits.json"
+
+
+def _next_token_logits(model, tokenizer):
+    """Logits for the token after PROMPT, from whatever model object is passed."""
+    import torch
+
+    ids = tokenizer(PROMPT, return_tensors="pt").input_ids.to(model.device)
+    with torch.no_grad():
+        out = model(ids).logits[0, -1].float().cpu()
+    return out
+
+
+def _write_reference(out: Path, logits):
+    """Capture the in-memory model's behaviour BEFORE saving, so the reload can be checked.
+
+    Without this there is nothing to compare a reloaded checkpoint against: the base-vs-finetuned
+    difference proves the LoRA was merged, but not that the weights survived serialisation with
+    their names intact.
+    """
+    top = logits.topk(10)
+    (out / REF_FILE).write_text(json.dumps({
+        "prompt": PROMPT,
+        "argmax": int(logits.argmax()),
+        "top10_ids": [int(i) for i in top.indices],
+        "logit_prefix": [round(float(v), 5) for v in logits[:REF_LOGIT_SLICE]],
+    }, indent=2) + chr(10), encoding="utf-8")
+
+
+def _save_merged(model, tokenizer, out: Path, label: str) -> str:
+    """Write a merged 16-bit checkpoint, around a transformers 5.5.0 / Gemma 3 save bug.
+
+    `save_pretrained` reverses the checkpoint->runtime weight conversion applied at load time.
+    On transformers 5.5.0 at least one Gemma 3 conversion has no reverse implemented, so the call
+    dies with a bare `NotImplementedError` out of `core_model_loading.reverse_op` -- *after* the
+    merge itself has succeeded. Losing a completed merge to a serialisation detail is not
+    acceptable, so the reversal is disabled and the result is checked instead of trusted.
+
+    Disabling it writes the state dict in RUNTIME key order rather than the original checkpoint's.
+    Whether reloading maps that back to the same weights is exactly the thing not to assume, which
+    is why reference logits are captured here and `--verify` compares against them.
+    """
+    try:
+        model.save_pretrained_merged(str(out), tokenizer, save_method="merged_16bit")
+        return "save_pretrained"
+    except NotImplementedError:
+        import transformers.modeling_utils as mu
+
+        original = getattr(mu, "revert_weight_conversion", None)
+        if original is None:
+            raise SystemExit(
+                "FATAL: save_pretrained raised NotImplementedError but "
+                "transformers.modeling_utils.revert_weight_conversion is absent, so the known "
+                "workaround does not apply. This is a different failure -- do not work around it."
+            )
+        print(f"  [warn] {label}: transformers could not reverse Gemma 3's weight conversion "
+              f"(known 5.5.0 issue). Retrying with the reversal disabled; the result is "
+              f"verified against reference logits rather than trusted.")
+        if out.exists():
+            shutil.rmtree(out)
+        mu.revert_weight_conversion = lambda model_to_save, state_dict, *a, **k: state_dict
+        try:
+            model.save_pretrained_merged(str(out), tokenizer, save_method="merged_16bit")
+        finally:
+            mu.revert_weight_conversion = original
+        return "save_pretrained+no_revert"
 
 
 def _load_base():
@@ -131,8 +201,11 @@ def build_finetuned():
     if n_lora == 0:
         raise SystemExit("FATAL: no LoRA tensors attached; the merge would be a no-op.")
 
-    model.save_pretrained_merged(str(FT_OUT), tokenizer, save_method="merged_16bit")
+    reference = _next_token_logits(model, tokenizer)
+    how = _save_merged(model, tokenizer, FT_OUT, "fine-tuned arm")
     _assert_dir_is_loadable(FT_OUT, "fine-tuned arm")
+    _write_reference(FT_OUT, reference)
+    print(f"  saved via {how}; reference logits written to {REF_FILE}")
 
 
 def build_base():
@@ -157,28 +230,38 @@ def build_base():
         )
     print(f"  zero-adapter verified: {len(b_tensors)} lora_B tensors, all exactly 0")
 
-    model.save_pretrained_merged(str(BASE_OUT), tokenizer, save_method="merged_16bit")
+    reference = _next_token_logits(model, tokenizer)
+    how = _save_merged(model, tokenizer, BASE_OUT, "base arm")
     _assert_dir_is_loadable(BASE_OUT, "base arm")
+    _write_reference(BASE_OUT, reference)
+    print(f"  saved via {how}; reference logits written to {REF_FILE}")
 
 
 def verify():
-    """Prove the two checkpoints are actually different models.
+    """Two independent checks on the finished checkpoints.
 
-    Merged checkpoints emit no `[adapter load] injected N/M` line, so the diagnostic that would
-    otherwise catch a silently no-op merge is gone. This replaces it: identical logits mean the
-    LoRA never made it in, and the fine-tuned arm is really the base arm wearing its name.
+    1. FAITHFUL RELOAD. Because transformers 5.5.0 cannot reverse Gemma 3's weight conversion,
+       the checkpoint may have been written with that reversal disabled -- in runtime key order
+       rather than the original checkpoint's. Reloading is therefore not something to assume
+       works. Each arm is compared against the reference logits captured from the in-memory model
+       immediately before it was saved. A name mis-mapping moves logits enormously; the honest
+       4-bit-merge vs 16-bit-reload difference is small, hence a tolerance rather than equality.
+
+    2. THE ARMS DIFFER. A merged checkpoint emits no `[adapter load] injected N/M` line, so the
+       diagnostic that would otherwise catch a silently no-op merge is gone. Identical logits
+       across the two arms mean the LoRA never made it in and the "fine-tuned" arm is the base
+       model wearing its name.
     """
     print("\n=== verify ===")
     import torch
     from transformers import AutoTokenizer
 
-    def _logits(path):
-        sys.path.insert(0, str(HERE))
-        from LLM import _load_text_generation_model  # the eval-time loader, not unsloth's
+    sys.path.insert(0, str(HERE))
+    from LLM import _load_text_generation_model  # the eval-time loader, not unsloth's
 
+    def _logits(path):
         tok = AutoTokenizer.from_pretrained(str(path), use_fast=True, trust_remote_code=True)
-        mdl = _load_text_generation_model(str(path), device_map="auto",
-                                          trust_remote_code=True)
+        mdl = _load_text_generation_model(str(path), device_map="auto", trust_remote_code=True)
         ids = tok(PROMPT, return_tensors="pt").input_ids.to(mdl.device)
         with torch.no_grad():
             out = mdl(ids).logits[0, -1].float().cpu()
@@ -186,16 +269,50 @@ def verify():
         torch.cuda.empty_cache()
         return out
 
-    a = _logits(BASE_OUT)
-    b = _logits(FT_OUT)
-    delta = float((a - b).abs().max())
-    print(f"  max |logit difference| on a fixed prompt: {delta:.6f}")
+    # Loaded one at a time and released: holding two 4B models plus activations is avoidable.
+    reloaded = {}
+    for label, path in (("base", BASE_OUT), ("fine-tuned", FT_OUT)):
+        if not path.is_dir():
+            raise SystemExit(f"FATAL: {path} does not exist -- run the merge first.")
+        reloaded[label] = _logits(path)
+
+    print("\n  [1] faithful reload")
+    ok = True
+    for label, path in (("base", BASE_OUT), ("fine-tuned", FT_OUT)):
+        ref_path = path / REF_FILE
+        if not ref_path.is_file():
+            print(f"      {label:<11} SKIP  no {REF_FILE} (checkpoint predates this check)")
+            continue
+        ref = json.loads(ref_path.read_text(encoding="utf-8"))
+        got = reloaded[label]
+        prefix = torch.tensor(ref["logit_prefix"])
+        drift = float((got[:len(prefix)] - prefix).abs().max())
+        same_argmax = int(got.argmax()) == int(ref["argmax"])
+        # 4-bit inference vs a 16-bit reload of the same weights lands well inside a couple of
+        # logits. A wrong key mapping is not a near miss -- it is a different model.
+        good = drift < 5.0 and same_argmax
+        ok = ok and good
+        print(f"      {label:<11} {'PASS' if good else 'FAIL'}  "
+              f"max|drift|={drift:.4f}  argmax {'matches' if same_argmax else 'DIFFERS'} "
+              f"({int(got.argmax())} vs {ref['argmax']})")
+    if not ok:
+        raise SystemExit(
+            "FATAL: a reloaded checkpoint does not reproduce the model it was saved from.\n"
+            "       The state dict was written with transformers' weight-conversion reversal\n"
+            "       disabled, and reloading has evidently not mapped it back. Do NOT evaluate\n"
+            "       from these checkpoints."
+        )
+
+    print("\n  [2] the two arms differ")
+    delta = float((reloaded["base"] - reloaded["fine-tuned"]).abs().max())
+    print(f"      max |logit difference| between arms: {delta:.6f}")
     if delta == 0.0:
         raise SystemExit(
             "FATAL: the two checkpoints produce identical logits. The LoRA was not merged in, "
             "and the 'fine-tuned' arm is the base model under another name."
         )
-    print("  [ok] the fine-tuned arm differs from the base arm")
+    print("      PASS  the fine-tuned arm is a different model from the base arm")
+    print("\n[ok] both checkpoints are faithful and distinct.")
 
 
 def repair_provenance():
