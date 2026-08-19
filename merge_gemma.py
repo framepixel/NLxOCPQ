@@ -182,24 +182,127 @@ def _assert_dir_is_loadable(path: Path, label: str):
             f"       LLM.py checks for the adapter FIRST, so this would be loaded as a LoRA "
             f"directory and the merge would be silently bypassed."
         )
+    _assert_weights_are_merged(path, label)
     print(f"  [ok] {label} is a merged checkpoint "
           f"({', '.join(weights) or f'{len(sharded)} shards'})")
 
 
+def _assert_weights_are_merged(path: Path, label: str):
+    """Reject a checkpoint whose tensor NAMES say it is still a PEFT wrapper.
+
+    The filename check above is not sufficient, and this is not hypothetical: on 2026-08-19 an
+    arm built with `PeftModel.from_pretrained` fell through unsloth's save dispatch to a plain
+    `save_pretrained` on the wrapper. It wrote a perfectly well-formed `model.safetensors`
+    containing `lora_A.default.weight` and `base_layer.weight` keys, passed every check there was,
+    and only failed two steps later when transformers reported every real weight MISSING and
+    randomly initialised them.
+
+    Reading the key names costs milliseconds and catches it at the moment it happens.
+    """
+    from safetensors import safe_open
+
+    files = sorted(path.glob("*.safetensors"))
+    if not files:
+        return  # .bin checkpoints are not produced by this script; nothing to inspect.
+
+    offenders = []
+    total = 0
+    for f in files:
+        # A truncated or half-written shard fails here with an opaque rust error. Saying so
+        # plainly matters: the alternative is a checkpoint that looks present on disk and only
+        # explodes hours later inside an evaluation shard.
+        try:
+            handle = safe_open(str(f), framework="pt")
+        except Exception as exc:
+            raise SystemExit(
+                f"FATAL: {label}: {f.name} is not readable as safetensors ({exc}). "
+                f"The checkpoint is corrupt or incompletely written -- check free disk space "
+                f"and re-run the merge with --force."
+            ) from exc
+        with handle:
+            for key in handle.keys():
+                total += 1
+                if "lora_" in key or ".base_layer." in key:
+                    offenders.append(key)
+
+    if offenders:
+        sample = "\n         ".join(offenders[:3])
+        raise SystemExit(
+            f"FATAL: {label} at {path} was NOT merged.\n"
+            f"       {len(offenders)} of {total} tensors still carry PEFT wrapper names, e.g.\n"
+            f"         {sample}\n"
+            f"       This is a raw adapter state dict saved under a merged model's filename.\n"
+            f"       Loading it would report every real weight MISSING and randomly initialise\n"
+            f"       them. Delete this directory; do not evaluate from it."
+        )
+    print(f"  [ok] {label}: {total} tensors, none carrying PEFT wrapper names")
+
+
 def build_finetuned():
+    """Attach the trained LoRA the way unsloth recognises, then merge.
+
+    `PeftModel.from_pretrained` was tried first and is WRONG here. It produces a plain PEFT
+    object, which unsloth's save dispatch does not recognise as one of its own, so
+    `save_pretrained_merged` silently falls through to `unsloth_generic_save` -> plain
+    `save_pretrained` on the wrapper. The result looks like a success -- it even prints "Saving
+    full fine-tuned model" and writes a `model.safetensors` -- but the state dict contains
+    `lora_A.default.weight` / `base_layer.weight` keys instead of merged weights, and reloading it
+    reports every real weight MISSING and randomly initialises them.
+
+    Building the adapter with `FastLanguageModel.get_peft_model` and injecting the trained tensors
+    keeps the model on unsloth's own path, so the real "Merging weights into 16bit" step runs.
+    This mirrors what `LLM.py` already does at evaluation time, where it injects 476/476 with 0
+    unexpected -- the same numbers to expect here.
+    """
     print(f"\n=== fine-tuned arm -> {FT_OUT} ===")
-    from peft import PeftModel
+    from unsloth import FastLanguageModel
+    try:
+        from peft import set_peft_model_state_dict
+    except ImportError:
+        from peft.utils import set_peft_model_state_dict
+    from safetensors.torch import load_file as st_load
 
     model, tokenizer = _load_base()
-    # Load the base explicitly rather than passing ADAPTER_DIR to from_pretrained:
+    # Shape the adapter from the trained config rather than loading the adapter directory:
     # `adapter_config.json` was redirected to google/gemma-3-4b-it by
-    # train_unsloth._restore_requested_base_model_name, so unsloth would resolve the wrong base.
-    model = PeftModel.from_pretrained(model, str(ADAPTER_DIR))
+    # train_unsloth._restore_requested_base_model_name, so anything resolving the base from that
+    # file would load the wrong weights.
+    model = FastLanguageModel.get_peft_model(model, **_adapter_lora_kwargs())
 
-    n_lora = sum(1 for n, _ in model.named_parameters() if "lora_" in n)
-    print(f"  adapter attached: {n_lora} LoRA tensors live on the model")
-    if n_lora == 0:
-        raise SystemExit("FATAL: no LoRA tensors attached; the merge would be a no-op.")
+    sf = ADAPTER_DIR / "adapter_model.safetensors"
+    binf = ADAPTER_DIR / "adapter_model.bin"
+    device = str(next(iter(model.parameters())).device)
+    if sf.exists():
+        raw = st_load(str(sf), device=device)
+    elif binf.exists():
+        import torch
+        raw = torch.load(str(binf), map_location=device)
+    else:
+        raise SystemExit(f"FATAL: no adapter weights in {ADAPTER_DIR}")
+
+    # Keep only the LoRA deltas; unsloth embeds quantized base layers alongside them.
+    lora_sd = {k: v for k, v in raw.items() if "lora_" in k}
+    result = set_peft_model_state_dict(model, lora_sd, adapter_name="default")
+    unexpected = list(getattr(result, "unexpected_keys", []) or [])
+    loaded = len(lora_sd) - len(unexpected)
+    print(f"  adapter injected: {loaded}/{len(lora_sd)} LoRA tensors "
+          f"({len(unexpected)} unexpected)")
+    if unexpected:
+        raise SystemExit(
+            f"FATAL: adapter only partially applied: {loaded}/{len(lora_sd)} matched, "
+            f"{len(unexpected)} did not, e.g. {', '.join(unexpected[:3])}.\n"
+            f"       Merging now would bake a half-fine-tuned model into the checkpoint."
+        )
+    if loaded == 0:
+        raise SystemExit("FATAL: no LoRA tensors matched; the merge would be a no-op.")
+
+    # Non-zero B is what makes this arm differ from the base arm. If the trained B matrices were
+    # all zero the adapter would be vacuous, and the two checkpoints would be identical.
+    b_max = max((float(p.detach().abs().max()) for n, p in model.named_parameters()
+                 if "lora_B" in n), default=0.0)
+    print(f"  max |lora_B| = {b_max:.6f} (must be > 0, else the adapter is vacuous)")
+    if b_max == 0.0:
+        raise SystemExit("FATAL: every lora_B is zero; the trained adapter carries no delta.")
 
     reference = _next_token_logits(model, tokenizer)
     how = _save_merged(model, tokenizer, FT_OUT, "fine-tuned arm")
@@ -222,7 +325,7 @@ def build_base():
     b_tensors = [p for n, p in model.named_parameters() if "lora_B" in n]
     if not b_tensors:
         raise SystemExit("FATAL: zero-adapter attached no lora_B tensors; cannot verify no-op.")
-    nonzero = [float(p.abs().max()) for p in b_tensors]
+    nonzero = [float(p.detach().abs().max()) for p in b_tensors]
     if max(nonzero) != 0.0:
         raise SystemExit(
             f"FATAL: lora_B is not zero (max |B| = {max(nonzero)}). The base arm would carry a "
