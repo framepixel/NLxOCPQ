@@ -340,6 +340,60 @@ def build_base():
     print(f"  saved via {how}; reference logits written to {REF_FILE}")
 
 
+def _check_tokenizers():
+    """Confirm each merged checkpoint tokenizes identically to the checkpoint it came from.
+
+    transformers 5.5.0 warns on load that these tokenizers carry "an incorrect regex pattern"
+    and that this "will lead to incorrect tokenization", citing a Mistral discussion. The warning
+    does not appear anywhere in the wave-1 logs, so it arrived with the merged checkpoints --
+    unsloth rewrites `tokenizer_config.json` and re-plants the sentencepiece asset when it saves.
+
+    Whether it matters is an empirical question, not a judgement call: if the merged tokenizer
+    produces the same ids as the training base for the text this evaluation actually sends, the
+    warning is cosmetic. If it does not, every Gemma prompt is subtly wrong and the arm is void.
+    Tokenizers are cheap to load, so this is checked rather than argued about.
+    """
+    from transformers import AutoTokenizer
+
+    # Deliberately weighted towards what the pipeline really sends: JSON punctuation, nested
+    # braces, quoted keys, newlines, and OCEL event names with spaces and underscores -- exactly
+    # the places a regex difference in the pre-tokenizer would show up.
+    samples = [
+        PROMPT,
+        '{"nodes": [{"id": "0", "type": "Event", "name": "O_Create Offer"}]}',
+        '{\n  "filters": [{"type": "O2E", "object": "Offer"}],\n  "constraints": []\n}',
+        "W_Shortened completion  / A_Cancelled / item out of stock",
+        "Find all orders where payment reminder occurs within 3 days (259200s).",
+        "```json\n{\"a\": 1}\n```",
+    ]
+
+    ref = AutoTokenizer.from_pretrained(TRAINING_BASE, use_fast=True, trust_remote_code=True)
+    mismatches = []
+    for label, path in (("base", BASE_OUT), ("fine-tuned", FT_OUT)):
+        tok = AutoTokenizer.from_pretrained(str(path), use_fast=True, trust_remote_code=True)
+        bad = 0
+        for text in samples:
+            if tok(text).input_ids != ref(text).input_ids:
+                bad += 1
+                if bad == 1:
+                    mismatches.append((label, text, ref(text).input_ids, tok(text).input_ids))
+        print(f"      {label:<11} {'PASS' if bad == 0 else 'FAIL'}  "
+              f"{len(samples) - bad}/{len(samples)} samples tokenize identically to "
+              f"{TRAINING_BASE}")
+
+    if mismatches:
+        label, text, want, got = mismatches[0]
+        raise SystemExit(
+            f"FATAL: the {label} checkpoint's tokenizer does not match the training base.\n"
+            f"       transformers' 'incorrect regex pattern' warning is real for this model.\n"
+            f"       sample: {text!r}\n"
+            f"       base ids: {want[:16]}\n"
+            f"       ckpt ids: {got[:16]}\n"
+            f"       Every prompt sent to this arm would be tokenized differently from the text\n"
+            f"       the LoRA was trained on. Do NOT evaluate from these checkpoints."
+        )
+
+
 def verify():
     """Two independent checks on the finished checkpoints.
 
@@ -371,6 +425,9 @@ def verify():
         del mdl
         torch.cuda.empty_cache()
         return out
+
+    print("\n  [0] tokenizer fidelity")
+    _check_tokenizers()
 
     # Loaded one at a time and released: holding two 4B models plus activations is avoidable.
     reloaded = {}
