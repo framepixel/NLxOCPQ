@@ -1,5 +1,5 @@
 {
-  "_comment": "Smoke configuration: all 36 conditions, a 4-case slice. Runs the full pipeline end to end so a failure surfaces in ~1-2h instead of 40 minutes into the real matrix. Verify a finished run with smoke_check.py. Never report numbers from this config - 4 cases measures nothing.",
+  "_comment": "Smoke configuration: all 48 conditions, a 4-case slice. Runs the full pipeline end to end so a failure surfaces in ~1-2h instead of 40 minutes into the real matrix. Verify a finished run with smoke_check.py. Never report numbers from this config - 4 cases measures nothing.",
   "_seed_rationale": "shuffle=true because limit takes rows[:N] and the first five testset entries are all order-management.json. Seed 12116 is a coverage device, not a measurement: its first four shuffled entries span four distinct logs INCLUDING bpic2017-ocel2.json, the 2.2 GB log most likely to fail on time or memory, at the lowest gold-execution cost of any seed satisfying that (40k seeds searched). The project seed 3407 covers four logs but misses bpic2017 entirely.",
   "testset_path": "testset.json",
   "output_dir": "eval_runs/smoke",
@@ -17,6 +17,8 @@
   "result_store": true,
   "result_store_max_situations": 200000,
   "auto_expand_finetuned": true,
+  "case_timeout_sec": null,
+  "case_timeout_sec_note": "Must match eval_config.json. The smoke exists to prove the capped path works before 28h of matrix depends on it.",
   "fine_tune_map": {
     "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit": {
       "name": "adapters/llama31-8b-fine-tuned-quantized",
@@ -29,6 +31,10 @@
     "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit": {
       "name": "adapters/ministral3-3b-fine-tuned-quantized",
       "label": "ministral3-3b-finetuned"
+    },
+    "adapters/gemma3-4b-base-16bit": {
+      "name": "adapters/gemma3-4b-merged-16bit",
+      "label": "gemma3-4b-finetuned"
     }
   },
   "schema_enforced": [
@@ -54,6 +60,10 @@
     {
       "name": "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit",
       "label": "ministral3-3b-base"
+    },
+    {
+      "name": "adapters/gemma3-4b-base-16bit",
+      "label": "gemma3-4b-base"
     }
   ]
 }

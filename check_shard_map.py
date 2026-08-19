@@ -26,8 +26,11 @@ try:
 except Exception:  # noqa: BLE001 - reported by the check itself
     expand_models = None
 
-TOTAL_TASKS = 72
+TOTAL_TASKS = 96
 CASE_HALVES = 2
+# QueryExecutor's own default. The case cap must sit above it, or the backend's more specific
+# timeout can never fire and every execution hang is reported as a generic case timeout.
+OCPQ_CLI_TIMEOUT_SEC = 300
 
 
 def shard_map(task):
@@ -106,6 +109,19 @@ def main():
         per_condition_halves.setdefault(key, set()).add(m["case_half"])
     check(all(h == {0, 1} for h in per_condition_halves.values()),
           "each condition gets both case halves, not one twice")
+
+    print("\ncase time cap")
+    # Checked here because this is the last gate before `sbatch`. The cap was made uniform
+    # across every arm on purpose: a binding cap applied to some models and not others makes
+    # the timeout counts incomparable, and an unset cap would silently produce a ~28-hour
+    # uncapped matrix that has to be thrown away.
+    cap = cfg.get("case_timeout_sec")
+    check(bool(cap), "case_timeout_sec is set",
+          "null/0 — calibrate it from the wave-1 duration distribution first")
+    if cap:
+        check(int(cap) > OCPQ_CLI_TIMEOUT_SEC,
+              f"case_timeout_sec ({cap}s) > ocpq_cli_timeout_sec ({OCPQ_CLI_TIMEOUT_SEC}s)",
+              "the CLI timeout could never fire first")
 
     print("\nresolved model order (what MODEL_IDX selects)")
     for i, m in enumerate(models):

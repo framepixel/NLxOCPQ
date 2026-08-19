@@ -7,6 +7,7 @@ import math
 import os
 import random
 import re
+import signal
 import time
 import traceback
 from collections import defaultdict
@@ -56,6 +57,69 @@ EVALUATION_PHASES = [
     "summary",
 ]
 RUN_PHASE_TRACE = ["generation", "schema_check", "execution", "similarity"]
+
+
+class CaseTimeout(Exception):
+    """A single case exceeded `case_timeout_sec` somewhere between generation and execution."""
+
+
+class _case_time_limit:
+    """Wall-clock cap on one case, spanning generation through query execution.
+
+    `OCPQ_CLI_TIMEOUT_SEC` (QueryExecutor.py) already caps the backend call, and
+    `max_new_tokens` bounds generation, but model loading and the schema-fix retry loop are
+    bounded by nothing. This closes that gap around the whole `nl_to_ocpq_pipeline` call.
+
+    Keep the cap ABOVE `OCPQ_CLI_TIMEOUT_SEC`. The CLI limit then fires first for a pure
+    execution hang and the record is classified `execution_failed`, which says more than a
+    generic `timeout` would; this cap is what catches everything the CLI limit cannot see.
+
+    SIGALRM, not a watchdog thread, because only the main thread can interrupt the running
+    generation loop -- and a thread that cannot interrupt would merely observe the hang. The
+    signal is delivered between bytecodes, which is enough here: `generate()` is a Python loop
+    over forward passes. A single long C call (safetensors load) overshoots the deadline rather
+    than being cut short, so the cap is an upper bound on *scheduling*, not a hard guarantee.
+
+    No-ops where SIGALRM is unavailable (Windows) or off the main thread, so local development
+    degrades to "no cap" instead of crashing. Evaluation runs on Linux, where it is always live.
+    """
+
+    def __init__(self, seconds):
+        self.seconds = int(seconds) if seconds else 0
+        self._previous = None
+
+    @property
+    def active(self):
+        if self.seconds <= 0 or not hasattr(signal, "SIGALRM"):
+            return False
+        # setitimer/alarm raise if called off the main thread.
+        try:
+            import threading
+            return threading.current_thread() is threading.main_thread()
+        except Exception:
+            return False
+
+    def __enter__(self):
+        if not self.active:
+            return self
+
+        def _fire(signum, frame):
+            raise CaseTimeout(
+                f"case exceeded the {self.seconds}s time limit "
+                f"(case_timeout_sec) between generation and execution"
+            )
+
+        self._previous = signal.signal(signal.SIGALRM, _fire)
+        signal.alarm(self.seconds)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if not self.active:
+            return False
+        signal.alarm(0)
+        if self._previous is not None:
+            signal.signal(signal.SIGALRM, self._previous)
+        return False
 
 # Evaluation logs whose event/object vocabulary was present in the pre-de-leak training
 # domains (container_logistics, hiring, hospital, lending, renting in DatasetGenerator).
@@ -670,6 +734,40 @@ def _truncation_counts(records) -> dict:
     }
 
 
+def _timeout_counts(records) -> dict:
+    """How many cases hit the per-case wall-clock cap, over every attempted record.
+
+    Reported next to every headline metric because a timeout is not a neutral omission: the
+    record scores 0 in `result_set_f1_strict` (via `similarity: None`), so a model that times
+    out often is penalised, and the reader needs the rate to tell "answered wrongly" from "ran
+    out of budget". Where a truncation rate is conditional on having produced a result, this
+    denominator is *every* record -- a case that timed out during model loading never reached
+    generation, and excluding it would hide exactly the failure the cap exists to measure.
+
+    Interpretable only against the `case_timeout_sec` recorded in the same run's manifest, and
+    only across arms that shared it; that is why the cap is applied to every model rather than
+    to the one it was introduced for.
+
+    Args:
+        records: Prediction records, each optionally carrying `status` / `pipeline_status`.
+
+    Returns:
+        `timeout_n`, the denominator, and the rate (None when there are no records).
+    """
+    total = 0
+    timed_out = 0
+    for record in records:
+        total += 1
+        if record.get("pipeline_status") == "timeout" or record.get("status") == "timeout":
+            timed_out += 1
+
+    return {
+        "timeout_n": timed_out,
+        "timeout_denominator": total,
+        "timeout_rate": (timed_out / total) if total else None,
+    }
+
+
 def _summarize_llm_stats(stats):
     total_prompt = 0
     total_completion = 0
@@ -776,6 +874,12 @@ def _load_testset(path, limit, seed, shuffle):
 def _classify_run_status(status, error, schema_valid, exec_stats, query_result_file, query_stdout):
     if status != "ok":
         lowered = (error or "").lower()
+        # Before the substring matches below: a timeout message mentions "execution", so
+        # without this it would be classified `execution_failed` and become indistinguishable
+        # from a query the backend actually rejected. The distinction is the whole point of
+        # the cap -- "ran out of budget" and "produced a broken query" are different failures.
+        if status == "timeout":
+            return "timeout"
         if "validated against the schema" in lowered or "strict pydantic" in lowered:
             return "schema_invalid"
         if "parsed" in lowered or "json" in lowered and "parse" in lowered:
@@ -954,6 +1058,12 @@ def run_evaluation(config_path_or_config):
     seed = int(config.get("seed", 3407))
     shuffle = bool(config.get("shuffle", False))
     dry_run = bool(config.get("dry_run", False))
+    # Wall-clock budget for one case, generation through execution. None/0 disables the cap,
+    # which is the default so that omitting the key reproduces the pre-cap behaviour exactly.
+    # A cap that binds must be applied to every arm or the timeout counts are not comparable
+    # across models: an uncapped arm is not "faster", it was allowed to finish.
+    case_timeout_sec = config.get("case_timeout_sec")
+    case_timeout_sec = int(case_timeout_sec) if case_timeout_sec else 0
 
     testset = _load_testset(testset_path, limit, seed, shuffle)
     valid_testset = [
@@ -1043,6 +1153,11 @@ def run_evaluation(config_path_or_config):
         "schema_validation": schema_validation,
         "schema_validation_when_no_schema": schema_validation_when_no_schema,
         "repeats": repeats,
+        # Stated per run, not only in the config, because a timeout rate is meaningless without
+        # the budget it was measured against. Also enters `config_fingerprint`, so two shards
+        # run under different caps cannot be merged without the difference being visible.
+        "case_timeout_sec": case_timeout_sec or None,
+        "ocpq_cli_timeout_sec": int(os.getenv("OCPQ_CLI_TIMEOUT_SEC", "300")),
         "config": config,
     }
     _write_json(run_dir / "config_resolved.json", manifest)
@@ -1204,18 +1319,26 @@ def run_evaluation(config_path_or_config):
                         )
 
                         try:
-                            _, _, ocpq_json, query_stdout, query_result_file = nl_to_ocpq_pipeline(
-                                query=nl_query,
-                                dataset=retrieval_dataset,
-                                embeddings=embeddings,
-                                output_file=str(output_file),
-                                ocel_path=ocel_path,
-                                model_name=resolved_model["name"],
-                                prompt_strategy=prompt_strategy,
-                                schema_enforced=schema_enforced,
-                                schema_validation=effective_schema_validation,
-                                execute_query=True,
-                            )
+                            with _case_time_limit(case_timeout_sec):
+                                _, _, ocpq_json, query_stdout, query_result_file = nl_to_ocpq_pipeline(
+                                    query=nl_query,
+                                    dataset=retrieval_dataset,
+                                    embeddings=embeddings,
+                                    output_file=str(output_file),
+                                    ocel_path=ocel_path,
+                                    model_name=resolved_model["name"],
+                                    prompt_strategy=prompt_strategy,
+                                    schema_enforced=schema_enforced,
+                                    schema_validation=effective_schema_validation,
+                                    execute_query=True,
+                                )
+                        # Ordered before the general handler below, which would otherwise absorb
+                        # the timeout into `pipeline_status = "error"` and lose the distinction.
+                        except CaseTimeout as exc:
+                            pipeline_status = "timeout"
+                            error = str(exc)
+                            trace = None  # A deadline is not a defect; a traceback says nothing.
+                            _log_phase("timeout", f"case {case_idx:03d} | {exc}")
                         except Exception as exc:
                             pipeline_status = "error"
                             error = str(exc)
@@ -1639,6 +1762,9 @@ def _build_summary(records, repeats):
             # these records are scored as measured, and that score is inflated. See
             # `_truncation_counts`.
             **_truncation_counts(recs),
+            # How often the per-case cap fired. Scored 0, never excluded -- see
+            # `_timeout_counts`. Must be added to the by_config block below as well.
+            **_timeout_counts(recs),
         }
 
     # Leakage split: seen vs unseen domains, overall and per model. If the fine-tuning gain
@@ -1688,6 +1814,10 @@ def _build_summary(records, repeats):
         "by_domain_seen": by_domain_seen,
         "by_stratum": by_stratum,
         "evaluation_phase": "summary",
+        # Run-wide timeout total. The per-condition and per-stratum breakdowns are where the
+        # comparison lives; this is the number that says at a glance whether the cap bound at
+        # all, without having to open by_config.
+        "timeouts": _timeout_counts(records),
     }
 
     for config_id, recs in by_config.items():
@@ -1845,6 +1975,7 @@ def _build_summary(records, repeats):
                 # both places on purpose: this block is the separate code path the comment above
                 # `_skill_strict` warns about.
                 **_truncation_counts(recs),
+                **_timeout_counts(recs),
             },
         }
 

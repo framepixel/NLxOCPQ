@@ -250,6 +250,29 @@ def main():
     c.check(not gold_truncated, "no GOLD result was truncated",
             f"{len(gold_truncated)} record(s) — those entries are unscoreable for every model")
 
+    print("\ncase time cap")
+    cap = (resolved or {}).get("case_timeout_sec")
+    print(f"    case_timeout_sec: {cap if cap else 'disabled'}"
+          f" | ocpq_cli_timeout_sec: {(resolved or {}).get('ocpq_cli_timeout_sec')}")
+    timed_out = [r for r in records
+                 if r.get("pipeline_status") == "timeout" or r.get("status") == "timeout"]
+    if cap:
+        # The cap is calibrated from the p99 of a full wave, so at smoke scale it should never
+        # bind. If it does, the value is wrong — and finding that out here costs minutes,
+        # whereas finding it out from the matrix costs ~28 hours of cluster time.
+        c.check(not timed_out, "no case hit the per-case time cap",
+                f"{len(timed_out)}/{len(records)} timed out at {cap}s — the cap is set too low")
+        # A cap at or below the CLI limit makes the backend's own, better-classified timeout
+        # unreachable: every execution hang would surface as a generic `timeout` instead of
+        # `execution_failed`.
+        cli_cap = (resolved or {}).get("ocpq_cli_timeout_sec") or 300
+        c.check(int(cap) > int(cli_cap),
+                f"case cap ({cap}s) leaves room for the CLI cap ({cli_cap}s)",
+                "case cap is at or below the CLI cap — the CLI timeout can never fire first")
+    else:
+        c.warn(not timed_out, "no timeouts recorded while the cap is disabled",
+               f"{len(timed_out)} record(s) marked timeout with no cap configured")
+
     print("\ngold execution")
     sources = {}
     for r in records:

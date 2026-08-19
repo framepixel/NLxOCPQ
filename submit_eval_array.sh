@@ -11,15 +11,15 @@
 # 14h: the previous 10h was sized for 150 test cases (75 per case-half). The testset is now 169
 # (85/84 per half), ~13% more work, and Ministral 3 14B is the slowest model in the set.
 #SBATCH --time=14:00:00
-#SBATCH --array=0-71%24
+#SBATCH --array=0-95%24
 # Required: the personal allocation is exhausted (-101%, 0 GPU-h consumable) while the project
 # still holds ~945 GPU-h. Without this the array is rejected at submission.
 #SBATCH --account=thes2358
 # Site default may be --export=NONE; options are passed as arguments regardless, this is belt-and-braces.
 #SBATCH --export=ALL
 
-# 72 tasks = 36 conditions x 2 case-halves.
-# 36 conditions = 6 models x 3 prompt strategies x 2 schema settings.
+# 96 tasks = 48 conditions x 2 case-halves.
+# 48 conditions = 8 models x 3 prompt strategies x 2 schema settings.
 # The model always receives the full OCEL schema (entities + attributes + relations);
 # schema richness is a fixed pipeline behaviour, not a design variable. With 169 test
 # cases a full-condition shard (169 runs) would push the slowest model past the wall-time
@@ -30,19 +30,29 @@
 # with --recompute without re-running anything.
 #
 # Task -> (model, strategy, schema, case-half) mapping:
-#   MODEL_IDX    = TASK / 12       (0..5) 0,1=llama31-8b base/ft
-#                                         2,3=ministral3-14b base/ft
-#                                         4,5=ministral3-3b base/ft
+#   MODEL_IDX    = TASK / 12       (0..7) 0,1=llama31-8b     base/ft   tasks  0-23
+#                                         2,3=ministral3-14b base/ft   tasks 24-47
+#                                         4,5=ministral3-3b  base/ft   tasks 48-71
+#                                         6,7=gemma3-4b      base/ft   tasks 72-95
 # Indices 4,5 were gemma3-4b until 2026-08-18. Ministral 3 3B replaced it IN PLACE so the
 # mapping, and any wave command written against it, stays valid. Verify with check_shard_map.py.
+# Gemma returned on 2026-08-19 APPENDED at 6,7 rather than reinserted, so indices 0-5 keep the
+# numbering every earlier wave command was written against. It is evaluated from merged 16-bit
+# checkpoints (see merge_gemma.py) because its unsloth training artifact cannot be loaded for
+# inference at all -- not as a LoRA adapter like the other three families.
 #   STRATEGY_IDX = (TASK % 12) / 4 (0..2) per eval_config.prompt_strategies order
 #   SCHEMA_IDX   = (TASK % 4) / 2  (0..1) per eval_config.schema_enforced order
 #   CASE_HALF    = TASK % 2        (0..1) case slice i of 2
 # Verify this mapping against expand_models() without a GPU:
 #   python check_shard_map.py
 #
+# Every arm runs under the same case_timeout_sec (eval_config.json), spanning generation through
+# execution. A binding cap applied to some models and not others makes the timeout counts
+# incomparable -- an uncapped arm is not faster, it was allowed to finish. check_shard_map.py
+# refuses to pass while the cap is unset, so the matrix cannot be launched uncapped by accident.
+#
 # To resume shards that died, resubmit with the --resume ARGUMENT:
-#   sbatch --array=48-71%24 submit_eval_array.sh --resume
+#   sbatch --array=72-95%24 submit_eval_array.sh --resume
 # Without it a resubmitted task starts from zero, because run_id embeds a timestamp and so
 # names a fresh directory. It must be an argument, not OCPQ_RESUME=1: this cluster does not
 # propagate the submitting environment into jobs.
