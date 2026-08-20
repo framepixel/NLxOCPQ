@@ -777,6 +777,40 @@ def _bitsandbytes_quantization_config(torch_module, quantization_mode, resolved_
     )
 
 
+def is_merged_model_dir(path) -> bool:
+    """Does this directory hold full model weights, as opposed to a LoRA adapter?
+
+    Public because it is a contract, not a detail: anything that PRODUCES a checkpoint for this
+    pipeline has to agree with what LOADS one. `merge_gemma.py` imports it for exactly that
+    reason. On 2026-08-19 the two disagreed -- the merge script accepted sharded safetensors that
+    this check did not list -- and all 48 Gemma smoke conditions failed with "not recognized as a
+    merged model or a PEFT adapter" after the checkpoints had passed every verification step.
+
+    Sharded safetensors (`model-00001-of-00002.safetensors` + `model.safetensors.index.json`) is
+    the ordinary output format for any model past a few GB; `save_pretrained` shards by default.
+    Omitting it meant this pipeline could only load models small enough to fit in one file, which
+    was never the intent.
+    """
+    import glob
+    import os
+
+    single = (
+        "model.safetensors",
+        "pytorch_model.bin",
+        "pytorch_model-00001-of-00002.bin",
+        # Index files are the canonical marker of a sharded checkpoint.
+        "model.safetensors.index.json",
+        "pytorch_model.bin.index.json",
+    )
+    if any(os.path.exists(os.path.join(path, name)) for name in single):
+        return True
+    # Shards without an index: unusual, still loadable by transformers.
+    return bool(
+        glob.glob(os.path.join(path, "model-*-of-*.safetensors"))
+        or glob.glob(os.path.join(path, "pytorch_model-*-of-*.bin"))
+    )
+
+
 def _load_text_generation_model(model_name, **kwargs):
     """Load a checkpoint for text generation under whichever auto class it is registered for.
 
@@ -874,10 +908,7 @@ def _ensure_local_gpu_model_loaded():
         # Case: PEFT/LoRA adapter directory
         adapter_config_path = os.path.join(hf_model, "adapter_config.json")
         adapter_safetensors = os.path.join(hf_model, "adapter_model.safetensors")
-        merged_weights = any(
-            os.path.exists(os.path.join(hf_model, fname))
-            for fname in ("pytorch_model.bin", "pytorch_model-00001-of-00002.bin", "model.safetensors")
-        )
+        merged_weights = is_merged_model_dir(hf_model)
 
         if os.path.exists(adapter_config_path) or os.path.exists(adapter_safetensors):
             try:

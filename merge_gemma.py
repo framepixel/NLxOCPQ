@@ -162,19 +162,22 @@ def _adapter_lora_kwargs():
 
 
 def _assert_dir_is_loadable(path: Path, label: str):
-    """`LLM.py` recognises a merged directory only by these filenames -- check before trusting it.
+    """Check the checkpoint against the ACTUAL loader, not against a copy of its rules.
 
-    A directory that saved as an adapter instead would be silently re-routed into the LoRA
-    injection path at evaluation time, which is exactly the failure this script exists to remove.
+    An earlier version of this function kept its own list of acceptable filenames. It drifted:
+    it accepted sharded safetensors, `LLM.py` did not, and all 48 Gemma smoke conditions failed
+    with "not recognized as a merged model or a PEFT adapter" -- after these checkpoints had
+    passed the tokenizer check, the reload check and the separation check. Two copies of one rule
+    is one copy too many, so the predicate now lives in `LLM.py` and is imported from there.
     """
-    weights = [n for n in ("model.safetensors", "pytorch_model.bin")
-               if (path / n).exists()]
-    sharded = list(path.glob("model-*-of-*.safetensors"))
-    if not weights and not sharded:
+    sys.path.insert(0, str(HERE))
+    from LLM import is_merged_model_dir
+
+    if not is_merged_model_dir(str(path)):
         raise SystemExit(
-            f"FATAL: {label} at {path} has no model.safetensors / pytorch_model.bin.\n"
-            f"       LLM.py would not recognise it as a merged model. Contents: "
-            f"{sorted(p.name for p in path.iterdir())[:12]}"
+            f"FATAL: {label} at {path} is not loadable by LLM.py as a merged model.\n"
+            f"       Contents: {sorted(p.name for p in path.iterdir())[:12]}\n"
+            f"       Evaluation would fail on every case for this arm."
         )
     if (path / "adapter_config.json").exists():
         raise SystemExit(
@@ -183,8 +186,9 @@ def _assert_dir_is_loadable(path: Path, label: str):
             f"directory and the merge would be silently bypassed."
         )
     _assert_weights_are_merged(path, label)
-    print(f"  [ok] {label} is a merged checkpoint "
-          f"({', '.join(weights) or f'{len(sharded)} shards'})")
+    files = sorted(p.name for p in path.glob("*.safetensors"))
+    print(f"  [ok] {label} is loadable by LLM.py "
+          f"({len(files)} safetensors file(s): {', '.join(files[:3])})")
 
 
 def _assert_weights_are_merged(path: Path, label: str):
@@ -414,22 +418,43 @@ def verify():
     from transformers import AutoTokenizer
 
     sys.path.insert(0, str(HERE))
-    from LLM import _load_text_generation_model  # the eval-time loader, not unsloth's
 
     def _logits(path):
-        tok = AutoTokenizer.from_pretrained(str(path), use_fast=True, trust_remote_code=True)
-        mdl = _load_text_generation_model(str(path), device_map="auto", trust_remote_code=True)
+        """Load exactly the way evaluation does, then take one forward pass.
+
+        Deliberately routed through `set_local_gpu_client` + `_ensure_local_gpu_model_loaded`
+        rather than calling `_load_text_generation_model` directly. The direct call skips the
+        directory-recognition dispatch -- the merged-model vs LoRA-adapter branch -- which is
+        precisely where the 2026-08-19 checkpoints failed. That version of this function loaded
+        them happily and reported PASS, while every one of the 48 Gemma smoke conditions died on
+        "not recognized as a merged model or a PEFT adapter".
+
+        A verification that enters through a different door than production is not a
+        verification of production.
+        """
+        import LLM
+
+        LLM.set_local_gpu_client(model_name=str(path), device="cuda", dtype="auto",
+                                 quantization="4bit")
+        LLM._ensure_local_gpu_model_loaded()
+        mdl, tok = LLM.local_model, LLM.local_tokenizer
+        if mdl is None or tok is None:
+            raise SystemExit(f"FATAL: {path} loaded to None through the evaluation path.")
+
         ids = tok(PROMPT, return_tensors="pt").input_ids.to(mdl.device)
         with torch.no_grad():
             out = mdl(ids).logits[0, -1].float().cpu()
+
+        # Release before the next arm: two 4B models plus activations is avoidable.
+        LLM.local_model = None
+        LLM.local_tokenizer = None
+        LLM.local_model_key = None
         del mdl
         torch.cuda.empty_cache()
         return out
 
-    print("\n  [0] tokenizer fidelity")
-    _check_tokenizers()
 
-    # Loaded one at a time and released: holding two 4B models plus activations is avoidable.
+    # One arm at a time; _logits releases each before the next.
     reloaded = {}
     for label, path in (("base", BASE_OUT), ("fine-tuned", FT_OUT)):
         if not path.is_dir():

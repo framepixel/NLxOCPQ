@@ -108,7 +108,7 @@ raises("adapter_config.json still rejected",
 empty = tmp / "empty"; empty.mkdir()
 (empty / "config.json").write_text("{}")
 raises("no weights still rejected",
-       lambda: mg._assert_dir_is_loadable(empty, "empty"), "no model.safetensors")
+       lambda: mg._assert_dir_is_loadable(empty, "empty"), "not loadable by LLM.py")
 
 shutil.rmtree(tmp, ignore_errors=True)
 
