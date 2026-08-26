@@ -564,24 +564,51 @@ def _extract_bindings_skipped(result_data: Any) -> Optional[bool]:
     return bool(skipped) if isinstance(skipped, bool) else None
 
 
-def _load_result_ids(result_path: Optional[str], query: Any = None) -> tuple:
+def _result_file_too_large(result_path: Optional[str], max_gb: float) -> Optional[int]:
+    """Size of `result_path` if it exceeds `max_gb`, else None.
+
+    Parsing an ocpq_cli export costs a measured ~11.7x its size in resident memory, and
+    `_read_json` below loads the whole thing at once. There is no way to recover from getting
+    this wrong: the kernel sends SIGKILL, which no `except` can catch, and the whole shard dies
+    mid-run. Shard 60 of job 3087762 was killed twice this way -- once at 64 GB and again at
+    122 GB -- on queries that expand to a single root binding whose child set runs to gigabytes.
+
+    So the size is checked BEFORE the read rather than the failure handled after it.
+    """
+    if not max_gb or max_gb <= 0 or not result_path:
+        return None
+    try:
+        size = os.path.getsize(result_path)
+    except OSError:
+        return None
+    return size if size > max_gb * (1024 ** 3) else None
+
+
+def _load_result_ids(result_path: Optional[str], query: Any = None,
+                     max_gb: float = 0) -> tuple:
     """Load result sets and the truncation flag from a result file.
 
     Args:
         result_path: Path to an ocpq_cli result file, or None.
         query: The query that produced the file, used to locate its root box.
+        max_gb: Refuse to parse a file larger than this many GB. 0 disables the check,
+            which reproduces the pre-2026-08-26 behaviour exactly.
 
     Returns:
-        An `(ids, bindings_skipped)` pair. `ids` is the triple returned by
-        `_extract_result_ids`, or None when the file is missing/unreadable/empty.
+        An `(ids, bindings_skipped, oversized_bytes)` triple. `ids` is the triple returned by
+        `_extract_result_ids`, or None when the file is missing/unreadable/empty/oversized.
+        `oversized_bytes` is the file size when the guard refused it, else None.
     """
     if not result_path or not os.path.exists(result_path):
-        return None, None
+        return None, None, None
+    oversized = _result_file_too_large(result_path, max_gb)
+    if oversized is not None:
+        return None, None, oversized
     try:
         data = _read_json(result_path)
     except Exception:
-        return None, None
-    return _extract_result_ids(data, query), _extract_bindings_skipped(data)
+        return None, None, None
+    return _extract_result_ids(data, query), _extract_bindings_skipped(data), None
 
 
 def _set_metrics(gold_set, pred_set):
@@ -768,6 +795,35 @@ def _timeout_counts(records) -> dict:
     }
 
 
+def _oversized_counts(records) -> dict:
+    """Predictions whose result export was too large to load, over every attempted record.
+
+    Reported beside `timeout_n` and for the same reason: the record scores 0 in
+    `result_set_f1_strict`, so a model that emits intractable queries is penalised, and the
+    reader needs the rate to tell "answered wrongly" from "produced an answer nothing can read".
+
+    Interpretable only against the `max_result_file_gb` recorded in the same run's manifest.
+    A run with the guard disabled reports 0 here and can still be killed outright instead --
+    which is what happened to shard 60 of job 3087762, twice.
+    """
+    total = 0
+    oversized = 0
+    largest = 0
+    for record in records:
+        total += 1
+        metrics = record.get("metrics") or {}
+        if metrics.get("result_too_large") or record.get("status") == "result_too_large":
+            oversized += 1
+            largest = max(largest, int(metrics.get("result_file_bytes") or 0))
+
+    return {
+        "result_too_large_n": oversized,
+        "result_too_large_denominator": total,
+        "result_too_large_rate": (oversized / total) if total else None,
+        "result_too_large_max_bytes": largest or None,
+    }
+
+
 def _summarize_llm_stats(stats):
     total_prompt = 0
     total_completion = 0
@@ -871,7 +927,8 @@ def _load_testset(path, limit, seed, shuffle):
     return rows
 
 
-def _classify_run_status(status, error, schema_valid, exec_stats, query_result_file, query_stdout):
+def _classify_run_status(status, error, schema_valid, exec_stats, query_result_file,
+                         query_stdout, result_too_large=False):
     if status != "ok":
         lowered = (error or "").lower()
         # Before the substring matches below: a timeout message mentions "execution", so
@@ -890,6 +947,12 @@ def _classify_run_status(status, error, schema_valid, exec_stats, query_result_f
 
     if not schema_valid:
         return "schema_invalid"
+
+    # Checked before the success path below: the CLI exited cleanly and wrote a result
+    # file, so every signal here says "success" -- and the answer was never read. Left
+    # unlabelled it would be counted as a correct execution that happened to score 0.
+    if result_too_large:
+        return "result_too_large"
 
     exec_success = bool((exec_stats or {}).get("success"))
     if exec_success and query_result_file:
@@ -1063,6 +1126,11 @@ def run_evaluation(config_path_or_config):
     # A cap that binds must be applied to every arm or the timeout counts are not comparable
     # across models: an uncapped arm is not "faster", it was allowed to finish.
     case_timeout_sec = config.get("case_timeout_sec")
+    # Refuse to parse a prediction's result export larger than this many GB. Parsing costs
+    # ~11.7x the file size in RAM and `_read_json` loads it whole, so an over-selecting
+    # query can SIGKILL the shard -- uncatchable, and it takes the whole run down. 0/None
+    # disables the guard and reproduces the pre-2026-08-26 behaviour exactly.
+    max_result_file_gb = float(config.get("max_result_file_gb") or 0)
     case_timeout_sec = int(case_timeout_sec) if case_timeout_sec else 0
 
     testset = _load_testset(testset_path, limit, seed, shuffle)
@@ -1157,6 +1225,7 @@ def run_evaluation(config_path_or_config):
         # the budget it was measured against. Also enters `config_fingerprint`, so two shards
         # run under different caps cannot be merged without the difference being visible.
         "case_timeout_sec": case_timeout_sec or None,
+        "max_result_file_gb": max_result_file_gb or None,
         "ocpq_cli_timeout_sec": int(os.getenv("OCPQ_CLI_TIMEOUT_SEC", "300")),
         "config": config,
     }
@@ -1237,7 +1306,8 @@ def run_evaluation(config_path_or_config):
             gt_start = time.time()
             gt_stdout, gt_stderr, gt_result_path = run_ocpq_query(ocel_path, str(gt_query_path))
             gt_duration = time.time() - gt_start
-            gt_ids, gt_bindings_skipped = _load_result_ids(gt_result_path, gold_query)
+            gt_ids, gt_bindings_skipped, _gt_oversized = _load_result_ids(
+                gt_result_path, gold_query, max_gb=0)
             # Content-addressed, so gold is written once per entry rather than once per
             # condition. Must happen before the file is discarded below.
             gt_blob = None
@@ -1364,9 +1434,10 @@ def run_evaluation(config_path_or_config):
                         # the same convention as an unparseable prediction, and the field makes
                         # the distinction visible when reporting.
                         scoring_error = None
+                        oversized_bytes = None
                         try:
-                            pred_ids, pred_bindings_skipped = _load_result_ids(
-                                query_result_file, ocpq_json
+                            pred_ids, pred_bindings_skipped, oversized_bytes = _load_result_ids(
+                                query_result_file, ocpq_json, max_gb=max_result_file_gb
                             )
                             similarity = _compute_similarity(gt_record.get("ids"), pred_ids)
                             pred_events, pred_objects = _extract_query_entities(ocpq_json)
@@ -1407,6 +1478,7 @@ def run_evaluation(config_path_or_config):
                             exec_stats,
                             query_result_file,
                             query_stdout,
+                            result_too_large=oversized_bytes is not None,
                         )
 
                         _log_phase("schema_check", f"case {case_idx:03d} | status={final_status}")
@@ -1523,6 +1595,13 @@ def run_evaluation(config_path_or_config):
                                 # a comparison against a truncated result is meaningless,
                                 # so keep it identifiable after the run.
                                 "bindings_skipped": pred_bindings_skipped,
+                                # Set when the export was too large to load at all. The
+                                # query executed; its answer is unusable. Scored 0 strict
+                                # via `similarity: None`, never excluded -- dropping these
+                                # would remove exactly the model's worst over-selecting
+                                # queries, the selection bias rejected for truncation.
+                                "result_too_large": oversized_bytes is not None,
+                                "result_file_bytes": oversized_bytes,
                                 "gold_bindings_skipped": gt_record.get("bindings_skipped"),
                                 # Query-level agreement: did the model express the right
                                 # constructs? A result comparison cannot see this, and on the
@@ -1765,6 +1844,7 @@ def _build_summary(records, repeats):
             # How often the per-case cap fired. Scored 0, never excluded -- see
             # `_timeout_counts`. Must be added to the by_config block below as well.
             **_timeout_counts(recs),
+            **_oversized_counts(recs),
         }
 
     # Leakage split: seen vs unseen domains, overall and per model. If the fine-tuning gain
@@ -1818,6 +1898,7 @@ def _build_summary(records, repeats):
         # comparison lives; this is the number that says at a glance whether the cap bound at
         # all, without having to open by_config.
         "timeouts": _timeout_counts(records),
+        "oversized_results": _oversized_counts(records),
     }
 
     for config_id, recs in by_config.items():
@@ -1976,6 +2057,7 @@ def _build_summary(records, repeats):
                 # `_skill_strict` warns about.
                 **_truncation_counts(recs),
                 **_timeout_counts(recs),
+                **_oversized_counts(recs),
             },
         }
 

@@ -19,6 +19,8 @@
   "auto_expand_finetuned": true,
   "case_timeout_sec": 600,
   "case_timeout_sec_note": "Wall-clock budget per case, generation through execution. Calibrated 2026-08-19 from the 4056 pre-cap wave-1 records: p50=36.0 p90=85.9 p95=103.7 p99=157.8 max=377.0 sec. 600 is ~1.6x the observed maximum and ~3.8x p99, and sits above ocpq_cli_timeout_sec (300) so the backend's own timeout still fires first for a pure execution hang. It is therefore a bound on pathology, not a budget that trims the normal distribution: no observed case came within 220s of it. A cap tight enough to actually bind would have to sit below 300 and would make the CLI timeout unreachable.",
+  "max_result_file_gb": 8,
+  "max_result_file_gb_note": "Refuse to parse a prediction's result export larger than this. Parsing costs a measured ~11.7x the file size in RAM and the whole file is read at once, so an over-selecting query SIGKILLs the shard -- uncatchable. Shard 60 of job 3087762 died this way at 64GB and again at 122GB (2026-08-21/25). 8GB projects to ~94GB resident, inside the 122GB ceiling with margin. Provably inert for the 95 shards that completed at 64GB: any export large enough to trip this would have needed ~94GB to parse and so would have OOM-killed them, and exactly one shard did.",
   "fine_tune_map": {
     "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit": {
       "name": "adapters/llama31-8b-fine-tuned-quantized",
