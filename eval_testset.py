@@ -259,8 +259,41 @@ def _pipeline_fingerprint():
     return digest.hexdigest()
 
 
-def _record_key(case_id, config_id, repeat):
-    return f"{case_id}:{config_id}:{repeat}"
+def _record_key(case_id, config_id, repeat, nl_query=None, ocel_path=None):
+    """Identity of one (entry, condition, repeat) triple, for dedup and resume.
+
+    MUST NOT be built from `case_id` alone. `case_idx` is assigned by
+    `enumerate(valid_testset, start=1)` *after* the case-shard slice, so every case-half restarts
+    at 1: case 1 of `c0of2` is testset row 0, case 1 of `c1of2` is row 85. Different entries,
+    identical key.
+
+    That collision is silent and total. Merging the 96-shard matrix on 2026-08-27 reported
+    "Dropped 4032 duplicate record(s)" and produced 4080 records instead of 8112 -- exactly half
+    the run discarded, with the survivor of each pair chosen by glob order. The in-file comment
+    above the slice claimed "contiguous slices keep case_idx stable"; contiguous slices are
+    precisely what makes it restart.
+
+    So identity comes from the entry itself. `nl_query` is unique across the testset (verified:
+    169/169), and the log's basename is included because two logs could in principle carry the
+    same question, while the full path varies with where a shard ran.
+
+    `case_id` remains the fallback for records predating this field or lacking `nl_query`; within
+    a single shard it is unique, so resume is correct either way.
+    """
+    if nl_query:
+        entry = f"{nl_query}\x00{os.path.basename(ocel_path or '')}"
+        ident = hashlib.sha256(entry.encode("utf-8")).hexdigest()[:16]
+    else:
+        ident = f"case{case_id}"
+    return f"{ident}:{config_id}:{repeat}"
+
+
+def _record_key_of(record):
+    """`_record_key` for an already-written record."""
+    return _record_key(
+        record.get("case_id"), record.get("config_id"), record.get("repeat"),
+        record.get("nl_query"), record.get("ocel_path"),
+    )
 
 
 def _load_json_if_exists(path):
@@ -1154,7 +1187,9 @@ def run_evaluation(config_path_or_config):
 
     # Optional case-range sharding. With 3 schema levels the matrix reaches 108 conditions;
     # a full 140-case shard would push the slowest model past the wall-time limit, so cases
-    # can additionally be split across jobs. Contiguous slices keep case_idx stable.
+    # can additionally be split across jobs. NOTE: `case_idx` is assigned AFTER this slice,
+    # so it restarts at 1 in every shard and is NOT globally unique -- see `_record_key`,
+    # which is why record identity comes from `nl_query` rather than from `case_id`.
     if case_shard is not None:
         shard_index, shard_total = case_shard
         if shard_total < 1 or not (0 <= shard_index < shard_total):
@@ -1259,7 +1294,7 @@ def run_evaluation(config_path_or_config):
     ground_truth_cache = {}
     records = list(existing_records)
     completed_keys = {
-        _record_key(rec.get("case_id"), rec.get("config_id"), rec.get("repeat"))
+        _record_key_of(rec)
         for rec in records
         if rec.get("case_id") is not None and rec.get("config_id") and rec.get("repeat") is not None
     }
@@ -1373,7 +1408,8 @@ def run_evaluation(config_path_or_config):
                     )
 
                     for repeat_idx in range(1, repeats + 1):
-                        current_key = _record_key(case_idx, config_id, repeat_idx)
+                        current_key = _record_key(case_idx, config_id, repeat_idx,
+                                                  nl_query, ocel_path)
                         if current_key in completed_keys:
                             continue
 
@@ -2309,13 +2345,44 @@ def _merge_shards(shard_dirs, output_dir):
 
     # Shards that had to be re-run leave both the partial and the complete directory behind,
     # and `--merge-shards eval_runs/shard_*` picks up both. Without this, the same
-    # (case, condition, repeat) is averaged twice and combined_f1 silently shifts. Later
+    # (entry, condition, repeat) is averaged twice and combined_f1 silently shifts. Later
     # occurrences win, so a rerun supersedes the partial it replaced.
     deduped = {}
+    collisions = []
     for rec in all_records:
-        deduped[_record_key(rec.get("case_id"), rec.get("config_id"), rec.get("repeat"))] = rec
-    if len(deduped) != len(all_records):
-        print(f"Dropped {len(all_records) - len(deduped)} duplicate record(s) across shards.")
+        key = _record_key_of(rec)
+        prior = deduped.get(key)
+        if prior is not None and len(collisions) < 5:
+            collisions.append((key, prior, rec))
+        deduped[key] = rec
+
+    dropped = len(all_records) - len(deduped)
+    if dropped:
+        rate = dropped / len(all_records)
+        print(f"Dropped {dropped} duplicate record(s) across shards "
+              f"({rate:.1%} of {len(all_records)}).")
+        # A handful of duplicates is a re-run superseding a partial, which is the point of the
+        # dedup. A large fraction is not: on 2026-08-27 this line read "Dropped 4032" -- half
+        # the matrix -- because `case_id` restarts at 1 in every case-shard, so the two halves
+        # of each condition collided entry-for-entry. It printed once, in the middle of other
+        # output, and the run continued. It must never be that quiet again.
+        if rate > 0.05:
+            print("\n*** WARNING: an implausible share of records collided ***")
+            print("    Duplicates should come only from a re-run superseding a partial shard.")
+            print("    A large fraction means distinct records are producing the same key.")
+            for key, prior, rec in collisions:
+                differing = [
+                    f for f in ("nl_query", "ocel_path", "case_id", "config_id", "repeat")
+                    if prior.get(f) != rec.get(f)
+                ]
+                print(f"      key {key}")
+                print(f"        kept    : case {rec.get('case_id')} | "
+                      f"{str(rec.get('nl_query'))[:56]}")
+                print(f"        dropped : case {prior.get('case_id')} | "
+                      f"{str(prior.get('nl_query'))[:56]}")
+                print(f"        differ in: {differing or 'nothing -- a genuine duplicate'}")
+            print("    If they differ in nl_query, these are DIFFERENT test cases and the merge")
+            print("    is discarding real data. Do not use the result.\n")
     all_records = list(deduped.values())
 
     # Shards launched in separate waves -- e.g. Llama and Ministral now, Gemma after a decision --
