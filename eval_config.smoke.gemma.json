@@ -19,8 +19,8 @@
   "auto_expand_finetuned": true,
   "case_timeout_sec": 600,
   "case_timeout_sec_note": "Must match eval_config.json.",
-  "max_result_file_gb": 8,
-  "max_result_file_gb_note": "Refuse to parse a prediction's result export larger than this. Parsing costs a measured ~11.7x the file size in RAM and the whole file is read at once, so an over-selecting query SIGKILLs the shard -- uncatchable. Shard 60 of job 3087762 died this way at 64GB and again at 122GB (2026-08-21/25). 8GB projects to ~94GB resident, inside the 122GB ceiling with margin. Provably inert for the 95 shards that completed at 64GB: any export large enough to trip this would have needed ~94GB to parse and so would have OOM-killed them, and exactly one shard did.",
+  "max_result_file_gb": 4,
+  "max_result_file_gb_note": "Refuse to parse a prediction's result export larger than this. Parsing loads the whole file at once and an over-selecting query then SIGKILLs the shard -- uncatchable. Shard 60 of the matrix died this way three times (64GB 2026-08-21, 122GB 2026-08-25, 122GB 2026-08-27). Lowered 8 -> 4 on 2026-08-27: in the third run, exports of 10.48/10.72/10.74s PARSED at 122GB while an 11.59s export did not, which puts the real multiplier near 20x rather than the 11.7x measured on gold-shaped data -- at 11.7x those files would have been ~10GB and the 8GB cap would have fired. At 20x, 4GB projects to ~80GB (fits 122GB) and still exceeds the 64GB the other 95 shards had, so the cap remains provably inert for them. Every export above 256MB is now logged with its true size; set this from measurement, not from the multiplier.",
   "fine_tune_map": {
     "adapters/gemma3-4b-base-16bit": {
       "name": "adapters/gemma3-4b-merged-16bit",

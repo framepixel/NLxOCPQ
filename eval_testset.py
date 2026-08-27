@@ -601,6 +601,18 @@ def _load_result_ids(result_path: Optional[str], query: Any = None,
     """
     if not result_path or not os.path.exists(result_path):
         return None, None, None
+    # Logged before the read, unconditionally for anything big. Three shards were lost to an
+    # OOM whose file size nobody could state afterwards -- the scratch directory is removed by
+    # the submit script's EXIT trap, so a killed run leaves no evidence at all. One line here
+    # makes the next failure diagnosable instead of another guess at the multiplier.
+    try:
+        _size = os.path.getsize(result_path)
+    except OSError:
+        _size = 0
+    if _size > 256 * 1024 * 1024:
+        _log_phase("result_size", f"{_size / (1024 ** 3):.2f} GB export "
+                                  f"(cap {max_gb or 'disabled'} GB, "
+                                  f"projected ~{_size * 11.7 / (1024 ** 3):.0f} GB to parse)")
     oversized = _result_file_too_large(result_path, max_gb)
     if oversized is not None:
         return None, None, oversized
