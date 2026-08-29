@@ -33,6 +33,7 @@ from LLM import (
     set_few_shot_enabled,
     set_few_shot_k,
     set_generation_temperature,
+    set_generation_seed,
     set_schema_level,
     set_hf_client,
     set_local_gpu_client,
@@ -1182,6 +1183,11 @@ def run_evaluation(config_path_or_config):
     # query can SIGKILL the shard -- uncatchable, and it takes the whole run down. 0/None
     # disables the guard and reproduces the pre-2026-08-26 behaviour exactly.
     max_result_file_gb = float(config.get("max_result_file_gb") or 0)
+    # Base for the per-(case, condition, repeat) generation seed. Only consulted when sampling is
+    # active; a greedy run does not touch the RNG, so this is inert at temperature 0. None/0
+    # leaves generation unseeded, which is the pre-2026-08-29 behaviour.
+    generation_seed_base = config.get("generation_seed_base")
+    generation_seed_base = int(generation_seed_base) if generation_seed_base else 0
     case_timeout_sec = int(case_timeout_sec) if case_timeout_sec else 0
 
     testset = _load_testset(testset_path, limit, seed, shuffle)
@@ -1279,6 +1285,10 @@ def run_evaluation(config_path_or_config):
         # run under different caps cannot be merged without the difference being visible.
         "case_timeout_sec": case_timeout_sec or None,
         "max_result_file_gb": max_result_file_gb or None,
+        # Sampling provenance. A run whose repeats differ is only reproducible if this is set,
+        # so it belongs beside the record of what the run was configured to do.
+        "generation_seed_base": generation_seed_base or None,
+        "temperature": global_cfg.get("temperature"),
         "ocpq_cli_timeout_sec": int(os.getenv("OCPQ_CLI_TIMEOUT_SEC", "300")),
         "config": config,
     }
@@ -1418,6 +1428,17 @@ def run_evaluation(config_path_or_config):
                                                   nl_query, ocel_path)
                         if current_key in completed_keys:
                             continue
+
+                        # Derived from the record's own identity rather than a counter, so the
+                        # draw is stable across re-runs, distinct across repeats, and unchanged
+                        # by where the case-shard boundaries fall. A counter would make sample 7
+                        # of a 4-way split differ from sample 7 of a single job.
+                        set_generation_seed(
+                            None if not generation_seed_base
+                            else int(hashlib.sha256(
+                                f"{generation_seed_base}:{current_key}".encode("utf-8")
+                            ).hexdigest()[:8], 16)
+                        )
 
                         run_counter += 1
                         reset_llm_call_stats()

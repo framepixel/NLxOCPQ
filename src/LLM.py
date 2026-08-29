@@ -132,6 +132,8 @@ few_shot_enabled = True
 DEFAULT_FEW_SHOT_K = 3
 few_shot_k = DEFAULT_FEW_SHOT_K
 generation_temperature = None
+# Consulted only when sampling is active. See `set_generation_seed`.
+generation_seed = None
 
 LLM_CALL_STATS = []
 QUERY_EXEC_STATS = []
@@ -278,6 +280,30 @@ def set_generation_temperature(value):
 
 def get_generation_temperature():
     return generation_temperature
+
+
+def set_generation_seed(value):
+    """Seed the next sampled generation, or None to leave the RNG alone.
+
+    Sampling was previously unseeded: `torch.manual_seed` is never called anywhere in this
+    project, and the `seed` key in eval_config only feeds `_load_testset`'s shuffle. That is
+    fine for a greedy run -- `do_sample` is False, so the RNG is not consulted and the output is
+    deterministic regardless. It stops being fine the moment temperature > 0, which is what the
+    self-consistency experiment needs: the samples would differ (good) but the run would not be
+    reproducible (not good enough for a thesis result).
+
+    Set per (case, condition, repeat) rather than once per process, so a sample's identity does
+    not depend on how many cases ran before it -- otherwise a shard boundary would silently
+    change the draw, and the 4-way case-shard split would not reproduce a single-job run.
+
+    None leaves the global RNG untouched, reproducing the pre-2026-08-29 behaviour exactly.
+    """
+    global generation_seed
+    generation_seed = None if value is None else int(value)
+
+
+def get_generation_seed():
+    return generation_seed
 
 
 def reset_llm_call_stats():
@@ -1184,6 +1210,14 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
         generate_kwargs["temperature"] = float(temperature)
     if attention_mask is not None:
         generate_kwargs["attention_mask"] = attention_mask
+
+    # Seeded immediately before the call, not once per process: the draw must depend only on
+    # (case, condition, repeat) so a shard boundary cannot change it. No-op when sampling is off,
+    # where the RNG is not consulted at all.
+    if do_sample and generation_seed is not None:
+        torch.manual_seed(generation_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(generation_seed)
 
     with torch.no_grad():
         output_ids = local_model.generate(**generate_kwargs)

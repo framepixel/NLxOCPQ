@@ -118,3 +118,86 @@
   in `src/train_unsloth.py` rather than resurrecting a magic module.
   The dead `OCPQ_STABILIZE_RUNTIME` export in `slurm/submit_job_qwen3_5_4b.sh:99,117` is left
   in place: that whole script is superseded, and it also exports the six vars directly anyway.
+
+- PARKED (2026-08-29) Directions considered after the full matrix came back at 2.31% exact-match
+  on the discriminating stratum and the supervisor's verdict that "with those numbers you cannot
+  claim anything with regards to it being of sufficient quality to solve the problem that you
+  motivate". Self-consistency is being done first (see the separate entry below); these four are
+  parked with their reasoning so the analysis behind them is not lost.
+
+  AGENTIC WITH LOG-INSPECTION TOOLS (3-5 weeks). The single largest untapped signal. The model
+  currently receives type-level schema only -- event types, object types, attribute names, and the
+  E2O/O2O edge lists (`build_schema_block`, src/LLM.py:461). It never sees cardinalities, sample
+  records, actual attribute *values*, whether a relation it is about to filter on occurs in the
+  data at all, or what its own query returns before committing. That is exactly where the 1354
+  `wrong_population` failures live: a plausible-looking entity/relation combination that does not
+  hold in the log. Tool surface: `count(type)`, `sample(type, n)`,
+  `relation_density(event_type, object_type)`, `attribute_values(type, attr)`, and
+  `try_query(partial)` returning size plus sample bindings without committing. Then plan -> probe
+  -> draft -> execute -> check cardinality against expectation -> revise.
+  Caveat that makes it a different study: 3B-14B open models are weak at multi-step tool use, so
+  this realistically needs a frontier API model or a strong tool-calling local model. That changes
+  the premise from "can a fine-tuned small open model do this" -- but it supplies the thing the
+  paper currently lacks, which is an UPPER BOUND. Right now there is a floor and no ceiling, which
+  is precisely why the "cannot claim anything" critique lands. If an agentic frontier model reaches
+  ~50-60%, the task is solvable and "small fine-tuned models cannot yet" becomes a bounded, honest
+  finding; if it reaches ~15%, the bottleneck is the formalism or the benchmark rather than the
+  models, which is a more interesting result and one nobody has published.
+
+  EXPLICIT SCHEMA LINKING (1-2 weeks). Two stages instead of one: first ask which event and object
+  types the question involves, then generate constrained to that selection. The pipeline currently
+  dumps the whole schema and hopes. Directly attacks hallucinated entities (14-26% per arm) and the
+  `wrong_population` bucket. Cheapest of the three build options.
+
+  DECOMPOSITION, DIN-SQL / MAC-SQL STYLE (2-3 weeks). Break the question into sub-questions and
+  build the tree incrementally, validating each node as it is added. Best structural fit of
+  anything considered here, because a `BindingBoxTree` IS compositional -- nodes and child edges --
+  so the decomposition matches the target formalism instead of being imposed on it. It also
+  produces intermediate checkpoints to validate against, which single-shot generation has none of.
+
+  EXECUTION-GUIDED TRAINING (4-8 weeks, currently BLOCKED). The root-cause fix: change the training
+  signal from "imitate this gold query text" to "produce a query whose RESULT matches". Supervised
+  imitation of gold text teaches form, which is exactly what the matrix measured -- structural F1
+  roughly doubles with fine-tuning (0.24 -> 0.44) while result F1 barely moves. This is the same
+  arc text-to-SQL went through, for the same reason.
+  The blocker: rejection sampling needs to execute a training example, and ours cannot be executed.
+  The 60,018 examples in `data/finetune_ocpq.jsonl` are synthetic with the schema inline in the
+  prompt and are NOT tied to any real OCEL log -- probed the whole file for vocabulary from the five
+  real training-domain logs and got container_logistics 0, hiring 0, hospital 0, renting 0 (only
+  generic "lending" terms hit, 9.85%, almost certainly coincidental). So there is no log to run a
+  training query against and no way to obtain a gold result set for it.
+  Unblocking means inverting the generation direction: synthesise QUERIES first (programmatically,
+  valid by construction), execute them against a real log, then have an LLM back-translate each to
+  a natural-language question. The gold result then comes free from execution and correctness
+  labels become automatic. Several text-to-SQL datasets were built this way. Risk to watch: if the
+  synthesised questions are templated and easier than the test distribution, gains will not
+  transfer -- the seen/unseen problem one level up (see Thesis/notes/11-evaluation-readiness.md
+  21.6, where only 1 of 4 families transfers its gain).
+
+  NOT WORTH DOING: fixing the syntax-repair pass. The existing repair (src/LLM.py:1661
+  `schema_fix_with_llm`) fires once, only on schema-validation failure, with a static prompt that
+  does not include the actual validator error and never sees the query execute -- so it looks like
+  low-hanging fruit. It is not. Assume EVERY one of the 4780 never-runnable generations is repaired
+  AND that repaired queries are as semantically good as first-try successes; both assumptions are
+  generous, since queries failing validation are the worse generations. Correctness then ceilings
+  at 8.70% (255 -> 706 exact of 8112). It moves the denominator, not the capability -- the same
+  reason `result_set_f1_executed` must never be reported alone.
+
+- NEXT (2026-08-29) Self-consistency over execution results: sample N queries per question at
+  temperature > 0, execute all, cluster by RESULT SET, return the modal result. No training and no
+  new infrastructure -- `repeats` and `temperature` are already fully plumbed
+  (src/eval_testset.py:1170, :1113, :1404), so generating the samples is a config change and the
+  only new code is a post-hoc aggregator modelled on `_recompute_metrics`. The whole matrix ran
+  greedy at temperature 0 with one sample per case, so this has never been tested.
+  Two arms, each at a configuration it can actually perform in: llama31-8b-finetuned /
+  allowed-entities-only / schema=on (greedy F1 0.1760, 70.4% exec) and llama31-8b-base /
+  chain-of-thought-plus / schema=on (0.1023, 45.0%). Same family, each at its own best strategy, so
+  fine-tuning is the only variable. Pairing base with allowed-entities-only would be vacuous -- that
+  cell executed 0 of 1352 runs matrix-wide.
+  Reports four numbers -- single-sample at the same temperature (the fair baseline; the greedy
+  matrix number would confound temperature with voting), plain majority, majority after filtering
+  empty and truncated results, and the free oracle best-of-N that upper-bounds any selector -- plus
+  the diagnostic that decides what comes next: the AGREEMENT RATE. A top cluster of 8/10 means the
+  model is confidently and systematically wrong and voting has nothing to work with, which is direct
+  evidence for the agentic direction above; 2/10 means errors scatter and there is signal to
+  exploit. Informative either way, which is why it goes first.

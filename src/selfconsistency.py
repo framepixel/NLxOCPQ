@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""Majority-vote the N sampled queries per question by their RESULT SET.
+
+WHY
+---
+The 8112-run matrix ran greedy at temperature 0 with one sample per case: 38.2% of generations
+were runnable, 2.31% correct on the discriminating stratum. Self-consistency asks whether the
+right answer is already being sampled and merely not selected -- draw N queries at temperature
+> 0, execute them all, and return the result set that the most samples agree on. Correct queries
+tend to agree with one another; wrong ones scatter. The vote happens in *result* space, not token
+space, so two syntactically different queries that select the same situations count as one vote.
+
+This reads a finished run. It generates nothing and re-executes nothing: every sample's result is
+already in the run's content-addressed store.
+
+WHAT IT REPORTS
+---------------
+single-sample   the mean over individual samples -- the fair baseline. NOT the greedy matrix
+                number, which would confound the sampling temperature with the voting.
+majority        F1 of the modal result set.
+filtered        F1 of the modal result set after discarding empty and truncated results. With
+                63% of executed best-config queries returning zero overlap and many of those
+                empty, a plain majority can elect "returns nothing".
+oracle          max F1 over the N samples. Free, and it upper-bounds ANY selection rule. If the
+                oracle is high and the vote is low, selection is the bottleneck; if the oracle is
+                also low, sampling never contained the right answer and no selector can help.
+
+agreement       the diagnostic that decides what to do next. A modal cluster of 8/10 means the
+                model is confidently and systematically wrong, and voting has nothing to work
+                with -- evidence that the bottleneck is grounding, not decoding. 2/10 means the
+                errors scatter and there is signal to exploit.
+
+USAGE
+    python src/selfconsistency.py --run eval_runs/selfconsistency/merged
+"""
+import argparse
+import hashlib
+import json
+import sys
+from collections import Counter, defaultdict
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import result_store  # noqa: E402
+from eval_testset import _compute_similarity, _read_json, _write_json  # noqa: E402
+
+
+def _situations_key(ids):
+    """Canonical hash of a result set, order-independent.
+
+    `load_with_meta` returns `(event_ids, object_ids, situations)`; only `situations` is hashed,
+    matching what `combined` scores -- it preserves which entities co-occur inside one binding and
+    whether that binding violated a constraint, which the flat entity sets discard.
+    """
+    if ids is None:
+        return None
+    situations = ids[2]
+    canon = sorted(
+        (tuple(sorted(ev)), tuple(sorted(ob)), bool(vi)) for ev, ob, vi in situations
+    )
+    return hashlib.sha256(
+        json.dumps(canon, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _f1(record):
+    return ((record.get("similarity") or {}).get("combined") or {}).get("f1")
+
+
+def _elect(samples, skip_empty):
+    """Return (winning_key, cluster_size, n_voters, was_tie).
+
+    Only samples that produced a loadable result vote. A sample that never executed has no
+    result set to agree with, so it is not a vote for "nothing" -- it is an abstention. It stays
+    in the *case* denominator regardless, because failing to answer is still a wrong answer.
+
+    Ties are broken by lowest repeat index and counted rather than hidden: a matrix where most
+    cases tie is one where the vote is arbitrary, and that has to be visible in the output.
+    """
+    voters = [s for s in samples if s["key"] is not None]
+    if skip_empty:
+        voters = [s for s in voters if s["size"] > 0 and not s["truncated"]]
+    if not voters:
+        return None, 0, 0, False
+
+    counts = Counter(s["key"] for s in voters)
+    top = max(counts.values())
+    tied = [k for k, c in counts.items() if c == top]
+    if len(tied) > 1:
+        first = {}
+        for s in voters:
+            first.setdefault(s["key"], s["repeat"])
+        winner = min(tied, key=lambda k: first[k])
+        return winner, top, len(voters), True
+    return tied[0], top, len(voters), False
+
+
+def analyse(run_dir: Path):
+    records = _read_json(run_dir / "predictions.json")
+    store_dir = run_dir / "result_store"
+    if not store_dir.is_dir():
+        raise SystemExit(
+            f"FATAL: {store_dir} not found. The vote compares stored result sets, so the run must "
+            f"have been produced with result_store enabled."
+        )
+
+    # Grouped by entry identity, not case_id: case_id restarts at 1 in every case-shard (see
+    # _record_key), so grouping on it would merge two different questions from opposite halves.
+    groups = defaultdict(list)
+    for r in records:
+        groups[(r.get("nl_query"), r.get("config_id"))].append(r)
+
+    per_condition = defaultdict(lambda: {
+        "cases": 0, "single": [], "majority": [], "filtered": [], "oracle": [],
+        "agreement": Counter(), "ties": 0, "no_voter_cases": 0, "unloadable_samples": 0,
+    })
+    per_case = []
+
+    for (nl_query, config_id), samples in sorted(groups.items(), key=lambda kv: str(kv[0])):
+        head = samples[0]
+        ocel_path = head.get("ocel_path")
+        gold_ids, _ = result_store.load_with_meta(store_dir, ocel_path, head.get("gold_query"))
+
+        loaded = []
+        for r in sorted(samples, key=lambda r: r.get("repeat") or 0):
+            ids, skipped = result_store.load_with_meta(store_dir, ocel_path, r.get("prediction"))
+            loaded.append({
+                "repeat": r.get("repeat") or 0,
+                "key": _situations_key(ids),
+                "ids": ids,
+                "size": 0 if ids is None else len(ids[2]),
+                "truncated": bool(skipped) or bool((r.get("metrics") or {}).get("bindings_skipped")),
+                "f1": _f1(r),
+            })
+
+        agg = per_condition[config_id]
+        agg["cases"] += 1
+        agg["unloadable_samples"] += sum(
+            1 for s in loaded if s["key"] is None and s["f1"] is not None
+        )
+
+        # Baseline and ceiling come from the samples' own recorded scores, so they are computed
+        # by exactly the same path as the matrix's headline metric.
+        scored = [0.0 if s["f1"] is None else s["f1"] for s in loaded]
+        agg["single"].append(sum(scored) / len(scored))
+        agg["oracle"].append(max(scored))
+
+        row = {"nl_query": nl_query, "config_id": config_id, "n_samples": len(loaded),
+               "single_mean": round(sum(scored) / len(scored), 6),
+               "oracle": round(max(scored), 6)}
+
+        for rule, skip_empty in (("majority", False), ("filtered", True)):
+            key, size, voters, tie = _elect(loaded, skip_empty)
+            if key is None:
+                agg[rule].append(0.0)
+                if rule == "majority":
+                    agg["no_voter_cases"] += 1
+                row[rule] = 0.0
+                row[f"{rule}_cluster"] = 0
+                continue
+            winner = next(s for s in loaded if s["key"] == key)
+            sim = _compute_similarity(gold_ids, winner["ids"])
+            f1 = ((sim or {}).get("combined") or {}).get("f1")
+            f1 = 0.0 if f1 is None else f1
+            agg[rule].append(f1)
+            row[rule] = round(f1, 6)
+            row[f"{rule}_cluster"] = size
+            if rule == "majority":
+                agg["agreement"][f"{size}/{voters}"] += 1
+                agg["ties"] += int(tie)
+        per_case.append(row)
+
+    summary = {"run": str(run_dir), "conditions": {}, "per_case": per_case}
+    for config_id, a in per_condition.items():
+        mean = lambda xs: (sum(xs) / len(xs)) if xs else None  # noqa: E731
+        summary["conditions"][config_id] = {
+            "cases": a["cases"],
+            "single_sample_f1": mean(a["single"]),
+            "majority_f1": mean(a["majority"]),
+            "filtered_f1": mean(a["filtered"]),
+            "oracle_f1": mean(a["oracle"]),
+            "gain_majority": (mean(a["majority"]) - mean(a["single"])),
+            "gain_filtered": (mean(a["filtered"]) - mean(a["single"])),
+            "headroom_to_oracle": (mean(a["oracle"]) - mean(a["majority"])),
+            "ties": a["ties"],
+            "cases_with_no_voter": a["no_voter_cases"],
+            "unloadable_samples": a["unloadable_samples"],
+            "agreement_histogram": dict(sorted(a["agreement"].items())),
+        }
+    return summary
+
+
+def _report(summary):
+    for config_id, c in summary["conditions"].items():
+        print(f"\n{'=' * 78}\n{config_id}\n{'=' * 78}")
+        print(f"  cases {c['cases']}   ties {c['ties']}   "
+              f"cases with no voter {c['cases_with_no_voter']}   "
+              f"unloadable samples {c['unloadable_samples']}")
+        print(f"\n  {'single sample (baseline)':<30}{c['single_sample_f1']:>9.4f}")
+        print(f"  {'majority vote':<30}{c['majority_f1']:>9.4f}"
+              f"   {c['gain_majority']:+.4f}")
+        print(f"  {'majority, empties filtered':<30}{c['filtered_f1']:>9.4f}"
+              f"   {c['gain_filtered']:+.4f}")
+        print(f"  {'oracle best-of-N (ceiling)':<30}{c['oracle_f1']:>9.4f}"
+              f"   headroom {c['headroom_to_oracle']:+.4f}")
+        print("\n  agreement -- modal cluster size / voters:")
+        hist = c["agreement_histogram"]
+        total = sum(hist.values()) or 1
+        for k, v in sorted(hist.items(), key=lambda kv: -kv[1])[:10]:
+            print(f"    {k:>8}  {v:>4}  {v/total*100:>5.1f}%  {'#' * round(v/total*40)}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--run", required=True, type=Path,
+                    help="A finished run directory containing predictions.json and result_store/.")
+    ap.add_argument("--out", type=Path, default=None,
+                    help="Where to write selfconsistency.json (default: inside --run).")
+    args = ap.parse_args()
+
+    run_dir = args.run if args.run.is_absolute() else Path.cwd() / args.run
+    if not (run_dir / "predictions.json").is_file():
+        raise SystemExit(f"FATAL: {run_dir / 'predictions.json'} not found.")
+
+    summary = analyse(run_dir)
+    out = args.out or (run_dir / "selfconsistency.json")
+    _write_json(out, summary)
+    _report(summary)
+    print(f"\nwrote {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
