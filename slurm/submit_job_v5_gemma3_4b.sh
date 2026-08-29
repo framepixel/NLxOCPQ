@@ -16,8 +16,34 @@ set -euo pipefail
 # Resolve the repo root from this script's own location, so the job works whether it was
 # submitted from the repo root (`sbatch slurm/<this>.sh`) or from inside `slurm/`, and
 # regardless of where $SLURM_SUBMIT_DIR points. Everything below is repo-root-relative.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# SLURM copies the batch script into its spool directory before executing it, so
+# ${BASH_SOURCE[0]} points at /var/spool/slurm/... and NOT at this file in the repo. The reorg
+# (019c2f2) replaced the previous `cd "${SLURM_SUBMIT_DIR:?}"` with a BASH_SOURCE lookup that
+# had never been run under sbatch; the first job to try it, 3294532, died on all 8 tasks with
+# "FATAL: /var/spool/slurm/src/check_eval_deps.py not found".
+#
+# $SLURM_SUBMIT_DIR (where sbatch was invoked) is therefore the authority under SLURM, with
+# BASH_SOURCE kept only for running this script directly from a shell. Each candidate is
+# validated against a marker file, so a wrong guess fails HERE rather than as a confusing
+# missing-file error somewhere downstream.
+_ocpq_resolve_project_dir() {
+  local cand
+  for cand in "${SLURM_SUBMIT_DIR:-}" "${SLURM_SUBMIT_DIR:-}/.." \
+              "$(dirname "${BASH_SOURCE[0]}")" "$(dirname "${BASH_SOURCE[0]}")/.."; do
+    [ -n "$cand" ] || continue
+    [ -d "$cand" ] || continue
+    if [ -f "$cand/src/eval_testset.py" ]; then (cd "$cand" && pwd); return 0; fi
+  done
+  return 1
+}
+if ! PROJECT_DIR="$(_ocpq_resolve_project_dir)"; then
+  echo "FATAL: could not locate the NLxOCPQ repo root (looked for src/eval_testset.py)." >&2
+  echo "       SLURM_SUBMIT_DIR = ${SLURM_SUBMIT_DIR:-<unset>}" >&2
+  echo "       BASH_SOURCE[0]   = ${BASH_SOURCE[0]}" >&2
+  echo "       Submit from the repo root: sbatch slurm/<script>.sh" >&2
+  exit 1
+fi
+SCRIPT_DIR="$PROJECT_DIR/slurm"
 cd "$PROJECT_DIR"
 mkdir -p logs
 
