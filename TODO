@@ -11,7 +11,7 @@
   (event indices, object indices, violated). Invariant to variable numbering and node count.
   See Thesis/notes/08-metric-defect.md.
 - DONE (2026-08-10) Save the query combinations that were too different (result-wise) between the LLM and the gold query during the evaluation. Make sure it is not taking too much space. It should be mainly used to see what weaknesses/mess-ups the LLM does.
-  `analyze_divergence.py` writes divergence_report.json into every run dir and merged output.
+  `src/analyze_divergence.py` writes divergence_report.json into every run dir and merged output.
   No new data is captured - predictions.json already holds everything (~40 MB for the full
   matrix), so the report is a view over it, capped at 3 examples per (class x condition).
   Classes: schema_invalid / execution_failed / empty_result / wrong_population / over_selection /
@@ -42,33 +42,33 @@
   Ministral 3 14B Instruct-2512 (256k context), Gemma 3 4B unchanged.
   Ministral loaded, tokenized and fine-tuned cleanly: 14,005,980,160 params, Mistral [INST]
   template, LoRA on the language tower only, loss 1.879 -> 0.077. Three fixes were needed in
-  train_unsloth.py, all for multimodal checkpoints: tokenizer calls now pass `text=` by keyword
+  src/train_unsloth.py, all for multimodal checkpoints: tokenizer calls now pass `text=` by keyword
   (a processor's first positional arg is `images`, so the prompt went to PIL), get_peft_model
   gets finetune_vision_layers=False, and SFTTrainer gets the processor's inner text tokenizer.
   See Thesis/notes/11-evaluation-readiness.md 6.6.
 
   CORPUS IS READY (2026-08-10). Regenerated at seed 3407 and fully rebuilt:
-    ocpq_dataset.json (+ .meta.json: seed + generator sha256) -> embeddings.npy
-    (+ .meta.json, hash matches) -> finetune_ocpq.jsonl (60,018 rows) -> audit clean.
+    data/ocpq_dataset.json (+ .meta.json: seed + generator sha256) -> data/embeddings.npy
+    (+ .meta.json, hash matches) -> data/finetune_ocpq.jsonl (60,018 rows) -> audit clean.
     Generator is now seeded and reproducible: same seed = byte-identical, different seed
     differs. Time attributes 1->4 and Boolean 3->6, so no BB is >10x rarer than the testset
     needs and none is at zero. Contamination 0/0. Leaked order-management vocabulary gone.
 
   NEXT (needs the cluster, ~8-10h each):
-    1. conda create -n nlxocpq-train-v5 python=3.10; pip install -r requirements.unsloth-train-v5.txt
-       (nlxocpq-train-v5 is the DEFAULT in prefetch_models.sh and every submit_job_v5_*.sh,
+    1. conda create -n nlxocpq-train-v5 python=3.10; pip install -r requirements/requirements.unsloth-train-v5.txt
+       (nlxocpq-train-v5 is the DEFAULT in scripts/prefetch_models.sh and every slurm/submit_job_v5_*.sh,
         so no export is needed. To reuse the spike env instead - same stack - set
         OCPQ_TRAIN_ENV=nlxocpq-spike-ministral. Do not let the names drift apart: with both
         envs present, a forgotten export would train in one env while the pins describe another.)
-    2. bash prefetch_models.sh  &&  VERIFY=1 bash prefetch_models.sh
+    2. bash scripts/prefetch_models.sh  &&  VERIFY=1 bash scripts/prefetch_models.sh
        Required: the jobs run with HF_HUB_OFFLINE=1, and Llama 3.1 8B has never been
        downloaded on this cluster. VERIFY=1 resolves every repo local-files-only, exactly as
        the jobs will, so if it passes they will not need the network.
-    3. sbatch submit_job_v5_llama31_8b.sh / _ministral3_14b.sh / _gemma3_4b.sh
+    3. sbatch slurm/submit_job_v5_llama31_8b.sh / _ministral3_14b.sh / _gemma3_4b.sh
        ALL THREE are retrained in the new env - including Gemma, whose model does not change -
        so every adapter comes from one dependency stack instead of the set spanning two.
-    4. pip freeze the env and replace the pins in requirements.unsloth-train-v5.txt
-    5. update eval_config.json (models, fine_tune_map, labels) and the fine-tuning results
+    4. pip freeze the env and replace the pins in requirements/requirements.unsloth-train-v5.txt
+    5. update configs/eval_config.json (models, fine_tune_map, labels) and the fine-tuning results
        table in Thesis/notes/04-experimental-setup.md, which goes stale for all three
     6. re-run the smoke check before the full 36-condition matrix
 
@@ -79,13 +79,13 @@
   correct query is marked wrong (old entry 39: gold flags 0 of 4989, correct encoding flags 1268).
   Kept only the 6 later additions the >=10-per-log floor still needed; the >=5-per-BB floor was
   already met without any of them. All 44 departing entries are preserved with reasons in
-  testset_excluded.json - the 15 `surplus_addition` ones are drop-in restorable.
+  data/testset_excluded.json - the 15 `surplus_addition` ones are drop-in restorable.
   169 + 44 = 213 = the exact union of both prior versions. See notes/11-evaluation-readiness.md 9.
 
 - NEXT, the supervisor's second point: metrics must not rest on result-set matching alone.
-  audit_testset_discriminability.py is now a STRATIFICATION label, not a filter - a non-zero
+  src/audit_testset_discriminability.py is now a STRATIFICATION label, not a filter - a non-zero
   degenerate count is the expected, correct result. Report overall AND on the discriminating
-  stratum. Then add query-level metrics: analyze_divergence.py already computes bb_dropped /
+  stratum. Then add query-level metrics: src/analyze_divergence.py already computes bb_dropped /
   bb_invented per prediction (did the model express the right constructs?), and the audit
   supplies each entry's no-op baseline for a "does the prediction separate from trivial" signal.
   Design this against the settled 169-entry testset, as its own plan.
@@ -96,9 +96,25 @@
   carried-over entries. Consider a deterministic sort by (ocel_path, nl_query) before the next
   smoke test; it changes case_id <-> entry mapping, so do it before any run worth keeping.
 
-- AFTER the retrains: raise SCHEMA_BLOCK_TOKEN_BUDGET (LLM.py, currently 3500).
+- AFTER the retrains: raise SCHEMA_BLOCK_TOKEN_BUDGET (src/LLM.py, currently 3500).
   It was sized for Llama 3 8B's 8k context. With Llama 3.1 (128k), Ministral 3 (256k) and
   Gemma 3 (128k) the smallest context becomes 131,072, so the budget can rise and bpic2017
   (event attributes, 4,115 tokens) and angular (9,530) can keep the sections they currently
   drop. Re-measure peak context against the models that will actually run before changing it -
   scratchpad/measure_peak_context.py does this by intercepting the LLM call.
+
+- DONE (2026-08-28) Deleted `sitecustomize.py` (dead since the day it was added).
+  It was introduced by 0d00980 "final attempt to fix Qwen before switching models" -- and the
+  models were switched; Qwen is not in eval_config.json. CPython auto-imports `sitecustomize`
+  only from a directory on `PYTHONPATH`, never from the script's own directory (verified in
+  both the old flat layout and the new one), and every SLURM script does
+  `unset PYTHONHOME PYTHONPATH`, so it never once executed. Its contents were superseded by
+  `src/train_unsloth.py:5-10`, which sets the same six env vars unconditionally before torch
+  is imported -- broader coverage than sitecustomize's `OCPQ_STABILIZE_RUNTIME`-gated version.
+  The only thing lost is the Python-level `tqdm.tqdm.monitor_interval = 0` (tqdm does NOT read
+  TQDM_MONITOR_INTERVAL from the environment -- the class attribute stays 10). That is provably
+  not load-bearing: the monitor thread has been alive in every training run to date and all
+  four adapters trained fine. If a tqdm monitor-thread hang ever reappears, set it explicitly
+  in `src/train_unsloth.py` rather than resurrecting a magic module.
+  The dead `OCPQ_STABILIZE_RUNTIME` export in `slurm/submit_job_qwen3_5_4b.sh:99,117` is left
+  in place: that whole script is superseded, and it also exports the six vars directly anyway.

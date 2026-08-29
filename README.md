@@ -2,28 +2,28 @@
 Natural language to OCPQ queries converter
 
 ## Automatic Execution
-The `LLM.py` script utilizes `QueryExecutor.py` to automatically execute the generated queries right after generation using the Rust backend `ocpq_cli`. Output noise from `cargo` is suppressed to only show you the relevant query results (via the `-q` parameter).
+The `src/LLM.py` script utilizes `src/QueryExecutor.py` to automatically execute the generated queries right after generation using the Rust backend `ocpq_cli`. Output noise from `cargo` is suppressed to only show you the relevant query results (via the `-q` parameter).
 
 ### Dependencies & Required Repositories
 To utilize automatic execution successfully, note the following dependencies:
 
 1. **Rust & Cargo**: You must have Rust installed. Set it up using [rustup](https://rustup.rs/). The script currently expects `cargo` to be in your PATH or at `~/.cargo/bin/cargo`.
 2. **OCPQ CLI Repository**: `OCPQ/backend/ocpq_cli` must exist in the root of the project (i.e. one directory level up from this `NLxOCPQ` directory) and be building correctly.
-3. **Event Log**: By default, `LLM.py` assumes there is an object-centric event log named `hospital_log_high.json` at the parent directory (`../hospital_log_high.json`).
+3. **Event Log**: By default, `src/LLM.py` assumes there is an object-centric event log named `hospital_log_high.json` at the parent directory (`../hospital_log_high.json`).
 
 ### Colab GPU Serving
 If your local machine has no GPU, you can run the fine-tuned LoRA model in Google Colab and point the Streamlit UI at it through the existing custom-endpoint mode.
 
 The repository now includes:
 
-- [`colab_serve.py`](colab_serve.py) for serving the adapter as an OpenAI-compatible chat endpoint.
-- [`requirements.colab-serve.txt`](requirements.colab-serve.txt) for the minimal Colab inference stack.
-- [`COLAB_SERVER.md`](COLAB_SERVER.md) with the launch steps.
+- [`src/colab_serve.py`](src/colab_serve.py) for serving the adapter as an OpenAI-compatible chat endpoint.
+- [`requirements/requirements.colab-serve.txt`](requirements/requirements.colab-serve.txt) for the minimal Colab inference stack.
+- [`docs/COLAB_SERVER.md`](docs/COLAB_SERVER.md) with the launch steps.
 
 The UI accepts a custom `HF_BASE_URL`, and custom-endpoint mode no longer requires a Hugging Face token if your Colab server is open or uses its own auth.
 
 ## Console Runner
-You can run the full NL-to-OCPQ pipeline without Streamlit using `cli.py`.
+You can run the full NL-to-OCPQ pipeline without Streamlit using `src/cli.py`.
 
 Each invocation creates a timestamped run directory in `results/` and writes multiple artifacts:
 
@@ -45,7 +45,7 @@ Each invocation creates a timestamped run directory in `results/` and writes mul
 Run with local GPU:
 
 ```bash
-python cli.py \
+python src/cli.py \
 	--backend local-gpu \
 	--model meta-llama/Meta-Llama-3-8B-Instruct \
 	--ocel ../hospital_log_high.json \
@@ -55,7 +55,7 @@ python cli.py \
 Run with HF inference provider:
 
 ```bash
-python cli.py \
+python src/cli.py \
 	--backend hf-provider \
 	--model meta-llama/Meta-Llama-3-8B-Instruct \
 	--hf-provider together \
@@ -65,18 +65,18 @@ python cli.py \
 ```
 
 ## Testset Evaluation
-Use `eval_testset.py` to evaluate the handcrafted `testset.json` across models, prompting strategies, and schema settings.
+Use `src/eval_testset.py` to evaluate the handcrafted `data/testset.json` across models, prompting strategies, and schema settings.
 
 1. Copy the template config and edit it:
 
 ```bash
-cp eval_config.example.json eval_config.json
+cp configs/eval_config.example.json configs/eval_config.json
 ```
 
 2. Run the evaluator:
 
 ```bash
-python eval_testset.py --config eval_config.json
+python src/eval_testset.py --config configs/eval_config.json
 ```
 
 Outputs are stored under `eval_runs/` and include:
@@ -85,25 +85,25 @@ Outputs are stored under `eval_runs/` and include:
 - `summary.json` (aggregated metrics + consistency)
 - `config_resolved.json` (run manifest)
 
-## Fine-tuning an LLM with train_unsloth.py
+## Fine-tuning an LLM with src/train_unsloth.py
 
-You can fine-tune a base LLM using `train_unsloth.py`. The script auto-detects available CUDA resources and will choose between a quantized (4-bit) or full-precision training setup by default. You can override behavior with environment variables.
+You can fine-tune a base LLM using `src/train_unsloth.py`. The script auto-detects available CUDA resources and will choose between a quantized (4-bit) or full-precision training setup by default. You can override behavior with environment variables.
 
 Quick checklist
 - Ensure CUDA is available and appropriate drivers are installed.
-- Install training dependencies (see `requirements.unsloth-train.txt` or install `unsloth`, `trl`, `datasets`, `peft`, `transformers`).
-- Prepare a fine-tuning JSONL dataset (the repo uses `finetune_ocpq.jsonl`).
+- Install training dependencies (see `requirements/requirements.unsloth-train.txt` or install `unsloth`, `trl`, `datasets`, `peft`, `transformers`).
+- Prepare a fine-tuning JSONL dataset (the repo uses `data/finetune_ocpq.jsonl`).
 
 Important environment variables
-- `OCPQ_FINETUNE_DATASET`: path to the JSONL dataset (default: `finetune_ocpq.jsonl`).
-- `OCPQ_ADAPTER_OUTPUT_DIR`: directory to write the LoRA adapter (default: `adapters/<run_label>`).
+- `OCPQ_FINETUNE_DATASET`: path to the JSONL dataset (default: `data/finetune_ocpq.jsonl`).
+- `OCPQ_ADAPTER_OUTPUT_DIR`: directory to write the LoRA adapter (default: `models/adapters/<run_label>`).
 - `OCPQ_FORCE_4BIT`: if set (`1`, `true`) force the quantized 4-bit model path.
 - `OCPQ_FORCE_FULL_PRECISION`: if set (`1`, `true`) force full-precision loading.
 - `OCPQ_QUANTIZED_MODEL`: HF/local id for the quantized model (default: `unsloth/llama-3-8b-Instruct-bnb-4bit`).
 - `OCPQ_FULL_PRECISION_MODEL`: HF/local id for the full-precision model (default: `meta-llama/Meta-Llama-3-8B-Instruct`).
 - `OCPQ_MIN_FULL_PRECISION_GB`: free VRAM threshold (GB) above which full-precision is chosen by default (default: `32`).
 
-If `torch` fails to import with `CXXABI_1.3.11 not found`, the Python environment is picking up an older `libstdc++.so.6` than the PyTorch wheel requires. On the RWTH cluster, the repo already uses a newer GCC runtime in `submit_query.sh`; for interactive training, load a newer GCC module and make sure its `lib` directory appears before the conda/env `lib` directory in `LD_LIBRARY_PATH`.
+If `torch` fails to import with `CXXABI_1.3.11 not found`, the Python environment is picking up an older `libstdc++.so.6` than the PyTorch wheel requires. On the RWTH cluster, the repo already uses a newer GCC runtime in `slurm/submit_query.sh`; for interactive training, load a newer GCC module and make sure its `lib` directory appears before the conda/env `lib` directory in `LD_LIBRARY_PATH`.
 
 How the script decides and labels outputs
 - The script probes CUDA and available free VRAM; if free VRAM is below `OCPQ_MIN_FULL_PRECISION_GB` it will select the quantized model path.
@@ -112,26 +112,26 @@ How the script decides and labels outputs
 Example commands
 - Auto-detect mode (recommended):
 ```bash
-OCPQ_FINETUNE_DATASET=finetune_ocpq.jsonl python train_unsloth.py
+OCPQ_FINETUNE_DATASET=data/finetune_ocpq.jsonl python src/train_unsloth.py
 ```
 - Force quantized 4-bit training:
 ```bash
-OCPQ_FORCE_4BIT=1 OCPQ_FINETUNE_DATASET=finetune_ocpq.jsonl python train_unsloth.py
+OCPQ_FORCE_4BIT=1 OCPQ_FINETUNE_DATASET=data/finetune_ocpq.jsonl python src/train_unsloth.py
 ```
 - Force full-precision training and set custom model id:
 ```bash
 OCPQ_FORCE_FULL_PRECISION=1 OCPQ_FULL_PRECISION_MODEL=meta-llama/Meta-Llama-3-8B-Instruct \
-	OCPQ_FINETUNE_DATASET=finetune_ocpq.jsonl python train_unsloth.py
+	OCPQ_FINETUNE_DATASET=data/finetune_ocpq.jsonl python src/train_unsloth.py
 ```
 
 Using the adapter in evaluation
 - After training, point your evaluation config to the adapter directory. There are two options:
-	- Use the adapter directory as a local model name in `eval_config.json` (set `models[].name` to the adapter path). The evaluator's backend will detect a local adapter directory and load it.
-	- Or use the `fine_tune_map` in `eval_config.json` to map the base model to the adapter (see `eval_config.example.json`). Example mapping entry:
+	- Use the adapter directory as a local model name in `configs/eval_config.json` (set `models[].name` to the adapter path). The evaluator's backend will detect a local adapter directory and load it.
+	- Or use the `fine_tune_map` in `configs/eval_config.json` to map the base model to the adapter (see `configs/eval_config.example.json`). Example mapping entry:
 ```json
 "fine_tune_map": {
 	"meta-llama/Meta-Llama-3-8B-Instruct": {
-		"name": "adapters/meta-llama-3-8b-instruct-fine-tuned-quantized",
+		"name": "models/adapters/meta-llama-3-8b-instruct-fine-tuned-quantized",
 		"label": "meta-llama-3-8b-instruct-fine-tuned-quantized"
 	}
 }
