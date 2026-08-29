@@ -201,3 +201,60 @@
   model is confidently and systematically wrong and voting has nothing to work with, which is direct
   evidence for the agentic direction above; 2/10 means errors scatter and there is signal to
   exploit. Informative either way, which is why it goes first.
+
+- DONE (2026-08-29) Every SLURM submit script was broken by the reorg and none of them had been
+  run since. `019c2f2 "re-arranged the folders"` replaced the old
+  `cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"` with
+  `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; PROJECT_DIR="$SCRIPT_DIR/.."`.
+  That cannot work under sbatch: SLURM copies the batch script into its spool directory before
+  executing it, so BASH_SOURCE[0] points at /var/spool/slurm/... and never at the repo. All 19
+  scripts in slurm/ carried the identical two lines.
+  It went unnoticed because the last cluster job predating it was the matrix on 2026-08-21, which
+  ran the pre-reorg version. The first job to exercise the new construct was the self-consistency
+  array 3294532 on 2026-08-29, and all 8 tasks died within seconds with
+  "FATAL: /var/spool/slurm/src/check_eval_deps.py not found" -- 211 bytes of output each, byte
+  identical. The check_eval_deps guard is what turned a silent wrong-directory run into an
+  immediate, legible failure; without it the jobs would have failed later and more confusingly.
+  Fixed with `_ocpq_resolve_project_dir`, applied to all 19 scripts: try $SLURM_SUBMIT_DIR, then
+  its parent (submission from inside slurm/), then BASH_SOURCE and its parent (direct shell
+  invocation), and validate each candidate against src/eval_testset.py before accepting it. An
+  unresolvable case exits 1 printing both candidates it tried rather than guessing. Verified
+  against all six invocation paths -- sbatch from the repo root, sbatch from inside slurm/, direct
+  execution from the root, from slurm/, by absolute path from an unrelated cwd, and the orphaned
+  case that must fail.
+  Lesson worth keeping: a path construct that resolves correctly on a laptop can be structurally
+  incapable of working under the scheduler, and a repo reorganisation is exactly when that gets
+  introduced. Any submit script touched by a move should be run once on the cluster before the
+  next real job depends on it.
+
+- DONE (2026-08-29) Self-consistency smoke, job 3297883: 10 minutes, 8 tasks, all healthy.
+  Re-partitioned the array from 4 to 8 case-shards per arm as a result.
+  The path fix held: every task loaded its modules, resolved the project dir, imported the 9
+  dependency modules and reached generation. The correct arms were dispatched -- tasks 0-3
+  llama31-8b-finetuned/allowed-entities-only, tasks 4-7 llama31-8b-base/chain-of-thought-plus.
+  152 runs started, 136 completed before the 10-minute cap: 87 success, 48 schema_invalid, 1
+  execution_failed. No timeouts, no result_too_large, no OOM, no tracebacks.
+  The question that mattered -- whether the 10 samples per case actually differ, without which
+  the whole experiment is vacuous -- is answered yes, and from the logs alone. Status varies
+  WITHIN a case at fixed everything-else: shard 0 case 1 gave 8 success and 2 schema_invalid
+  across its 10 repeats, shard 3 case 1 flipped to invalid on repeats 5-7, shard 5 case 1
+  alternated. F1 varies within a case too (shard 2 case 3: 1.0 on nine samples, 0.0 on one).
+  Only sampling can produce that; temperature 0.7 is reaching generate() and the per-repeat seed
+  derivation is doing its job. This was the cluster-only verification step and it is now closed.
+  Also visible: real per-sample diversity in the base arm, which had produced almost nothing
+  under greedy decoding -- two partial matches at F1 0.673 and 0.012 that greedy never found.
+  combined_f1=None on a SUCCESSFUL execution occurs at 16.1% here against 13.0% in shard_logs_2
+  and 9.7% in shard_logs. Pre-existing pipeline behaviour, same ballpark, not introduced by the
+  temperature or seeding change. Not investigated further; noted so it is not mistaken later for
+  a self-consistency artefact.
+  WHY THE REPARTITION: measured cost ranged 12.7-96.6 s/run, varying by arm and by case far more
+  than the plan assumed. Projected over a full shard that put the slowest base-arm task at
+  10.8-14.1h against the 14h wall limit -- it would have been cancelled near the end, which is
+  the most expensive possible failure. SHARDS_PER_ARM is now a single variable (was hardcoded in
+  four places) set to 8, array 0-15, and a guard rejects a task id above 2*SHARDS_PER_ARM-1.
+  Each case still runs exactly once, so the finer split duplicates nothing but the ~2.5 min
+  startup: 169 cases over 8 shards is 22x7 + 15, 3380 runs total, unchanged. Worst task now
+  projects ~5.4h.
+  Lesson: a 10-minute smoke on the real hardware bought a per-run cost distribution that no
+  amount of local reasoning would have produced, and the plan's 55s/35s estimate was wrong by up
+  to 3x in the direction that costs a full day.

@@ -5,12 +5,13 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
-# 4 case-shards per arm keeps a task near 6h against this limit: the fine-tuned arm averages
-# ~55s/run over 423 runs (169 cases x 10 repeats / 4 shards), the base arm ~35s. Gold executes
-# once per case and is cached in-process, so the 10x repeat multiplier applies only to
-# generation and prediction execution, not to ground truth.
+# 8 case-shards per arm keeps every task under ~6h against this limit. Measured on the
+# 2026-08-29 smoke: 12.7-96.6 s/run depending on arm and case, so at 4 shards the slowest
+# base-arm task projected 10.8-14.1h and would have been cancelled at the limit. Gold
+# executes once per case and is cached in-process, so the 10x repeat multiplier applies to
+# generation and prediction execution only, not to ground truth.
 #SBATCH --time=14:00:00
-#SBATCH --array=0-7%8
+#SBATCH --array=0-15%8
 #SBATCH --account=thes2358
 #SBATCH --export=ALL
 
@@ -32,7 +33,7 @@
 # because the two arms use DIFFERENT strategies, which no single cross-product expresses without
 # also running the two vacuous cells.
 #
-#   sbatch --array=0-7%8 slurm/submit_selfconsistency.sh
+#   sbatch --array=0-15%8 slurm/submit_selfconsistency.sh
 #   sbatch --array=3 slurm/submit_selfconsistency.sh --resume     # one shard, resumed
 #
 # Then:
@@ -124,8 +125,21 @@ trap 'rm -rf "$OCPQ_CLI_SCRATCH_DIR"' EXIT
 export OCPQ_SCHEMA_TOKEN_BUDGET="${OCPQ_SCHEMA_TOKEN_BUDGET:-17000}"
 
 TASK="${SLURM_ARRAY_TASK_ID}"
-ARM=$(( TASK / 4 ))
-SHARD=$(( TASK % 4 ))
+
+# Case-shards PER ARM. The array must be 0-$((2*SHARDS_PER_ARM-1)).
+# 8, not 4: the 10-minute smoke (job 3297883) projected the slowest base-arm task at
+# 10.8-14.1h against the 14h limit. Each case still runs exactly once, so splitting finer
+# duplicates nothing but the ~2.5min startup -- it does not add GPU work.
+SHARDS_PER_ARM=8
+ARM=$(( TASK / SHARDS_PER_ARM ))
+SHARD=$(( TASK % SHARDS_PER_ARM ))
+
+EXPECTED_MAX=$(( 2 * SHARDS_PER_ARM - 1 ))
+if [ "$TASK" -gt "$EXPECTED_MAX" ]; then
+  echo "FATAL: task ${TASK} exceeds the ${SHARDS_PER_ARM}-shards-per-arm layout (max ${EXPECTED_MAX})." >&2
+  echo "       Submit with --array=0-${EXPECTED_MAX}%8 or update SHARDS_PER_ARM." >&2
+  exit 1
+fi
 
 if [ "$ARM" -eq 0 ]; then
   MODEL_IDX=1; STRATEGY_IDX=0; ARM_NAME="llama31-8b-finetuned/allowed-entities-only"
@@ -144,7 +158,7 @@ done
 
 RESUME_ARGS=()
 if [ "$OCPQ_RESUME_REQUESTED" = "1" ]; then
-  SHARD_GLOB="$PROJECT_DIR/eval_runs/selfconsistency/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}_c${SHARD}of4_*"
+  SHARD_GLOB="$PROJECT_DIR/eval_runs/selfconsistency/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}_c${SHARD}of${SHARDS_PER_ARM}_*"
   RESUME_DIR="$(ls -1dt $SHARD_GLOB 2>/dev/null | head -n 1)"
   if [ -z "$RESUME_DIR" ] || [ ! -d "$RESUME_DIR" ]; then
     echo "FATAL: --resume given but no run directory matches ${SHARD_GLOB}" >&2
@@ -154,11 +168,11 @@ if [ "$OCPQ_RESUME_REQUESTED" = "1" ]; then
   RESUME_ARGS=(--resume-from "$RESUME_DIR")
 fi
 
-echo "Starting self-consistency task=${TASK} arm=${ARM_NAME} (model=${MODEL_IDX} strategy=${STRATEGY_IDX} schema=${SCHEMA_IDX} case-shard=${SHARD}/4) at: $(date)"
+echo "Starting self-consistency task=${TASK} arm=${ARM_NAME} (model=${MODEL_IDX} strategy=${STRATEGY_IDX} schema=${SCHEMA_IDX} case-shard=${SHARD}/${SHARDS_PER_ARM}) at: $(date)"
 echo "Python: $(which python)"; python --version
 
 set -e
-python -u "$PROJECT_DIR/src/eval_testset.py"     --config "$PROJECT_DIR/configs/eval_config.selfconsistency.json"     --model-idx "${MODEL_IDX}"     --strategy-idx "${STRATEGY_IDX}"     --schema-idx "${SCHEMA_IDX}"     --case-shard "${SHARD}/4"     "${RESUME_ARGS[@]}"     2>&1 | tee "logs/nlxocpq-selfcons-shard${TASK}.log"
+python -u "$PROJECT_DIR/src/eval_testset.py"     --config "$PROJECT_DIR/configs/eval_config.selfconsistency.json"     --model-idx "${MODEL_IDX}"     --strategy-idx "${STRATEGY_IDX}"     --schema-idx "${SCHEMA_IDX}"     --case-shard "${SHARD}/${SHARDS_PER_ARM}"     "${RESUME_ARGS[@]}"     2>&1 | tee "logs/nlxocpq-selfcons-shard${TASK}.log"
 rc=${PIPESTATUS[0]:-0}
 echo "Self-consistency shard ${TASK} exit code: $rc"
 exit $rc
