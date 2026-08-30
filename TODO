@@ -144,16 +144,30 @@
   finding; if it reaches ~15%, the bottleneck is the formalism or the benchmark rather than the
   models, which is a more interesting result and one nobody has published.
 
-  EXPLICIT SCHEMA LINKING (1-2 weeks). Two stages instead of one: first ask which event and object
-  types the question involves, then generate constrained to that selection. The pipeline currently
-  dumps the whole schema and hopes. Directly attacks hallucinated entities (14-26% per arm) and the
-  `wrong_population` bucket. Cheapest of the three build options.
+  EXPLICIT SCHEMA LINKING (1-2 weeks) -- RETIRED 2026-08-30, do not build this. Two stages instead
+  of one: first ask which event and object types the question involves, then generate constrained to
+  that selection. Attacks hallucinated entities (14-26% per arm) and the `wrong_population` bucket,
+  and was the cheapest of the three build options.
+  Retired because the error analysis in Thesis/notes/11-evaluation-readiness.md 23.3 says it would
+  attack an already-solved component. Among the 690 fine-tuned queries that executed and returned a
+  COMPLETELY DISJOINT result set -- the worst cases in the run -- 80.0% already name exactly the
+  gold object types and 65.8% the gold event activities. Entity selection is not where this fails.
+  The 80.0% is bounded above by `allowed-entities-only` constraining the vocabulary by construction,
+  but the unconstrained base arm still reaches 68.4% on the same measure, so the conclusion survives
+  the confound. Also retired alongside it: constraint tuning / margin fixes, because the errors are
+  disjoint rather than approximate (over-broad 5.3% + over-narrow 2.3% = 7.6% of wrong answers).
 
-  DECOMPOSITION, DIN-SQL / MAC-SQL STYLE (2-3 weeks). Break the question into sub-questions and
-  build the tree incrementally, validating each node as it is added. Best structural fit of
-  anything considered here, because a `BindingBoxTree` IS compositional -- nodes and child edges --
-  so the decomposition matches the target formalism instead of being imposed on it. It also
-  produces intermediate checkpoints to validate against, which single-shot generation has none of.
+  DECOMPOSITION, DIN-SQL / MAC-SQL STYLE (2-3 weeks) -- still parked, and now BOUNDED. Break the
+  question into sub-questions and build the tree incrementally, validating each node as it is added.
+  Best structural fit of anything considered here, because a `BindingBoxTree` IS compositional --
+  nodes and child edges -- so the decomposition matches the target formalism instead of being
+  imposed on it. It also produces intermediate checkpoints to validate against, which single-shot
+  generation has none of. The 2026-08-30 analysis strengthened the motivation: the measured failure
+  IS compositional (notes 23.4 -- node-count agreement 31.4%, constraint-type agreement 18.0%, and
+  `SAT` emitted at 14% of gold's rate).
+  But it is subject to the same ceiling as the training rebalance below, because it is another way
+  of fixing structure, and notes 23.7 caps all such fixes below the trivial floor. Do not build it
+  until the structure ablation has measured that ceiling causally -- one experiment bounds both.
 
   EXECUTION-GUIDED TRAINING (4-8 weeks, currently BLOCKED). The root-cause fix: change the training
   signal from "imitate this gold query text" to "produce a query whose RESULT matches". Supervised
@@ -258,3 +272,70 @@
   Lesson: a 10-minute smoke on the real hardware bought a per-run cost distribution that no
   amount of local reasoning would have produced, and the plan's 55s/35s estimate was wrong by up
   to 3x in the direction that costs a full day.
+
+- DONE (2026-08-30) Self-consistency landed and the error analysis that followed it relocated the
+  problem. Full write-ups in Thesis/notes/11-evaluation-readiness.md 22 and 23; artifact for the
+  supervisor at https://claude.ai/code/artifact/480a26cb-8e02-4de6-b641-e8f78ac17e3b
+  Voting works and is free: majority vote over 10 samples raises the fine-tuned arm from 0.1705 to
+  0.2080 F1 and doubles exact match on the discriminating stratum, 6.7% -> 13.3%. Agreement is a
+  usable confidence signal -- 0.3542 F1 above 90% consensus against 0.0058 below 60%.
+  The finding that matters is the ORACLE CEILING: best-of-10 with a perfect selector reaches only
+  0.2464 against a discriminating floor of 0.5148. Every selection rule -- voting, reranking, a
+  learned verifier, an execution-guided scorer, a repair loop that always repairs correctly -- is
+  bounded above by that number, because none of them can return an answer that was never generated.
+  The decoding-time family is closed by measurement rather than by argument.
+
+- NEXT (2026-08-30) The structure ablation. Three conditions, 507 runs, ~6h -- the cheapest
+  experiment in the backlog, and it bounds both remaining composition directions at once.
+  Hand the model the GOLD tree skeleton (node count, parent/child edges, per-node variable arity)
+  and, at a second rung, the gold constraint TYPES -- withholding every semantic detail: no entity
+  type names, no filters, no constraint parameters. These are oracle conditions and can never be
+  reported as system performance; the strategy names, the manifest flag and the recorded hint all
+  say `oracle-` for that reason.
+    S0  schema-allowed-entities-only            (today's prompt, run in-job for comparability)
+    S1  oracle-skeleton-given
+    S2  oracle-skeleton-and-constraints-given
+  Decision rule, pre-registered AGAINST THE FLOOR rather than against S0:
+    * S2 still below 0.5148 -> the whole composition programme is bounded below the floor. Drop
+      both the rebalance and decomposition; move to grounding. Most likely and most valuable.
+    * S2 clears it but S1 does not -> constraint selection is the bottleneck, not tree shape.
+    * S1 clears it -> tree shape alone is the bottleneck.
+    * S1 ~ S2 ~ S0 -> check hint compliance FIRST; that pattern is also what ignoring the hint
+      looks like, and a null result is uninterpretable without it.
+  Why it exists: notes 23.7 is observational. Conditioning on the model already getting the tree
+  shape right gives F1 0.3770 / 25.7% exact, against 0.1824 / 11.6% when it does not -- shape
+  doubles everything -- but 45.4% of shape-matched queries are STILL completely disjoint and 0.3770
+  is below the floor, and that figure is selection-biased upward because the questions where the
+  model happened to get the shape right are plausibly the easier ones. The ablation measures the
+  same quantity causally.
+
+- CONDITIONAL AND BOUNDED (2026-08-30, gated on the ablation) Rebalance the training synthesis.
+  1-2 weeks including one retrain. Regenerate data/finetune_ocpq.jsonl matched to the task
+  distribution rather than to whatever the generator happens to emit. Measured mismatch, over
+  parsed queries in every row (notes 23.6):
+                              1-box share   mean boxes   share with >=1 SAT
+    training (60,018)            34.6%         2.06            22.1%
+    model output                 37.3%         1.90            ~13%
+    test gold (the task)          8.9%         2.51            58.6%
+  The model reproduces its training distribution closely and both miss the task badly. Targets:
+  mean ~2.5 boxes, ~59% of examples carrying SAT, 1-box examples cut from 34.6% to ~9%. The
+  generator already exists -- this is a sampling change plus a fine-tune, not new infrastructure.
+  TWO LIMITS, RECORD BOTH WITH ANY RESULT:
+    1. It cannot reach the floor. Notes 23.7 caps perfectly-fixed shape at F1 0.3770 optimistically,
+       against a floor of 0.5148. At best this moves 0.21 to something under 0.38 -- a reportable
+       improvement, not a solution. Gate it on the ablation CLEARING THE FLOOR, not on the ablation
+       merely beating S0.
+    2. The synthetic data is not tied to any executable log (container_logistics 0, hiring 0,
+       hospital 0, renting 0 vocabulary hits). It teaches FORM. Rebalancing form yields
+       better-shaped but still ungrounded queries -- which is exactly the 45.4%-disjoint-despite-
+       correct-shape row.
+  Counter-evidence worth keeping in view: 15,795 training examples are already 3-box, which is not
+  a starved regime, and correctness at 2 boxes (10.1%) and 3 boxes (11.2%) is near-identical with a
+  cliff only at 4+ (3.3%) -- not the monotone decline a pure frequency story predicts.
+
+- IMPLIED NEXT DIRECTION if the ablation lands below the floor: grounding, not composition. The
+  model sees a type-level schema and nothing else -- never cardinalities, sample records, attribute
+  values, or whether a relation it filters on occurs in the data at all. Notes 23.3 says it already
+  knows WHICH types a question is about; notes 23.7 says knowing the shape too is not enough. What
+  is left is knowing what is actually in the log, which is the AGENTIC WITH LOG-INSPECTION TOOLS
+  entry parked above -- and which also supplies the upper bound the paper still lacks.

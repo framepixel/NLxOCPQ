@@ -362,7 +362,14 @@ PROMPT_STRATEGIES = [
     "schema-few-shot",
     "schema-chain-of-thought-plus",
     "schema-least-to-most",
+    # ORACLE conditions, for the structure ablation only. Both receive part of the GOLD query as
+    # a `structure_hint` built by eval_testset, so their scores are ceilings and can never be
+    # reported as system performance. The `oracle-` prefix is load-bearing: it is what makes that
+    # unmissable in a config, a log line, a run directory name and a config_id.
+    "oracle-skeleton-given",
+    "oracle-skeleton-and-constraints-given",
 ]
+ORACLE_PROMPT_STRATEGIES = ("oracle-skeleton-given", "oracle-skeleton-and-constraints-given")
 DEFAULT_PROMPT_STRATEGY = os.getenv("OCPQ_PROMPT_STRATEGY", "schema-grammar-guided")
 
 
@@ -595,6 +602,10 @@ def normalize_prompt_strategy(prompt_strategy):
         "schema-chain-of-though-plus": "schema-chain-of-thought-plus",
         "least-to-most": "schema-least-to-most",
         "schema-least-to-most": "schema-least-to-most",
+        "skeleton-given": "oracle-skeleton-given",
+        "oracle-skeleton-given": "oracle-skeleton-given",
+        "skeleton-and-constraints-given": "oracle-skeleton-and-constraints-given",
+        "oracle-skeleton-and-constraints-given": "oracle-skeleton-and-constraints-given",
     }
     return aliases.get(normalized, normalized)
 
@@ -2327,14 +2338,31 @@ def _run_pipeline_allowed_entities_only(
     schema_enforced=True,
     schema_validation=True,
     execute_query=True,
+    structure_hint=None,
+    stage_prefix="allowed_entities_only",
 ):
-    print("Starting Allowed-Entities-Only NL to OCPQ pipeline...")
+    """Single-shot generation from the schema, optionally given gold's tree shape.
+
+    `structure_hint` serves the ORACLE conditions of the structure ablation and is built by
+    `eval_testset._build_structure_hint`, which owns the gold query; nothing gold-derived is read
+    here. Left at None the prompt and every failure-log stage name are byte-identical to what this
+    function produced before the parameter existed, which `tests/test_structure_hint_prompt.py`
+    asserts -- the ablation's S0 baseline is this same code path, so any drift would silently
+    invalidate the comparison it exists to make.
+
+    Parameterised rather than copied: the verifier stub, the execution-error repair pass and the
+    failure logging below are subtle enough that a second copy would drift out of step with this
+    one, and the two conditions would then differ by more than the hint.
+    """
+    print(f"Starting Allowed-Entities-Only NL to OCPQ pipeline"
+          f"{' (ORACLE: structure given)' if structure_hint else ''}...")
     selected_model = model_name or hf_model
     print(f"Using model: {selected_model}")
 
     schema = extract_ocel_schema(ocel_path)
     event_names, object_names = schema["event_types"], schema["object_types"]
     schema_block = build_schema_block(schema)
+    hint_block = f"\n{structure_hint}\n" if structure_hint else ""
 
     messages = [
         {
@@ -2352,7 +2380,7 @@ Convert this natural language query to OCPQ JSON.
 Output ONLY valid JSON.
 
 {schema_block}
-
+{hint_block}
 Rules:
 - The root object MUST contain both "nodes" and "edgeNames".
 - "edgeNames" is an array of [[parent_index, child_index], "label"] pairs, one per parent-child
@@ -2382,7 +2410,7 @@ Query:
     ocpq_json = parse_llm_json(content)
     if ocpq_json is None:
         append_failure_log(
-            stage="allowed_entities_only_parse_failed",
+            stage=f"{stage_prefix}_parse_failed",
             query=query,
             messages=messages,
             raw_output=content,
@@ -2433,7 +2461,7 @@ Query:
             output_file=output_file,
             query=query,
             messages=messages,
-            stage="allowed_entities_only",
+            stage=stage_prefix,
         )
 
         if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
@@ -2457,7 +2485,7 @@ Query:
                     output_file=output_file,
                     query=query,
                     messages=messages,
-                    stage="allowed_entities_only_fix",
+                    stage=f"{stage_prefix}_fix",
                 )
                 ocpq_json = fixed_json
                 messages.append({"role": "user", "content": prompt_fix})
@@ -3060,7 +3088,14 @@ def nl_to_ocpq_pipeline(
     schema_enforced=True,
     schema_validation=True,
     execute_query=True,
+    structure_hint=None,
 ):
+    """Dispatch to a prompt strategy.
+
+    `structure_hint` is only meaningful for the two `oracle-` strategies, which receive part of the
+    GOLD query and therefore produce ceilings rather than system performance. It is ignored by
+    every other strategy, so passing it cannot silently alter an ordinary condition.
+    """
     strategy = normalize_prompt_strategy(prompt_strategy)
     if strategy == "schema-allowed-entities-only":
         return _run_pipeline_allowed_entities_only(
@@ -3073,6 +3108,23 @@ def nl_to_ocpq_pipeline(
             schema_enforced=schema_enforced,
             schema_validation=schema_validation,
             execute_query=execute_query,
+        )
+    if strategy in ORACLE_PROMPT_STRATEGIES:
+        # Same code path as the baseline above, so the ablation's three rungs differ by the hint
+        # and by nothing else. A missing hint (malformed gold) degrades to the baseline prompt
+        # rather than failing the case; `structure_hint_level` on the record says which happened.
+        return _run_pipeline_allowed_entities_only(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+            structure_hint=structure_hint,
+            stage_prefix=strategy.replace("-", "_"),
         )
     if strategy == "schema-few-shot":
         return _run_pipeline_few_shot(

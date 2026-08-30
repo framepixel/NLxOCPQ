@@ -202,6 +202,104 @@ def _structural_metrics(gold_query, prediction):
     return _set_metrics(labels(gold_query), labels(prediction))
 
 
+# Oracle conditions. These read the GOLD query and hand part of it to the model, so their scores
+# are ceilings and never system performance -- the strategy names, the manifest's
+# `oracle_conditions` list and the per-record `structure_hint` all say so, because a number this
+# shape is exactly the kind that gets quoted out of context later.
+STRUCTURE_HINT_LEVELS = ("skeleton", "skeleton+constraints")
+
+# Which strategies read gold, and how much of its tree they are told. Any strategy absent from
+# this map gets no hint, so an ordinary condition cannot accidentally be handed one.
+ORACLE_STRUCTURE_LEVELS = {
+    "oracle-skeleton-given": "skeleton",
+    "oracle-skeleton-and-constraints-given": "skeleton+constraints",
+}
+
+
+def _constraint_type_name(constraint):
+    """`SAT` / `SizeFilter` / `Filter:TimeBetweenEvents` -- the type, never its parameters."""
+    if not isinstance(constraint, dict):
+        return None
+    kind = constraint.get("type")
+    if kind == "Filter":
+        inner = constraint.get("filter")
+        inner_kind = inner.get("type") if isinstance(inner, dict) else None
+        return f"Filter:{inner_kind}" if inner_kind else "Filter"
+    return kind
+
+
+def _build_structure_hint(gold_query, level):
+    """Describe gold's TREE, withholding everything semantic. Returns text, or None.
+
+    The measured failure is compositional, not lexical: among the fine-tuned queries that executed
+    and returned a wholly disjoint result set, 80.0% already name exactly the gold object types
+    while only 31.4% have the gold node count and 18.0% the gold constraint types (notes 23.3,
+    23.4). So the hint carries shape and withholds meaning -- the model must still supply every
+    entity name, every filter and every constraint parameter itself. Handing over entity names
+    would conflate a solved component with the failing one.
+
+    What is deliberately NOT emitted, at either level: `newEventVars`/`newObjectVars` *values*,
+    `filters`, `sizeFilters`, and constraint parameters (`min_seconds`, `max_seconds`, attribute
+    values, qualifiers). `SAT`'s `child_names` is implied by the edges and so needs no separate
+    disclosure. `tests/test_structure_hint.py` asserts each of these absences.
+
+    A malformed or missing gold returns None rather than raising: the ablation must degrade to the
+    baseline prompt on a bad entry, not fail the case.
+    """
+    if level not in STRUCTURE_HINT_LEVELS or not isinstance(gold_query, dict):
+        return None
+    raw_nodes = gold_query.get("nodes")
+    if not isinstance(raw_nodes, list) or not raw_nodes:
+        return None
+
+    children = {}
+    for edge in gold_query.get("edgeNames") or []:
+        try:
+            (parent, child), label = edge[0], edge[1]
+        except (TypeError, ValueError, IndexError):
+            continue
+        children.setdefault(int(parent), []).append((int(child), str(label)))
+
+    lines = []
+    for index, node in enumerate(raw_nodes):
+        box = (node or {}).get("Box") if isinstance(node, dict) else None
+        if not box:
+            continue
+        body = box[0] if isinstance(box[0], dict) else {}
+        n_events = len(body.get("newEventVars") or {})
+        n_objects = len(body.get("newObjectVars") or {})
+        parts = [
+            f"  node {index}: declares {n_events} new event variable(s), "
+            f"{n_objects} new object variable(s)"
+        ]
+        kids = children.get(index) or []
+        parts.append(
+            "; children: " + ", ".join(f"node {c} on edge \"{lbl}\"" for c, lbl in kids)
+            if kids else "; no children"
+        )
+        if level == "skeleton+constraints":
+            names = [n for n in (_constraint_type_name(c) for c in body.get("constraints") or [])
+                     if n]
+            parts.append(
+                f"; carries {len(names)} constraint(s) of type: {', '.join(names)}"
+                if names else "; carries no constraints"
+            )
+        lines.append("".join(parts))
+
+    if not lines:
+        return None
+
+    edge_repr = json.dumps(gold_query.get("edgeNames") or [], separators=(", ", ": "))
+    return (
+        "Tree structure -- produce EXACTLY this shape:\n"
+        f"  {len(lines)} node(s).\n"
+        + "\n".join(lines)
+        + f"\n  edgeNames: {edge_repr}\n"
+        "The entity types, the filters and all constraint parameters are NOT given here; "
+        "derive them from the query and the schema."
+    )
+
+
 def _read_json(path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -1288,6 +1386,14 @@ def run_evaluation(config_path_or_config):
         # Sampling provenance. A run whose repeats differ is only reproducible if this is set,
         # so it belongs beside the record of what the run was configured to do.
         "generation_seed_base": generation_seed_base or None,
+        # Conditions in THIS run that were shown part of the gold query. Their scores are
+        # ceilings, not system performance. Stated at the top level of the manifest so a
+        # downstream tool or a reader opening the run cold cannot miss it -- an oracle number
+        # quoted out of context is the most damaging mistake this run can produce. Empty for
+        # every ordinary run.
+        "oracle_conditions": sorted(
+            s for s in prompt_strategies if s in ORACLE_STRUCTURE_LEVELS
+        ),
         "temperature": global_cfg.get("temperature"),
         "ocpq_cli_timeout_sec": int(os.getenv("OCPQ_CLI_TIMEOUT_SEC", "300")),
         "config": config,
@@ -1463,6 +1569,11 @@ def run_evaluation(config_path_or_config):
                             f"{prompt_strategy} | schema={'on' if schema_enforced else 'off'} | eta={_format_duration(_estimate_remaining_eta(evaluation_start_time, run_counter - 1, total_runs))}",
                         )
 
+                        # ORACLE conditions only: hand the model part of the GOLD tree. None for
+                        # every ordinary strategy, so the hint cannot leak into a real condition.
+                        structure_hint_level = ORACLE_STRUCTURE_LEVELS.get(prompt_strategy)
+                        structure_hint = _build_structure_hint(gold_query, structure_hint_level)
+
                         try:
                             with _case_time_limit(case_timeout_sec):
                                 _, _, ocpq_json, query_stdout, query_result_file = nl_to_ocpq_pipeline(
@@ -1476,6 +1587,7 @@ def run_evaluation(config_path_or_config):
                                     schema_enforced=schema_enforced,
                                     schema_validation=effective_schema_validation,
                                     execute_query=True,
+                                    structure_hint=structure_hint,
                                 )
                         # Ordered before the general handler below, which would otherwise absorb
                         # the timeout into `pipeline_status = "error"` and lose the distinction.
@@ -1624,6 +1736,14 @@ def run_evaluation(config_path_or_config):
                             "backend": resolved_model.get("backend", global_cfg.get("backend")),
                             "backend_description": get_hf_backend_description(),
                             "prompt_strategy": prompt_strategy,
+                            # Non-null ONLY for the oracle ablation conditions, and then it names
+                            # exactly how much of the gold tree the model was given. Recorded in
+                            # full rather than as a flag so a reader can audit what was handed
+                            # over instead of trusting this comment. A null level with an oracle
+                            # strategy means gold was malformed and the run fell back to the
+                            # baseline prompt -- those cases must be excluded when reporting.
+                            "structure_hint_level": structure_hint_level,
+                            "structure_hint": structure_hint,
                             "schema_enforced": schema_enforced,
                             "schema_validation": effective_schema_validation,
                             "repeat": repeat_idx,
