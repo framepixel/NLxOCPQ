@@ -158,6 +158,7 @@ def analyse(run_dir: Path):
                     agg["no_voter_cases"] += 1
                 row[rule] = 0.0
                 row[f"{rule}_cluster"] = 0
+                row[f"{rule}_voters"] = 0
                 continue
             winner = next(s for s in loaded if s["key"] == key)
             sim = _compute_similarity(gold_ids, winner["ids"])
@@ -166,6 +167,11 @@ def analyse(run_dir: Path):
             agg[rule].append(f1)
             row[rule] = round(f1, 6)
             row[f"{rule}_cluster"] = size
+            # Voter count, without which cluster size is ambiguous: "1" means both "the only
+            # sample that executed" and "five samples that all disagreed", and those are
+            # opposite situations. A case with one voter had no vote at all -- whatever gain it
+            # shows measures execution success, not selection.
+            row[f"{rule}_voters"] = voters
             if rule == "majority":
                 agg["agreement"][f"{size}/{voters}"] += 1
                 agg["ties"] += int(tie)
