@@ -339,3 +339,40 @@
   knows WHICH types a question is about; notes 23.7 says knowing the shape too is not enough. What
   is left is knowing what is actually in the log, which is the AGENTIC WITH LOG-INSPECTION TOOLS
   entry parked above -- and which also supplies the upper bound the paper still lacks.
+
+- DONE (2026-08-30) Structure-ablation smoke, job 3339751: the hint format was wrong and the
+  10-minute smoke caught it. Full write-up in Thesis/notes/11-evaluation-readiness.md 24.
+  Mechanically clean -- 15/15 invocations got a hint, zero fallbacks, no errors, 34.9 s/run, so
+  ~1h45m per rung and ~5h for all three. But COMPLIANCE was 18%: the model adopted the given tree
+  shape in 2 of 11 parsed predictions, with 7 collapsing to a single box after being told 2, 3 or
+  4. Baseline node agreement on the same 14 questions with NO hint is 30%, so the hint was not
+  helping at all. Not a delivery bug -- prompt-token deltas track the hint size case by case
+  (a ~97-token hint adds 106 prompt tokens, a ~155-token one adds 185), so it was in the prompt
+  and being ignored.
+  Cause: the hint was PROSE ("node 0: declares 1 new event variable(s)..."), which is out of
+  distribution for a model fine-tuned to emit OCPQ JSON from a schema and a question. Fixed by
+  emitting gold's tree as an OCPQ JSON SCAFFOLD with <FILL> placeholders in every semantic slot --
+  in distribution, and it turns "obey this instruction" into "fill these blanks".
+  Also added src/structure_ablation_report.py, which reports compliance BEFORE any score and
+  refuses to conclude below 70%. Below that threshold "structure does not help" and "the model
+  will not take structural instruction" produce identical numbers, and only the first is a finding
+  about OCPQ. It also counts result_too_large per rung and prints a matched re-score, because
+  deeper trees select more and an uneven refusal count would penalise S1/S2 for a storage reason
+  while biasing the result toward the conclusion the analysis already predicts.
+  Lesson: the compliance gate was written into the plan as a precondition before any result
+  existed, and it is the only reason this was caught -- a flat S1 would otherwise have read as
+  "structure does not help", the expected conclusion reached for the wrong reason.
+
+- NEXT (2026-08-30) Re-smoke the structure ablation with the JSON-scaffold hint, then run it.
+    sbatch --array=1 slurm/submit_structure_ablation.sh     # 10 min, then cancel
+    <copy the shard's predictions.json>
+    python src/structure_ablation_report.py --run <that shard dir>
+  Gate: compliance (node count) must clear 70%. If the scaffold also fails, the finding becomes
+  "structural guidance cannot be imposed on this model at inference time", which is real evidence
+  against DECOMPOSITION but says nothing about the training rebalance -- do not let the two be
+  conflated, and do not spend the 5h until compliance is understood either way.
+  Once it clears:
+    sbatch --array=0-2 slurm/submit_structure_ablation.sh
+    python src/eval_testset.py --merge-shards eval_runs/structure_ablation/shard_* \
+        --merge-output eval_runs/structure_ablation/merged
+    python src/structure_ablation_report.py --run eval_runs/structure_ablation/merged

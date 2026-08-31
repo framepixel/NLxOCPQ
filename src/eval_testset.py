@@ -228,8 +228,24 @@ def _constraint_type_name(constraint):
     return kind
 
 
+def _constraint_stub(constraint):
+    """A constraint reduced to its TYPE, with every parameter replaced by a fill marker.
+
+    `SAT`'s `child_names` is deliberately left as a fill rather than reproduced: it is derivable
+    from `edgeNames`, which the scaffold already gives, so withholding it keeps the promise that
+    this level reveals constraint *types* and nothing else.
+    """
+    name = _constraint_type_name(constraint)
+    if name is None:
+        return None
+    if name.startswith("Filter:"):
+        return {"type": "Filter",
+                "filter": {"type": name.split(":", 1)[1], "<FILL>": "<FILL: remaining fields>"}}
+    return {"type": name, "<FILL>": "<FILL: remaining fields>"}
+
+
 def _build_structure_hint(gold_query, level):
-    """Describe gold's TREE, withholding everything semantic. Returns text, or None.
+    """Gold's TREE as a JSON scaffold to complete, withholding everything semantic. Or None.
 
     The measured failure is compositional, not lexical: among the fine-tuned queries that executed
     and returned a wholly disjoint result set, 80.0% already name exactly the gold object types
@@ -238,10 +254,20 @@ def _build_structure_hint(gold_query, level):
     entity name, every filter and every constraint parameter itself. Handing over entity names
     would conflate a solved component with the failing one.
 
+    WHY A JSON SCAFFOLD RATHER THAN PROSE. The first version described the tree in sentences
+    ("node 0: declares 1 new event variable(s)..."). The 2026-08-30 smoke (job 3339751) measured
+    18% compliance against that format -- BELOW the 30% node agreement the same model reaches on
+    the same questions with no hint at all, with 7 of 11 predictions collapsing to a single box
+    after being told 2, 3 or 4. Prompt-token deltas confirmed the hint was in the prompt, so it
+    was being read and not acted on: a paragraph describing a tree is out of distribution for a
+    model fine-tuned to emit OCPQ JSON from a schema and a question. A scaffold is in
+    distribution, and it turns "obey this instruction" into "fill these blanks".
+
     What is deliberately NOT emitted, at either level: `newEventVars`/`newObjectVars` *values*,
-    `filters`, `sizeFilters`, and constraint parameters (`min_seconds`, `max_seconds`, attribute
-    values, qualifiers). `SAT`'s `child_names` is implied by the edges and so needs no separate
-    disclosure. `tests/test_structure_hint.py` asserts each of these absences.
+    `filters`, `sizeFilters` contents, and constraint parameters (`min_seconds`, `max_seconds`,
+    attribute values, qualifiers, `child_names`). Field NAMES appear, but the OCPQ schema in the
+    prompt already names every one of them, so they carry nothing gold-specific.
+    `tests/test_structure_hint.py` asserts each of these absences.
 
     A malformed or missing gold returns None rather than raising: the ablation must degrade to the
     baseline prompt on a bad entry, not fail the case.
@@ -252,53 +278,53 @@ def _build_structure_hint(gold_query, level):
     if not isinstance(raw_nodes, list) or not raw_nodes:
         return None
 
-    children = {}
-    for edge in gold_query.get("edgeNames") or []:
-        try:
-            (parent, child), label = edge[0], edge[1]
-        except (TypeError, ValueError, IndexError):
-            continue
-        children.setdefault(int(parent), []).append((int(child), str(label)))
-
-    lines = []
-    for index, node in enumerate(raw_nodes):
+    scaffold_nodes = []
+    for node in raw_nodes:
         box = (node or {}).get("Box") if isinstance(node, dict) else None
         if not box:
             continue
         body = box[0] if isinstance(box[0], dict) else {}
-        n_events = len(body.get("newEventVars") or {})
-        n_objects = len(body.get("newObjectVars") or {})
-        parts = [
-            f"  node {index}: declares {n_events} new event variable(s), "
-            f"{n_objects} new object variable(s)"
-        ]
-        kids = children.get(index) or []
-        parts.append(
-            "; children: " + ", ".join(f"node {c} on edge \"{lbl}\"" for c, lbl in kids)
-            if kids else "; no children"
-        )
+        children = box[1] if len(box) > 1 and isinstance(box[1], list) else []
+        # The variable KEYS are structure -- how many variables the node binds, and under which
+        # indices the filters will have to reference them. Their VALUES are the answer.
+        filled = {
+            "newEventVars": {k: ["<FILL: event type>"] for k in (body.get("newEventVars") or {})},
+            "newObjectVars": {k: ["<FILL: object type>"]
+                              for k in (body.get("newObjectVars") or {})},
+            "filters": "<FILL>",
+            "sizeFilters": "<FILL>",
+        }
         if level == "skeleton+constraints":
-            names = [n for n in (_constraint_type_name(c) for c in body.get("constraints") or [])
-                     if n]
-            parts.append(
-                f"; carries {len(names)} constraint(s) of type: {', '.join(names)}"
-                if names else "; carries no constraints"
-            )
-        lines.append("".join(parts))
+            stubs = [s for s in (_constraint_stub(c) for c in body.get("constraints") or []) if s]
+            filled["constraints"] = stubs
+        else:
+            filled["constraints"] = "<FILL>"
+        filled["evVarLabels"] = {}
+        filled["obVarLabels"] = {}
+        scaffold_nodes.append({"Box": [filled, children]})
 
-    if not lines:
+    if not scaffold_nodes:
         return None
 
-    edge_repr = json.dumps(gold_query.get("edgeNames") or [], separators=(", ", ": "))
-    return (
-        "Tree structure -- produce EXACTLY this shape:\n"
-        f"  {len(lines)} node(s).\n"
-        + "\n".join(lines)
-        + f"\n  edgeNames: {edge_repr}\n"
-        "The entity types, the filters and all constraint parameters are NOT given here; "
-        "derive them from the query and the schema."
+    scaffold = json.dumps(
+        {"nodes": scaffold_nodes, "edgeNames": gold_query.get("edgeNames") or []},
+        indent=2,
     )
-
+    constraint_line = (
+        "Each constraint's TYPE is given; supply its remaining fields."
+        if level == "skeleton+constraints"
+        else "The constraints are NOT given; derive them from the question."
+    )
+    return (
+        f"Complete this OCPQ query. The tree structure below is FIXED.\n"
+        f"- Keep EXACTLY {len(scaffold_nodes)} node(s). Do not add, remove or renumber them.\n"
+        f"- Keep every \"edgeNames\" entry and every child list exactly as given.\n"
+        f"- Keep each node's variable keys exactly as given.\n"
+        f"- Replace every \"<FILL...>\" with the correct value for this question. "
+        f"No \"<FILL...>\" may remain in your output.\n"
+        f"- {constraint_line}\n\n"
+        f"{scaffold}"
+    )
 
 def _read_json(path):
     with open(path, "r", encoding="utf-8") as f:
