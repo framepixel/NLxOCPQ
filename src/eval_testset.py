@@ -319,7 +319,12 @@ def _build_structure_hint(gold_query, level):
         f"Complete this OCPQ query. The tree structure below is FIXED.\n"
         f"- Keep EXACTLY {len(scaffold_nodes)} node(s). Do not add, remove or renumber them.\n"
         f"- Keep every \"edgeNames\" entry and every child list exactly as given.\n"
-        f"- Keep each node's variable keys exactly as given.\n"
+        # The 2026-08-31 smoke measured 0% arity agreement even on the 36% of cases whose node
+        # count was right, so the model was adding variables to nodes the scaffold left empty --
+        # plausibly reading "{}" as a blank to fill rather than as "binds nothing".
+        f"- Keep each node's variable keys exactly as given. A node showing "
+        f"\"newEventVars\": {{}} or \"newObjectVars\": {{}} binds NO variable of that kind -- "
+        f"leave it empty, do not add one.\n"
         f"- Replace every \"<FILL...>\" with the correct value for this question. "
         f"No \"<FILL...>\" may remain in your output.\n"
         f"- {constraint_line}\n\n"

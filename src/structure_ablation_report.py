@@ -128,6 +128,7 @@ def analyse(run_dir: Path):
 
         node_ok = arity_ok = edge_ok = ctype_ok = parsed = 0
         hinted = fallback = 0
+        compliant, noncompliant = [], []
         for r in rows:
             if is_oracle:
                 if r.get("structure_hint"):
@@ -138,10 +139,18 @@ def analyse(run_dir: Path):
             if _nodes(pred) is None:
                 continue
             parsed += 1
-            node_ok += _nodes(gold) == _nodes(pred)
+            shape_ok = _nodes(gold) == _nodes(pred)
+            node_ok += shape_ok
             arity_ok += _arity(gold) == _arity(pred)
             edge_ok += _edges(gold) == _edges(pred)
             ctype_ok += _constraint_types(gold) == _constraint_types(pred)
+            # The sub-analysis that survives low compliance: among the cases where the model DID
+            # adopt the given shape, how well does it score? At 169 cases and ~36% compliance this
+            # is ~60 per rung -- enough to read, and the causal counterpart of the observational
+            # 0.3770 in notes 23.7. It is still a SELECTED subset (the model may comply on the
+            # easier questions), so it is an upper estimate, not a clean causal number.
+            if r.get("discriminating") is True and r.get("baseline_f1") is not None:
+                (compliant if shape_ok else noncompliant).append(_f1(r) or 0.0)
 
         scored = [(_f1(r) or 0.0, r.get("baseline_f1"), r.get("discriminating")) for r in rows]
         disc = [(f, fl) for f, fl, d in scored if d is True and fl is not None]
@@ -174,6 +183,10 @@ def analyse(run_dir: Path):
                                           if matched_disc else None),
             "matched_n": len(matched_disc),
             "mean_floor": statistics.mean(fl for _, fl in disc) if disc else None,
+            "f1_when_shape_adopted": statistics.mean(compliant) if compliant else None,
+            "n_shape_adopted": len(compliant),
+            "f1_when_shape_not_adopted": statistics.mean(noncompliant) if noncompliant else None,
+            "n_shape_not_adopted": len(noncompliant),
         }
     return out
 
@@ -204,10 +217,12 @@ def _report(summary):
                   f"exclude them before reporting.")
 
     if blocked:
-        print(f"\n   *** NOT INTERPRETABLE: {', '.join(blocked)} below the "
+        print(f"\n   *** HEADLINE NOT INTERPRETABLE: {', '.join(blocked)} below the "
               f"{COMPLIANCE_FLOOR:.0%} compliance floor. ***")
-        print("   The model did not adopt the given structure, so a flat result cannot be read as\n"
-              "   'structure does not help'. Fix the hint format before drawing any conclusion.")
+        print("   A FLAT result cannot be read as 'structure does not help' -- it is equally what\n"
+              "   'the model will not take structural instruction' looks like. Read section 3\n"
+              "   instead, which conditions on the cases where the shape WAS adopted, and treat\n"
+              "   the compliance rate itself as a finding about the model.")
     else:
         print(f"\n   All oracle rungs clear the {COMPLIANCE_FLOOR:.0%} floor -- scores are "
               f"interpretable.")
@@ -239,9 +254,37 @@ def _report(summary):
     else:
         print("\n   No export refusals in any rung -- the storage confound does not apply.")
 
-    print("\n3. THE DECISION, against the floor rather than against S0\n")
+    print("\n3. CONDITIONAL ON THE MODEL ADOPTING THE GIVEN SHAPE\n"
+          "   The sub-analysis that survives low compliance. Selected, so an UPPER estimate:\n"
+          "   the model may comply on the easier questions.\n")
+    print(f"   {'rung':<26}{'shape adopted':>16}{'F1 |adopted':>13}{'F1 |not':>10}")
+    for rung in RUNG_ORDER:
+        c = rungs.get(rung)
+        if not c:
+            continue
+        num = lambda v: "  --  " if v is None else f"{v:.4f}"  # noqa: E731
+        print(f"   {c['label']:<26}{str(c['n_shape_adopted']) + '/' + str(c['n_shape_adopted'] + c['n_shape_not_adopted']):>16}"
+              f"{num(c['f1_when_shape_adopted']):>13}{num(c['f1_when_shape_not_adopted']):>10}")
+    if floor:
+        print(f"\n   Trivial floor for comparison: {floor:.4f}")
+        best_cond = max((c for c in rungs.values() if c["f1_when_shape_adopted"] is not None),
+                        key=lambda c: c["f1_when_shape_adopted"], default=None)
+        if best_cond and best_cond["n_shape_adopted"] >= 20:
+            verdict = ("STILL BELOW the floor -- even when the correct shape is adopted, the "
+                       "answer is not right.\n      Composition is not the missing ingredient."
+                       if best_cond["f1_when_shape_adopted"] < floor else
+                       "CLEARS the floor -- correct shape is sufficient on the cases where it "
+                       "is adopted.")
+            print(f"   -> {best_cond['label']} with the shape adopted: {verdict}")
+        elif best_cond:
+            print(f"   -> too few compliant cases (n={best_cond['n_shape_adopted']}) to read; "
+                  f"needs the full 169-case run.")
+
+    print("\n4. THE DECISION, against the floor rather than against S0\n")
     if blocked:
-        print("   Deferred: compliance is too low for the scores to bear on the question.")
+        print("   Headline deferred: compliance is too low for the unconditional scores to bear\n"
+              "   on the question. Section 3 is what to read, alongside the compliance rate as a\n"
+              "   result in its own right.")
     elif floor:
         best = max((c for c in rungs.values() if c["f1_discriminating"] is not None),
                    key=lambda c: c["f1_discriminating"])

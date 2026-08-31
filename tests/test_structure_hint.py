@@ -50,8 +50,15 @@ def absent(name, needle, haystack):
 
 
 def scaffold_of(hint):
-    """The JSON body of the hint, without the instruction preamble."""
-    return json.loads(hint[hint.index("{"):])
+    """The JSON body of the hint, without the instruction preamble.
+
+    Anchored on the first line that is exactly "{", not the first "{" character: the instructions
+    themselves mention `"newEventVars": {}`, so a character search picks up the preamble and the
+    parse fails with a confusing "Extra data".
+    """
+    lines = hint.split("\n")
+    start = next(i for i, ln in enumerate(lines) if ln.strip() == "{")
+    return json.loads("\n".join(lines[start:]))
 
 
 # A three-node gold with everything the hint must withhold: entity names, O2E/O2O filters with
