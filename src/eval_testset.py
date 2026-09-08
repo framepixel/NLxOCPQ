@@ -157,13 +157,19 @@ _NON_DISCRIMINATING = {"non_discriminating", "empty_result",
 
 
 def _load_stratum_index():
-    """nl_query -> (is_discriminating, baseline_f1), from the discriminability audit.
+    """nl_query -> (is_discriminating, baseline_f1, variant_floors), from the audit.
 
     Roughly a fifth of the testset consists of compliance rules its log fully satisfies. A
     result-only metric hands full marks to any query on those, so results must be reported per
     stratum and against `baseline_f1` -- the score a no-op query already achieves. Absent the
     audit the run proceeds unlabelled rather than failing: this is reporting metadata, not a
     precondition for producing predictions.
+
+    `variant_floors` is the same floor computed under each entry of `SIMILARITY_VARIANTS`, so a
+    relaxed metric is never read against the strict floor. An audit file written before those
+    floors existed yields `{}`, and every variant skill is then undefined rather than wrong --
+    comparing a relaxed F1 to a strict floor is the apples-to-oranges error the two-sided skill
+    score exists to prevent.
     """
     if not _STRATUM_PATH.exists():
         print(f"Warning: {_STRATUM_PATH.name} not found; records will carry no stratum label. "
@@ -174,10 +180,21 @@ def _load_stratum_index():
     except Exception as exc:  # noqa: BLE001 - never fail a run over reporting metadata
         print(f"Warning: could not read {_STRATUM_PATH.name}: {exc}")
         return {}
-    return {
-        r["nl_query"]: (r["verdict"] not in _NON_DISCRIMINATING, r.get("baseline_f1"))
+    index = {
+        r["nl_query"]: (r["verdict"] not in _NON_DISCRIMINATING, r.get("baseline_f1"),
+                        r.get("baseline_f1_variants") or {})
         for r in entries if r.get("nl_query")
     }
+    if index and not any(floors for _d, _b, floors in index.values()):
+        print(f"Warning: {_STRATUM_PATH.name} carries no per-variant floors; "
+              "skill_variants will be undefined. Re-run audit_testset_discriminability.py.")
+    return index
+
+
+# What `stratum_index.get(nl_query, ...)` falls back to when an entry is absent from the audit.
+# Named rather than repeated inline: the tuple gained a third element and four call sites had to
+# agree on its width.
+_STRATUM_MISS = (None, None, {})
 
 
 def _structural_metrics(gold_query, prediction):
@@ -813,6 +830,91 @@ def _set_metrics(gold_set, pred_set):
     }
 
 
+def _variant_strict(gold_situations, pred_situations):
+    """The primary comparison: whole situations, unprojected. Identical to `combined`."""
+    return set(gold_situations), set(pred_situations)
+
+
+def _variant_population(gold_situations, pred_situations):
+    """Drop the violation flag: did the query select the right rows?
+
+    A compliance query binds a whole population and flags a subset. This half asks only
+    whether the population was right, which is the question a retrieval query asks anyway.
+    """
+    return ({(events, objects) for events, objects, _violated in gold_situations},
+            {(events, objects) for events, objects, _violated in pred_situations})
+
+
+def _variant_violation(gold_situations, pred_situations):
+    """Flagged situations only: did the query catch the right violations?
+
+    Returns None — never an empty comparison — when gold flags nothing. Twenty-two of the
+    135 discriminating entries are compliance rules their log fully satisfies, and scoring
+    those 0 would measure the testset rather than the model, while scoring them 1 would hand
+    full marks to a query that flags nothing. Undefined is the only honest reading, so the
+    mean carries its own denominator (`violation_n`) rather than this stratum's silence.
+    """
+    gold_flagged = {(events, objects) for events, objects, violated in gold_situations if violated}
+    if not gold_flagged:
+        return None
+    return (gold_flagged,
+            {(events, objects) for events, objects, violated in pred_situations if violated})
+
+
+def _variant_kind_projected(gold_situations, pred_situations):
+    """Blank the entity kinds gold never binds: did it identify the right things?
+
+    Diagnostic for a measured artefact of the strict key. A situation is keyed by its event
+    tuple *and* its object tuple, so a prediction that binds one extra event variable changes
+    every key and scores exactly 0 even when its objects are right. On the self-consistency
+    store that is 152 samples -- ~18% of executed discriminating samples -- whose mean
+    objects-only F1 is 0.5203 and whose `combined` F1 is 0.0000, with only 4 of them actually
+    selecting the wrong objects.
+
+    **Never promote this to primary.** A query binding an extra variable really does return a
+    different table; this quantifies how much of the measured failure is that, nothing more.
+    Where gold binds both kinds (35 of 135 discriminating entries) it is exactly `strict`.
+    """
+    keep_events = any(events for events, _objects, _violated in gold_situations)
+    keep_objects = any(objects for _events, objects, _violated in gold_situations)
+    if not keep_events and not keep_objects:
+        # Gold binds no entities at all, so there is nothing to project onto: blanking both
+        # components would collapse every situation of every query onto one key and hand out
+        # a free 1.0. Fall back to the unprojected comparison.
+        return _variant_strict(gold_situations, pred_situations)
+
+    def project(situation):
+        events, objects, violated = situation
+        return (events if keep_events else (), objects if keep_objects else (), violated)
+
+    return ({project(s) for s in gold_situations}, {project(s) for s in pred_situations})
+
+
+# Decompositions of the result comparison, each a `(gold_situations, pred_situations) ->
+# (gold_keys, pred_keys) | None` projection. `_compute_similarity` scores every entry here and
+# `audit_testset_discriminability.py` computes the no-op baseline's floor through the same
+# table, so a variant and its floor are produced by one definition rather than two that can
+# drift. Adding a variant here gives it a metric and a matched floor at once.
+#
+# `strict` is the primary metric and must stay first and unprojected: `combined` is derived
+# from it, six analysis modules read `combined`, and every published number depends on it.
+SIMILARITY_VARIANTS = {
+    "strict": _variant_strict,
+    "population": _variant_population,
+    "violation": _variant_violation,
+    "kind_projected": _variant_kind_projected,
+}
+
+
+def _variant_metrics(gold_situations, pred_situations):
+    """`{variant_name: _set_metrics(...) | None}` for every entry in `SIMILARITY_VARIANTS`."""
+    scored = {}
+    for name, project in SIMILARITY_VARIANTS.items():
+        projected = project(gold_situations, pred_situations)
+        scored[name] = None if projected is None else _set_metrics(*projected)
+    return scored
+
+
 def _compute_similarity(gold_ids, pred_ids):
     """Score a prediction's root-node result against the gold query's.
 
@@ -820,6 +922,10 @@ def _compute_similarity(gold_ids, pred_ids):
     breakdowns. `combined` — the per-record value behind `result_set_f1_strict` /
     `result_set_f1_executed` — compares whole situations, so it preserves which entities
     co-occur within one binding and whether that binding violated a constraint.
+
+    `variants` carries the decompositions of that same comparison (`SIMILARITY_VARIANTS`).
+    They are reported *beside* `combined`, never instead of it: `variants["strict"]` is
+    `combined` by construction, and the assertion in the tests keeps it that way.
     """
     if gold_ids is None or pred_ids is None:
         return None
@@ -829,6 +935,7 @@ def _compute_similarity(gold_ids, pred_ids):
         "events": _set_metrics(gold_events, pred_events),
         "objects": _set_metrics(gold_objects, pred_objects),
         "combined": _set_metrics(gold_situations, pred_situations),
+        "variants": _variant_metrics(gold_situations, pred_situations),
     }
 
 
@@ -885,6 +992,47 @@ def _record_skill(record, strict=True):
             return None
         f1 = 0.0
     return _skill_score(f1, record.get("baseline_f1"))
+
+
+def _record_variant_f1(record, variant, strict=True):
+    """One variant's F1 for a record, or None when the variant is undefined on this entry.
+
+    The strict convention applies to *unavailable results*, not to *undefined variants*. A
+    prediction that never executed scores 0 -- otherwise attempting less would score better.
+    But `violation` on an entry gold never flags has no value to substitute: 0 would blame the
+    model for the log's compliance and 1 would reward a query that flags nothing, so it stays
+    None and drops out of the mean along with its denominator.
+    """
+    similarity = record.get("similarity")
+    if similarity is not None:
+        scored = (similarity.get("variants") or {}).get(variant)
+        return None if scored is None else scored.get("f1")
+    if not strict:
+        return None
+    # No comparable result. Whether a variant is defined is a property of the *entry*, not of
+    # what the model produced, so it cannot be read off the missing similarity block. The audit
+    # is the authority: it scores the no-op baseline through the same projections, so a floor
+    # present-but-None marks the variant undefined on this entry (`violation` where gold flags
+    # nothing). An absent floors dict means the audit predates them -- then the strict
+    # substitution still applies and only the skill goes undefined.
+    floors = record.get("baseline_f1_variants") or {}
+    if floors and variant in floors and floors[variant] is None:
+        return None
+    return 0.0
+
+
+def _record_skill_variants(record, strict=True):
+    """`{variant: skill}` for one record, each against its own matched floor.
+
+    Absent per-variant floors (an audit file predating them) every value is None. That is the
+    intended degradation: a relaxed F1 read against the strict floor would look like skill the
+    model does not have.
+    """
+    floors = record.get("baseline_f1_variants") or {}
+    return {
+        name: _skill_score(_record_variant_f1(record, name, strict=strict), floors.get(name))
+        for name in SIMILARITY_VARIANTS
+    }
 
 
 def _truncation_counts(records) -> dict:
@@ -1745,10 +1893,10 @@ def run_evaluation(config_path_or_config):
                         # did not parse or did not execute counts as F1 0, so skill -1. Scoring
                         # it as undefined would reward attempting fewer queries.
                         _strict_f1 = ((similarity or {}).get("combined") or {}).get("f1")
+                        _is_disc, _floor, _variant_floors = stratum_index.get(
+                            nl_query, _STRATUM_MISS)
                         skill_value = _skill_score(
-                            0.0 if _strict_f1 is None else _strict_f1,
-                            stratum_index.get(nl_query, (None, None))[1],
-                        )
+                            0.0 if _strict_f1 is None else _strict_f1, _floor)
 
                         record = {
                             "case_id": case_idx,
@@ -1759,8 +1907,12 @@ def run_evaluation(config_path_or_config):
                             # the log fully satisfies, where a result-only comparison awards full
                             # marks to any query; `baseline_f1` is what a no-op query already
                             # scores on this entry, so a model number can be read against a floor.
-                            "discriminating": stratum_index.get(nl_query, (None, None))[0],
-                            "baseline_f1": stratum_index.get(nl_query, (None, None))[1],
+                            "discriminating": _is_disc,
+                            "baseline_f1": _floor,
+                            # The same floor under each entry of SIMILARITY_VARIANTS, so a
+                            # relaxed F1 is never read against the strict floor. A value present
+                            # but None marks a variant undefined on this entry.
+                            "baseline_f1_variants": _variant_floors,
                             "gold_query": gold_query,
                             "model": resolved_model["name"],
                             "model_label": resolved_model["label"],
@@ -1851,6 +2003,11 @@ def run_evaluation(config_path_or_config):
                                 "bindings_skipped": gt_record.get("bindings_skipped"),
                             },
                         }
+                        # After the literal, not inside it: this reads `similarity` and
+                        # `baseline_f1_variants` off the finished record, so the projections and
+                        # their matched floors are joined in exactly one place rather than
+                        # re-derived here and again in `--recompute`.
+                        record["metrics"]["skill_variants"] = _record_skill_variants(record)
 
                         records.append(record)
                         completed_keys.add(current_key)
@@ -2018,6 +2175,40 @@ def _build_summary(records, repeats):
                 executed.append(e)
         return strict, executed
 
+    def _variant_bundle(recs):
+        """Per-variant F1, floor and skill, each with its own denominator.
+
+        Every figure here carries `n`: the variants do not share a denominator, because
+        `violation` is undefined wherever gold flags nothing (22 of the 135 discriminating
+        entries). A mean whose denominator is invisible is the defect that made `combined_f1`
+        unreadable, and it would be worse here -- the same table would mix two populations.
+
+        `strict` reproduces `result_set_f1_strict` and `skill_score` exactly. That is the
+        regression check, not a redundancy: if it ever diverges, the projection table has
+        drifted from the primary metric.
+        """
+        bundle = {}
+        for name in SIMILARITY_VARIANTS:
+            f1_vals, skill_vals = [], []
+            for r in recs:
+                f1 = _record_variant_f1(r, name, strict=True)
+                if f1 is not None:
+                    f1_vals.append(f1)
+                s = _skill_score(f1, (r.get("baseline_f1_variants") or {}).get(name))
+                if s is not None:
+                    skill_vals.append(s)
+            floors = [(r.get("baseline_f1_variants") or {}).get(name) for r in recs]
+            bundle[name] = {
+                "result_set_f1_strict": _mean(f1_vals),
+                "n": len(f1_vals),
+                "undefined": len(recs) - len(f1_vals),
+                "mean_baseline_f1": _mean(floors),
+                "skill_score": _mean(skill_vals),
+                "skill_n": len(skill_vals),
+                "below_floor_rate": _mean([1 if s < 0 else 0 for s in skill_vals]),
+            }
+        return bundle
+
     def _metric_bundle(recs):
         strict_vals, executed_vals = _result_f1_values(recs)
         executed_f1 = _mean(executed_vals)
@@ -2049,6 +2240,10 @@ def _build_summary(records, repeats):
             # Denominators, so the skill figures above are never silently conditional.
             "skill_n": len(skill_strict),
             "skill_undefined": len(recs) - len(skill_strict),
+            # Decompositions of the same result comparison, each against its own matched floor.
+            # `variants.strict` reproduces the three figures above exactly; the others are
+            # secondary and must never be quoted as the headline. See SIMILARITY_VARIANTS.
+            "variants": _variant_bundle(recs),
             # Deprecated aliases of result_set_f1_executed, kept so existing notes stay true.
             # `semantic_accuracy` in particular overstates what is measured: this is result-set
             # agreement, not semantic correctness.
@@ -2263,6 +2458,10 @@ def _build_summary(records, repeats):
                 "below_floor_rate": _mean([1 if s < 0 else 0 for s in _skill_strict]),
                 "skill_n": len(_skill_strict),
                 "skill_undefined": len(recs) - len(_skill_strict),
+                # Mirrors the `variants` block in `_metric_bundle` above. The two aggregation
+                # paths are separate by construction, so this must be added in both or it is
+                # silently missing from by_config -- the defect the comment below warns about.
+                "variants": _variant_bundle(recs),
                 # Deprecated aliases of result_set_f1_executed. `semantic_accuracy` overstates
                 # what is measured -- this is result-set agreement, not semantic correctness.
                 "combined_f1": combined_f1,
@@ -2362,12 +2561,105 @@ def _apply_truncation_policy(records, policy: str) -> dict:
             for key in ("f1", "precision", "recall"):
                 if key in similarity["combined"]:
                     similarity["combined"][key] = 0.0
+            # The variants are projections of the same truncated result, so they are withdrawn
+            # with it. Leaving them scored would make `strict-zero` inconsistent with itself and
+            # give the relaxed metrics a sensitivity analysis the primary one does not have.
+            for scored in (similarity.get("variants") or {}).values():
+                if isinstance(scored, dict):
+                    for key in ("f1", "precision", "recall"):
+                        if key in scored:
+                            scored[key] = 0.0
             # Skill reads the combined F1, so it has to follow rather than keep a value derived
             # from the score that was just withdrawn.
             metrics["skill"] = _record_skill(rec)
+            metrics["skill_variants"] = _record_skill_variants(rec)
             report["zeroed_prediction_truncated"] += 1
 
     return report
+
+
+def _report_variants(run_dir):
+    """Print the result-metric decomposition for a finished run, with its own caveats.
+
+    Each variant is read against its OWN floor. That is the whole point and it is easy to get
+    wrong: a relaxed F1 next to the strict floor 0.5148 looks like progress and is arithmetic
+    nonsense, which is the error the structure ablation's paired tests exist to prevent.
+
+    The floors do not behave alike, and the report says so inline rather than leaving a reader to
+    infer it. The no-op baseline is gold with its constraints, size filters and children stripped,
+    so:
+      * `population` -- dropping the violation flag collapses gold's flagged and unflagged rows
+        onto that baseline, and its floor goes to ~0.9. A relaxation that raises the floor further
+        than the model is a trap, not a rescue.
+      * `kind_projected` -- the baseline binds the same variables as gold, so the projection is a
+        no-op on it and the floor does not move. Any gain here is real headroom.
+      * `violation` -- the baseline strips the constraints, so it flags nobody and its floor is 0
+        by construction. The no-op query is simply not a comparator for this half; the skill number
+        it produces is the raw F1 wearing a disguise. Reported, and not to be quoted as skill.
+    """
+    run_dir = Path(run_dir)
+    summary = _read_json(str(run_dir / "summary.json"))
+
+    print(f"\nResult-metric decomposition: {run_dir}")
+    print("`strict` is the primary metric; the rest are secondary and none replaces it.\n")
+
+    def _table(title, block):
+        # `by_stratum` mixes metric bundles with two containers -- `unlabelled` is a count and
+        # `by_model` is a dict of bundles -- so identify a bundle by its primary metric rather
+        # than by position.
+        if not isinstance(block, dict) or "result_set_f1_strict" not in block:
+            return
+        variants = block.get("variants")
+        if not variants:
+            print(f"{title}\n  (no variants block -- rescore with --recompute)\n")
+            return
+        print(title)
+        print(f"  {'variant':16s} {'F1':>9s} {'F1_n':>6s} {'floor':>9s} {'skill':>9s} "
+              f"{'skill_n':>8s} {'<floor':>7s}")
+        strict_skill_n = (variants.get("strict") or {}).get("skill_n")
+        for name, row in variants.items():
+            def _f(key, width=9):
+                value = row.get(key)
+                return (f"{value:>{width}.4f}" if isinstance(value, (int, float))
+                        else f"{'--':>{width}}")
+            # A variant whose skill is averaged over fewer records than `strict` is measured on a
+            # DIFFERENT subpopulation and its skill is not comparable to strict's. `population`
+            # does this hard: the no-op baseline selects gold's population exactly on most
+            # compliance entries, so its floor is 1.0 there and skill is undefined -- 102 of the
+            # 135 discriminating entries, leaving a quarter of the records and the easier ones.
+            mark = "" if row.get("skill_n") == strict_skill_n else "  <- other denominator"
+            print(f"  {name:16s} {_f('result_set_f1_strict')} {row.get('n', 0):>6d} "
+                  f"{_f('mean_baseline_f1')} {_f('skill_score')} {row.get('skill_n', 0):>8d} "
+                  f"{_f('below_floor_rate', 7)}{mark}")
+        strict = variants.get("strict", {}).get("result_set_f1_strict")
+        primary = (block or {}).get("result_set_f1_strict")
+        if strict == primary:
+            print(f"  [OK] variants.strict {strict} vs result_set_f1_strict {primary}\n")
+        elif all(row.get("skill_n", 0) == 0 for row in variants.values()):
+            # Every skill undefined means no record carries a variants block at all: the run was
+            # merged from shards written before the projections existed. That is a stale input,
+            # not drift, and the fix is a rescore rather than an investigation.
+            print(f"  [STALE] this run predates the variants -- rescore it with "
+                  f"`--recompute` first; the numbers above are not meaningful\n")
+        else:
+            print(f"  [MISMATCH] variants.strict {strict} vs result_set_f1_strict {primary}"
+                  f"  <-- the projection table has drifted from the metric\n")
+
+    for stratum, block in (summary.get("by_stratum") or {}).items():
+        _table(f"stratum: {stratum}", block)
+    for model, block in ((summary.get("by_stratum") or {}).get("by_model") or {}).items():
+        _table(f"model: {model}", block)
+    for config_id, block in (summary.get("by_config") or {}).items():
+        _table(f"config: {config_id}", (block or {}).get("metrics"))
+
+    print("Reading the floors (they do NOT move together -- see the docstring):")
+    print("  population     the no-op baseline gains the flagged rows too, so its floor rises to")
+    print("                 ~0.9. Model gains here are almost certainly smaller than that.")
+    print("  kind_projected the baseline binds gold's variables, so its floor is unchanged from")
+    print("                 strict. A gain here is genuine headroom the strict key was hiding.")
+    print("  violation      the baseline flags nobody, so the floor is 0 by construction and the")
+    print("                 skill column is the raw F1 restated. Not a comparator. A real floor")
+    print("                 for this half would be a flag-everything query, which is not built.")
 
 
 def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
@@ -2454,12 +2746,16 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
             rec["metrics"]["bindings_skipped"] = pred_skipped
         if gold_skipped is not None:
             rec["metrics"]["gold_bindings_skipped"] = gold_skipped
-        is_disc, baseline_f1 = stratum_index.get(rec.get("nl_query"), (None, None))
+        is_disc, baseline_f1, variant_floors = stratum_index.get(
+            rec.get("nl_query"), _STRATUM_MISS)
         rec["discriminating"] = is_disc
         rec["baseline_f1"] = baseline_f1
-        # Derived last: it reads the similarity and floor set just above, so a run recorded
-        # before the skill score existed gains it here without re-executing anything.
+        rec["baseline_f1_variants"] = variant_floors
+        # Derived last: they read the similarity and floors set just above, so a run recorded
+        # before the skill score or the variants existed gains both here without re-executing
+        # anything. This is the whole point of the store.
         rec["metrics"]["skill"] = _record_skill(rec)
+        rec["metrics"]["skill_variants"] = _record_skill_variants(rec)
 
     truncation = _apply_truncation_policy(records, truncation_policy)
 
@@ -2626,6 +2922,10 @@ def main():
              "modified.")
     parser.add_argument("--result-store", metavar="DIR", default=None,
         help="Result store for --recompute (default: <DIR>/result_store).")
+    parser.add_argument("--variants", metavar="DIR",
+        help="Print the result-metric decomposition (strict / population / violation / "
+             "kind_projected) for a finished run, each against its own floor. Reads summary.json; "
+             "rescore with --recompute first if the run predates the variants.")
     parser.add_argument("--truncation-policy", choices=TRUNCATION_POLICIES, default="as-measured",
         help="How --recompute treats results ocpq_cli truncated ('Too much to handle!'). "
              "'as-measured' (default) compares the partial result as it stands, which flatters "
@@ -2643,8 +2943,13 @@ def main():
                            truncation_policy=args.truncation_policy)
         return
 
+    if args.variants:
+        _report_variants(args.variants)
+        return
+
     if not args.config:
-        parser.error("--config is required unless --merge-shards or --recompute is used.")
+        parser.error(
+            "--config is required unless --merge-shards, --recompute or --variants is used.")
 
     def _apply_shard_filters(cfg):
         if args.model_idx is not None:

@@ -52,7 +52,13 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from eval_testset import _extract_result_ids, _set_metrics, root_node_index
+import result_store
+from eval_testset import (
+    SIMILARITY_VARIANTS,
+    _extract_result_ids,
+    _set_metrics,
+    root_node_index,
+)
 from QueryExecutor import discard_result_file, run_ocpq_query
 
 
@@ -305,8 +311,22 @@ def _propose_fix(
     return None
 
 
-def _run_and_extract(ocel_path: str, query: dict, query_path: Path) -> Optional[set]:
+def _run_and_extract(ocel_path: str, query: dict, query_path: Path,
+                     store_dir: Optional[Path] = None) -> Optional[set]:
     """Execute one OCPQ query and return its root-node situation set.
+
+    When `store_dir` is given the full extracted triple is persisted there first. That is what
+    makes the trivial floor re-derivable: the floor is the F1 of the *no-op baseline* query, and
+    this is the only place that query is ever executed. Before the store, only the resulting
+    scalar survived, so adding a metric variant meant re-running the whole audit -- exactly the
+    situation `result_store.py` exists to prevent for predictions, and the one place still
+    exposed to it.
+
+    Args:
+        ocel_path: Log to execute against.
+        query: The OCPQ query.
+        query_path: Where to write the query file for the CLI.
+        store_dir: Result store to persist the extracted triple into, or None to skip.
 
     Returns:
         The situation set, or None when execution failed or produced no results.
@@ -324,7 +344,32 @@ def _run_and_extract(ocel_path: str, query: dict, query_path: Path) -> Optional[
         # A full pass performs ~300 executions; the caller owns each result file and only
         # needs the situation set, so release it immediately rather than filling scratch.
         discard_result_file(result_path)
+    if extracted and store_dir is not None:
+        # Guarded: a store write failing must not lose a result already in hand, and the audit's
+        # own outputs do not depend on it.
+        try:
+            result_store.store(store_dir, ocel_path, query, extracted)
+        except Exception as exc:  # noqa: BLE001
+            print(f"   warning: could not store result set: {exc}")
     return extracted[2] if extracted else None
+
+
+def _baseline_floors(gold_situations: set, baseline_situations: Optional[set]) -> dict:
+    """The trivial floor under every entry of `eval_testset.SIMILARITY_VARIANTS`.
+
+    Computed through the evaluation's own projections so a floor and the metric it is read
+    against are produced by one definition (CLAUDE.md 2.5). A variant undefined on this entry --
+    `violation` where gold flags nobody -- maps to None, which is what makes the corresponding
+    skill undefined downstream rather than silently zero.
+    """
+    if baseline_situations is None:
+        return {name: None for name in SIMILARITY_VARIANTS}
+    floors = {}
+    for name, project in SIMILARITY_VARIANTS.items():
+        projected = project(gold_situations, baseline_situations)
+        scored = None if projected is None else _set_metrics(*projected)
+        floors[name] = (scored or {}).get("f1")
+    return floors
 
 
 def _log_selected(ocel_path: str, log_filter: str) -> bool:
@@ -405,6 +450,10 @@ def audit(
     scratch.mkdir(parents=True, exist_ok=True)
     summary_path = output_dir / "testset_discriminability.json"
     proposals_path = output_dir / "testset_discriminability_proposals.json"
+    # Gold and no-op baseline result sets, so a future metric variant costs no execution. Sits
+    # beside the summary rather than in `eval_runs/` proper: it belongs to this audit, and an
+    # audit written to a scratch --output-dir must not write into the promoted store.
+    store = output_dir / "_discriminability_store"
 
     results = []
     proposals = {}
@@ -426,6 +475,18 @@ def audit(
         if i < len(testset) and testset[i].get("nl_query") == r.get("nl_query")
     }
 
+    # A cached row from before the per-variant floors existed carries none, and resuming onto it
+    # would produce a summary that is silently half-populated -- some entries with matched floors
+    # and some without, from one apparently complete run. Re-execute exactly those rows. This is
+    # what makes `--resume` usable to *extend* an existing audit rather than only to finish an
+    # interrupted one.
+    _stale = [i for i, r in results_by_index.items() if "baseline_f1_variants" not in r]
+    if _stale:
+        print(f"resuming: {len(_stale)} cached entries predate the per-variant floors "
+              "and will be re-executed")
+        for i in _stale:
+            del results_by_index[i]
+
     for index, entry in enumerate(testset):
         nl_query = entry.get("nl_query", "")
         ocel_path = entry.get("ocel_path")
@@ -439,11 +500,13 @@ def audit(
             continue
 
         started = time.time()
-        situations = _run_and_extract(ocel_path, gold_query, scratch / f"gold_{index:03d}.json")
+        situations = _run_and_extract(ocel_path, gold_query,
+                                      scratch / f"gold_{index:03d}.json", store)
 
         baseline_query = _build_baseline_query(gold_query)
         baseline_situations = (
-            _run_and_extract(ocel_path, baseline_query, scratch / f"baseline_{index:03d}.json")
+            _run_and_extract(ocel_path, baseline_query,
+                             scratch / f"baseline_{index:03d}.json", store)
             if baseline_query
             else None
         )
@@ -479,6 +542,10 @@ def audit(
             "baseline_f1": (baseline_scores or {}).get("f1"),
             "baseline_precision": (baseline_scores or {}).get("precision"),
             "baseline_recall": (baseline_scores or {}).get("recall"),
+            # The same floor under each decomposition of the result metric, so a relaxed model
+            # F1 is never read against the strict floor. `baseline_f1` above stays the strict
+            # one and must not move: every published number is measured against it.
+            "baseline_f1_variants": _baseline_floors(situations, baseline_situations),
             "duration_sec": round(time.time() - started, 3),
         }
         results_by_index[index] = record

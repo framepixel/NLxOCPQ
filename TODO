@@ -126,10 +126,14 @@
   parked with their reasoning so the analysis behind them is not lost.
 
   AGENTIC WITH LOG-INSPECTION TOOLS (3-5 weeks). The single largest untapped signal. The model
-  currently receives type-level schema only -- event types, object types, attribute names, and the
-  E2O/O2O edge lists (`build_schema_block`, src/LLM.py:461). It never sees cardinalities, sample
-  records, actual attribute *values*, whether a relation it is about to filter on occurs in the
-  data at all, or what its own query returns before committing. That is exactly where the 1354
+  currently receives a type-level schema (`build_schema_block`, src/LLM.py). CORRECTED 2026-09-02,
+  this entry overstated what is withheld: at level `full` the prompt DOES carry object/event
+  attributes with bounded string-value enumerations (`(String: v1, v2)`) and the E2O/O2O graphs
+  WITH qualifiers, plus an instruction to use only those relations. What it never carries is
+  anything COUNTED or INSTANCE-level -- how many events of each type, activity frequencies,
+  relation cardinality (the graph says `orders -> items` exists, not that an order has ~3 items),
+  numeric attribute ranges, the log's timespan -- or what its own query returns before committing.
+  That is exactly where the 1354
   `wrong_population` failures live: a plausible-looking entity/relation combination that does not
   hold in the log. Tool surface: `count(type)`, `sample(type, n)`,
   `relation_density(event_type, object_type)`, `attribute_values(type, attr)`, and
@@ -376,3 +380,139 @@
     python src/eval_testset.py --merge-shards eval_runs/structure_ablation/shard_* \
         --merge-output eval_runs/structure_ablation/merged
     python src/structure_ablation_report.py --run eval_runs/structure_ablation/merged
+
+- DONE (2026-09-01) Structure ablation complete, job 3369038: 3 rungs x 169 = 507 runs, all exit 0.
+  Full write-up in Thesis/notes/11-evaluation-readiness.md 25. THE COMPOSITION PROGRAMME IS CLOSED.
+  Two findings.
+  (1) STRUCTURAL GUIDANCE THROUGH THE PROMPT DOES NOT WORK. Handing the model gold's tree moves
+  shape adoption from 33% of cases to 30% (S1) and 27% (S2). Paired on the same 169 questions,
+  133 are unchanged, 16 flip to correct and 20 flip to wrong -- churn, not effect. Mean predicted
+  tree size 1.84 / 1.65 / 1.81 against gold's 2.51. Holds across two prompt formats: prose gave
+  18% compliance (notes 24), a JSON scaffold in the dialect the model was fine-tuned to emit gives
+  30% against an unhinted 33%. Not a formatting accident.
+  Report the PER-CASE denominator. The report's first table divides by parsed predictions and
+  reads 45% -> 36% -> 36%, which looks like a real decline; it is mostly an artefact of S1 parsing
+  more queries (141 vs 121, schema-invalid 48 -> 28).
+  (2) CORRECT STRUCTURE IS NECESSARY AND NOT SUFFICIENT. Conditioning on the model producing the
+  right shape: F1 0.3855 (S0), 0.3614 (S1), 0.3353 (S2) -- roughly triple the 0.06-0.13 when the
+  shape is wrong, so structure is a real lever, but ALL THREE sit below the 0.5148 trivial floor.
+  With notes 23.7's observational 0.3770 at n=471 that is four independent estimates converging on
+  ~0.35. A system that got the tree right every time would still score below a do-nothing query.
+  Also worth keeping: the hint buys SYNTAX, not semantics. S1 raises execution 71.0% -> 81.1% and
+  cuts schema-invalid 48 -> 28, while exact matches go 14 -> 13. That is the notes-21 syntax/
+  semantics split reproduced inside one model under a controlled manipulation rather than inferred
+  across arms -- the cleanest form of that claim the thesis has.
+  NOT a finding: the unconditional F1 decline (0.1799 -> 0.1422 -> 0.1246). Paired on the 135
+  discriminating questions the mean difference is -0.0377 (95% CI -0.0913..+0.0160) for S1 and
+  -0.0553 (-0.1111..+0.0005) for S2. Both cross zero. Direction worth a sentence, effect not
+  established -- reading the summary table alone would have produced an overclaim.
+
+- CLOSED (2026-09-01) Everything bounded below the trivial floor, with the measurement that closed
+  it. Do not reopen any of these without new evidence:
+    * decoding-time selection (notes 22) -- oracle best-of-10 = 0.2464 < 0.5148
+    * explicit schema linking (notes 23.3) -- already ~80% correct where it matters
+    * constraint tuning / margin fixes (notes 23.2) -- errors are disjoint, not approximate
+    * training rebalance toward compositional depth (notes 23.6, 25.5) -- bounded at ~0.35
+    * decomposition, DIN-SQL / MAC-SQL style (notes 25.2, 25.5) -- the model does not take
+      structural instruction, AND correct structure would not be enough if it did
+  The one experiment that would make 25.5 causal rather than selected: force the structure
+  programmatically -- build the tree from gold's skeleton in code and ask the model only for slot
+  contents, so adoption is 100% by construction. Roughly half a day. Not built, because four
+  agreeing estimates across two runs make it confirmatory; build it if a reviewer challenges the
+  sufficiency claim.
+
+- NEXT (2026-09-01, corrected 2026-09-02) GROUNDING is what is left. This entry originally said the
+  model "never sees actual attribute VALUES"; that is wrong. `build_schema_block` at level `full`
+  already emits attributes with bounded string-value enumerations and the E2O/O2O graphs with
+  qualifiers. What it never emits is anything counted or instance-level: type counts, activity
+  frequencies, relation cardinality, numeric ranges, the log timespan, or what its own query
+  returns. Notes 23.3 shows it already knows WHICH types a question concerns; notes 25.5 shows
+  that knowing the shape as well is still not enough. What is left is knowing what is in the log.
+  See the AGENTIC WITH LOG-INSPECTION TOOLS entry parked above for the tool surface and the
+  frontier-model caveat. It is also the only remaining direction that supplies the UPPER BOUND the
+  paper still lacks -- right now there is a floor and no ceiling, which is precisely why the
+  "cannot claim anything" critique lands.
+
+- DONE (2026-09-02) RE-SCORING PASS: is part of the measured failure the instrument?
+  ANSWER: partly, and it changes nothing. Full write-up in Thesis/notes/11-evaluation-readiness.md
+  26. Headline, fine-tuned arm, 135 discriminating entries, per-case means: strict 0.1825 ->
+  kind_projected 0.2211 against an UNCHANGED floor of 0.5148. Paired per entry: 18 improved, 0
+  worsened, 117 unchanged, mean +0.0385 (95% CI +0.0149..+0.0622), so the artefact is real and
+  significant -- and 0.2211 vs 0.5148 is the same verdict as 0.1825 vs 0.5148.
+  THE FLOORS DO NOT MOVE TOGETHER, which is the actual result. population floor 0.5148 -> 0.8881
+  (102 of 135 discriminating entries have a population floor of EXACTLY 1.0: the gold constraints
+  do not change WHICH rows are selected, only which are FLAGGED -- the testset is compliance-
+  shaped). violation floor is 0.0000 BY CONSTRUCTION, because a no-op baseline strips constraints
+  and so flags nobody; its skill is the raw F1 in disguise and must not be quoted as skill.
+  kind_projected floor is UNCHANGED, because the baseline binds gold's variables.
+  So only strict vs kind_projected is a valid comparison. `--variants` prints skill_n per row and
+  flags any row whose denominator differs from strict; that column caught a wrong reading of this
+  same table within one paragraph of producing it.
+  Knock-ons: notes 25.4 gains a mechanism (under kind_projected the S0->S1 gap almost vanishes,
+  0.2292 vs 0.2247 -- the skeleton makes the model bind MORE variables, which the strict key
+  punishes categorically), and notes 25.5's sufficiency bound rises from 0.3855/0.3614/0.3353 to
+  0.4053/0.4211/0.4099 and STILL sits below 0.5148. Quote ~0.41 as the relaxed upper estimate
+  beside ~0.35. The "necessary and not sufficient" claim survives with a narrower margin.
+  Not built, and worth one line if a reviewer asks: a real floor for the violation half would be a
+  FLAG-EVERYTHING query rather than the no-op one.
+
+  (original entry, kept for the pre-registration:)
+  `result_set_f1_strict` keys each root binding as (event_indices, object_indices, violated) and
+  intersects those tuples, so a prediction that binds ONE EXTRA VARIABLE changes every key and
+  scores exactly 0. Measured on the selfcons store, fine-tuned arm, discriminating stratum: 152
+  samples (~18% of executed discriminating samples) where gold binds objects only and the
+  prediction binds objects AND events have mean objects-only F1 0.5203 and mean `combined` F1
+  0.0000 -- and only 4 of the 152 actually select the wrong objects.
+  Implemented: `SIMILARITY_VARIANTS` in src/eval_testset.py, one projection table that both
+  `_compute_similarity` and audit_testset_discriminability.py iterate, so a variant and its floor
+  come from one definition. `strict` (unchanged, primary) / `population` (drop the violation flag)
+  / `violation` (flagged situations only, None where gold flags nothing) / `kind_projected` (blank
+  the entity kinds gold never binds; diagnostic only, never primary).
+  Prediction-side per-case means, fine-tuned discriminating: strict 0.1825, population 0.2392,
+  violation 0.1371, kind_projected 0.2211. A fifth variant -- making keys invariant to which
+  variable slot an entity landed in -- was tested and DROPPED: it scores 0.1825, identical to
+  strict, because no gold entry in that stratum binds two objects in one situation.
+  THE RELAXATIONS RAISE THE FLOOR TOO, so the decision variable is skill, not raw F1. First two
+  audited entries already show it: entry 1's strict floor is 0.7725 and its `population` floor is
+  0.9967. Expect skill to be flat and the finding to be one honest paragraph.
+  Regression gate that must keep passing: `--recompute` leaves every per-record `combined` F1 and
+  every per-record `skill` bit-identical (verified 3380 records, 0 changed), and
+  `summary.variants.strict` equals `result_set_f1_strict` in every block.
+  Note for whoever reads the denominators: until the per-variant floors are promoted, `violation`
+  undefined-counts differ between arms (128 base vs 378 fine-tuned) because a record with no
+  similarity falls back to the strict 0-substitution. With floors present, undefinedness becomes a
+  property of the ENTRY and the arms agree. That is the intended behaviour, not drift.
+
+- NEXT (2026-09-02) G1: STATIC LOG PROFILE IN THE PROMPT. Days, not weeks. Extend
+  `build_schema_block` (src/LLM.py) with the counted facts it omits: per-type instance counts,
+  activity frequencies, relation cardinality (mean/percentile items per order, not just that the
+  edge exists), numeric attribute ranges, and the log timespan. Run the same three-rung ladder as
+  the structure ablation on the same 169 cases, `--model-idx 1`, greedy. Runs on the EXISTING
+  fine-tuned model, so it is directly comparable to every published number -- unlike G2.
+  EXPECT A SMALL EFFECT, and record why so nobody re-derives it: gold's numeric constraint
+  parameters are overwhelmingly the structural idioms (min=1, max=None) and (0s, None). Of ~310
+  instances across the testset, 274 are those defaults. Only ~40 of 169 cases carry a non-default
+  numeric bound, and most of those numbers are stated in the question itself. The counted facts
+  matter for relation cardinality and for knowing whether a filter binds anything -- not for
+  picking thresholds.
+
+- PARKED (2026-09-02) G2: INTERACTIVE GROUNDING WITH LOG-INSPECTION TOOLS. The agentic version of
+  G1 and the same direction as the AGENTIC WITH LOG-INSPECTION TOOLS entry above; keep them
+  together if either is built. Tool surface: `count(type)`, `sample(type, n)`,
+  `cardinality(event, object)`, `attribute_values(type, attr)`, and the one that matters,
+  `try_query(partial)` returning binding count and execution errors. Today's repair pass
+  (src/LLM.py, `verify_ocpq_json` and the execution-error retry) repairs SCHEMA VALIDITY and never
+  semantics: the model never learns that its query bound 4237 things where gold binds 1645.
+  Three things to carry into the design:
+    * PROBING IS NEARLY FREE HERE. ~34.5 s log import against ~30 ms evaluation, so a 20-probe
+      budget costs under a second once the import is amortised across a session. Most agentic-query
+      work pays per probe. That is a defensible design argument and belongs in the paper.
+    * ORACLE DISCIPLINE MUST BE ENFORCED IN CODE, the way `oracle_conditions` was for S1/S2.
+      Legitimate feedback: result size, execution errors, whether a variable binds. Illegitimate:
+      anything derived from gold. And the reward must NOT be result size -- an agent optimising for
+      "returns a plausible number of things" drifts toward the trivial floor query itself, which is
+      the one query guaranteed to score 0.5148 while expressing nothing.
+    * IT NEEDS A DIFFERENT MODEL. The fine-tuned Llama emits one JSON object and cannot hold a
+      multi-turn trajectory, so G2 is a separate arm -- frontier model with tools vs fine-tuned
+      small model, one shot -- and must be reported as one. That changes the comparison but supplies
+      the ceiling the thesis lacks.
