@@ -180,12 +180,17 @@ def _load_stratum_index():
     except Exception as exc:  # noqa: BLE001 - never fail a run over reporting metadata
         print(f"Warning: could not read {_STRATUM_PATH.name}: {exc}")
         return {}
+    # `baseline_f1` stays the NO-OP strategy's score: it is the audit's determinism anchor and the
+    # figure older notes quote. The floor skill is measured against is the max over degenerate
+    # strategies, carried in `baseline_f1_variants["strict"]` and copied onto each record as
+    # `trivial_floor`.
     index = {
         r["nl_query"]: (r["verdict"] not in _NON_DISCRIMINATING, r.get("baseline_f1"),
-                        r.get("baseline_f1_variants") or {})
+                        r.get("baseline_f1_variants") or {},
+                        r.get("baseline_f1_variants_detail") or {})
         for r in entries if r.get("nl_query")
     }
-    if index and not any(floors for _d, _b, floors in index.values()):
+    if index and not any(floors for _d, _b, floors, _detail in index.values()):
         print(f"Warning: {_STRATUM_PATH.name} carries no per-variant floors; "
               "skill_variants will be undefined. Re-run audit_testset_discriminability.py.")
     return index
@@ -194,7 +199,7 @@ def _load_stratum_index():
 # What `stratum_index.get(nl_query, ...)` falls back to when an entry is absent from the audit.
 # Named rather than repeated inline: the tuple gained a third element and four call sites had to
 # agree on its width.
-_STRATUM_MISS = (None, None, {})
+_STRATUM_MISS = (None, None, {}, {})
 
 
 def _structural_metrics(gold_query, prediction):
@@ -984,6 +989,18 @@ def _skill_score(f1, baseline_f1):
     return (f1 - baseline_f1) / baseline_f1
 
 
+def _record_floor(record):
+    """The floor skill is measured against: the best trivial strategy, not a chosen one.
+
+    `trivial_floor` is the max over degenerate strategies (`_degenerate_floors` in the audit).
+    `baseline_f1` -- the no-op baseline alone -- is the fallback for a record written before that
+    distinction existed, so an old run keeps the skill it was published with instead of crashing
+    or silently switching basis.
+    """
+    floor = record.get("trivial_floor")
+    return record.get("baseline_f1") if floor is None else floor
+
+
 def _record_skill(record, strict=True):
     """Skill for one prediction record, applying the strict-F1 convention by default."""
     f1 = ((record.get("similarity") or {}).get("combined") or {}).get("f1")
@@ -991,7 +1008,7 @@ def _record_skill(record, strict=True):
         if not strict:
             return None
         f1 = 0.0
-    return _skill_score(f1, record.get("baseline_f1"))
+    return _skill_score(f1, _record_floor(record))
 
 
 def _record_variant_f1(record, variant, strict=True):
@@ -1893,10 +1910,15 @@ def run_evaluation(config_path_or_config):
                         # did not parse or did not execute counts as F1 0, so skill -1. Scoring
                         # it as undefined would reward attempting fewer queries.
                         _strict_f1 = ((similarity or {}).get("combined") or {}).get("f1")
-                        _is_disc, _floor, _variant_floors = stratum_index.get(
-                            nl_query, _STRATUM_MISS)
+                        _is_disc, _floor, _variant_floors, _floor_detail = (
+                            stratum_index.get(nl_query, _STRATUM_MISS))
+                        # The max over degenerate strategies, falling back to the no-op score for
+                        # an audit file that predates it.
+                        _trivial_floor = _variant_floors.get("strict")
+                        if _trivial_floor is None:
+                            _trivial_floor = _floor
                         skill_value = _skill_score(
-                            0.0 if _strict_f1 is None else _strict_f1, _floor)
+                            0.0 if _strict_f1 is None else _strict_f1, _trivial_floor)
 
                         record = {
                             "case_id": case_idx,
@@ -1908,11 +1930,16 @@ def run_evaluation(config_path_or_config):
                             # marks to any query; `baseline_f1` is what a no-op query already
                             # scores on this entry, so a model number can be read against a floor.
                             "discriminating": _is_disc,
+                            # The no-op strategy's score, kept for provenance and because older
+                            # notes quote it. NOT what skill is measured against.
                             "baseline_f1": _floor,
+                            # The operative floor: best of the degenerate strategies.
+                            "trivial_floor": _trivial_floor,
                             # The same floor under each entry of SIMILARITY_VARIANTS, so a
                             # relaxed F1 is never read against the strict floor. A value present
                             # but None marks a variant undefined on this entry.
                             "baseline_f1_variants": _variant_floors,
+                            "baseline_f1_variants_detail": _floor_detail,
                             "gold_query": gold_query,
                             "model": resolved_model["name"],
                             "model_label": resolved_model["label"],
@@ -2197,12 +2224,19 @@ def _build_summary(records, repeats):
                 s = _skill_score(f1, (r.get("baseline_f1_variants") or {}).get(name))
                 if s is not None:
                     skill_vals.append(s)
+            # `baseline_f1_variants` holds the MAX over degenerate strategies -- the operative
+            # floor. `_detail` keeps the components so a reader can see which strategy set it;
+            # for `violation` the answer is always flag-everything, since the no-op baseline
+            # strips the constraints and therefore flags nobody.
             floors = [(r.get("baseline_f1_variants") or {}).get(name) for r in recs]
+            noop = [((r.get("baseline_f1_variants_detail") or {}).get(name) or {}).get("noop")
+                    for r in recs]
             bundle[name] = {
                 "result_set_f1_strict": _mean(f1_vals),
                 "n": len(f1_vals),
                 "undefined": len(recs) - len(f1_vals),
-                "mean_baseline_f1": _mean(floors),
+                "mean_trivial_floor": _mean(floors),
+                "mean_baseline_f1_noop": _mean(noop),
                 "skill_score": _mean(skill_vals),
                 "skill_n": len(skill_vals),
                 "below_floor_rate": _mean([1 if s < 0 else 0 for s in skill_vals]),
@@ -2226,7 +2260,12 @@ def _build_summary(records, repeats):
             "structural_precision": _mean([s.get("precision") for s in structural]),
             "structural_recall": _mean([s.get("recall") for s in structural]),
             # What a no-op query already scores on these items -- the floor a model must beat.
+            # The NO-OP strategy's mean. Kept at that meaning so the 0.6124 / 0.5148 figures in
+            # the notes stay true; it is no longer what skill is measured against.
             "mean_baseline_f1": _mean([r.get("baseline_f1") for r in recs]),
+            # The operative floor: best of the degenerate strategies, per entry, then averaged.
+            # This is the denominator behind `skill_score`. See notes §27.
+            "mean_trivial_floor": _mean([_record_floor(r) for r in recs]),
             # The same result comparison renormalised against that floor, in [-1, 1]: 0 means
             # "no better than a do-nothing query", -1 "returned nothing correct", 1 "perfect".
             # Reported *beside* result_set_f1_strict, never instead of it -- the pair is what
@@ -2406,6 +2445,7 @@ def _build_summary(records, repeats):
         structural_precision = _mean([s.get("precision") for s in _structural])
         structural_recall = _mean([s.get("recall") for s in _structural])
         mean_baseline_f1 = _mean([r.get("baseline_f1") for r in recs])
+        mean_trivial_floor = _mean([_record_floor(r) for r in recs])
         # `_metric_bundle` above computes the same figures for the stratum/domain splits; this
         # per-condition block is a separate code path, so anything added there must be added
         # here too or it is silently missing from by_config.
@@ -2447,7 +2487,10 @@ def _build_summary(records, repeats):
                 "structural_precision": structural_precision,
                 "structural_recall": structural_recall,
                 # The floor: what a no-op query already scores on these items.
+                # The no-op strategy alone; kept at that meaning for the notes. The floor skill is
+                # measured against is `mean_trivial_floor` -- best of the degenerate strategies.
                 "mean_baseline_f1": mean_baseline_f1,
+                "mean_trivial_floor": mean_trivial_floor,
                 # Result F1 renormalised against that floor, in [-1, 1]. 0 = no better than a
                 # do-nothing query, -1 = nothing correct, 1 = perfect. Read next to
                 # result_set_f1_strict: a model emitting trivial queries scores ~0.61 there and
@@ -2614,8 +2657,8 @@ def _report_variants(run_dir):
             print(f"{title}\n  (no variants block -- rescore with --recompute)\n")
             return
         print(title)
-        print(f"  {'variant':16s} {'F1':>9s} {'F1_n':>6s} {'floor':>9s} {'skill':>9s} "
-              f"{'skill_n':>8s} {'<floor':>7s}")
+        print(f"  {'variant':16s} {'F1':>9s} {'F1_n':>6s} {'floor':>9s} {'(no-op)':>9s} "
+              f"{'skill':>9s} {'skill_n':>8s} {'<floor':>7s}")
         strict_skill_n = (variants.get("strict") or {}).get("skill_n")
         for name, row in variants.items():
             def _f(key, width=9):
@@ -2629,7 +2672,8 @@ def _report_variants(run_dir):
             # 135 discriminating entries, leaving a quarter of the records and the easier ones.
             mark = "" if row.get("skill_n") == strict_skill_n else "  <- other denominator"
             print(f"  {name:16s} {_f('result_set_f1_strict')} {row.get('n', 0):>6d} "
-                  f"{_f('mean_baseline_f1')} {_f('skill_score')} {row.get('skill_n', 0):>8d} "
+                  f"{_f('mean_trivial_floor')} {_f('mean_baseline_f1_noop')} "
+                  f"{_f('skill_score')} {row.get('skill_n', 0):>8d} "
                   f"{_f('below_floor_rate', 7)}{mark}")
         strict = variants.get("strict", {}).get("result_set_f1_strict")
         primary = (block or {}).get("result_set_f1_strict")
@@ -2652,14 +2696,18 @@ def _report_variants(run_dir):
     for config_id, block in (summary.get("by_config") or {}).items():
         _table(f"config: {config_id}", (block or {}).get("metrics"))
 
-    print("Reading the floors (they do NOT move together -- see the docstring):")
-    print("  population     the no-op baseline gains the flagged rows too, so its floor rises to")
-    print("                 ~0.9. Model gains here are almost certainly smaller than that.")
-    print("  kind_projected the baseline binds gold's variables, so its floor is unchanged from")
-    print("                 strict. A gain here is genuine headroom the strict key was hiding.")
-    print("  violation      the baseline flags nobody, so the floor is 0 by construction and the")
-    print("                 skill column is the raw F1 restated. Not a comparator. A real floor")
-    print("                 for this half would be a flag-everything query, which is not built.")
+    print("`floor` is the best of the degenerate strategies -- no-op baseline and flag-everything")
+    print("-- and is what skill divides by. `(no-op)` is the no-op component alone, shown because")
+    print("it is the figure notes §22-§26 quote. Where they differ, flag-everything is the higher")
+    print("one and the published skill was too generous. See notes §27.\n")
+    print("Reading the floors (they do NOT move together):")
+    print("  population     the no-op baseline gains the flagged rows too, so its floor is ~0.9")
+    print("                 and 102/135 discriminating entries reach exactly 1.0 -- skill is")
+    print("                 undefined there, so its skill_n is a quarter of strict's.")
+    print("  kind_projected the baseline binds gold's variables, so the projection is a no-op on")
+    print("                 it. A gain here is genuine headroom the strict key was hiding.")
+    print("  violation      the no-op floor is 0 by construction; flag-everything sets the real")
+    print("                 one at ~0.49. Read against that, the model is well below trivial.")
 
 
 def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
@@ -2746,11 +2794,14 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
             rec["metrics"]["bindings_skipped"] = pred_skipped
         if gold_skipped is not None:
             rec["metrics"]["gold_bindings_skipped"] = gold_skipped
-        is_disc, baseline_f1, variant_floors = stratum_index.get(
+        is_disc, baseline_f1, variant_floors, floor_detail = stratum_index.get(
             rec.get("nl_query"), _STRATUM_MISS)
         rec["discriminating"] = is_disc
         rec["baseline_f1"] = baseline_f1
         rec["baseline_f1_variants"] = variant_floors
+        rec["baseline_f1_variants_detail"] = floor_detail
+        rec["trivial_floor"] = (variant_floors.get("strict")
+                                if variant_floors.get("strict") is not None else baseline_f1)
         # Derived last: they read the similarity and floors set just above, so a run recorded
         # before the skill score or the variants existed gains both here without re-executing
         # anything. This is the whole point of the store.

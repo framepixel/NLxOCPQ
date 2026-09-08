@@ -354,13 +354,101 @@ def _run_and_extract(ocel_path: str, query: dict, query_path: Path,
     return extracted[2] if extracted else None
 
 
-def _baseline_floors(gold_situations: set, baseline_situations: Optional[set]) -> dict:
-    """The trivial floor under every entry of `eval_testset.SIMILARITY_VARIANTS`.
+# The always-violated bound. Every parent binding has fewer than 10**9 children whatever the log
+# holds, so a `NumChilds min=IMPOSSIBLE_MIN` constraint flags all of them. Constraints flag without
+# filtering, so the population is the no-op baseline's.
+IMPOSSIBLE_NUMCHILDS_MIN = 10 ** 9
+FLAG_EVERYTHING_EDGE = "ZZFLAGALL"
+_EMPTY_BOX = {
+    "newEventVars": {}, "newObjectVars": {}, "filters": [], "sizeFilters": [],
+    "constraints": [], "evVarLabels": {}, "obVarLabels": {},
+}
 
-    Computed through the evaluation's own projections so a floor and the metric it is read
-    against are produced by one definition (CLAUDE.md 2.5). A variant undefined on this entry --
-    `violation` where gold flags nobody -- maps to None, which is what makes the corresponding
-    skill undefined downstream rather than silently zero.
+
+def _build_flag_everything_query(gold_query: dict) -> Optional[dict]:
+    """The second degenerate strategy: bind the natural population and flag all of it.
+
+    The no-op baseline strips the constraints, so it can never flag anything and its `violation`
+    floor is 0 on every entry -- which made a model scoring 0.1360 there look like it had positive
+    skill. It does not; it is far below what flagging everything achieves. A floor has to be the
+    best score a strategy that ignores the question can reach, and this is the other one.
+
+    Constructed as the no-op baseline plus an empty child and a `NumChilds` bound nothing can
+    satisfy. **Its result is not obtained by executing this** -- `_flag_everything_situations`
+    derives it from the stored baseline set for free. This function exists so the strategy is a
+    query someone can inspect and re-run rather than an assertion, and it is what validated the
+    derivation: executed against one entry of each of the eleven logs, the executed situation set
+    equalled the derived one 11/11 (`Thesis/notes/11-evaluation-readiness.md` §27).
+
+    Returns:
+        The flag-everything query, or None when gold has no nodes.
+    """
+    base = _build_baseline_query(gold_query)
+    if base is None:
+        return None
+    query = copy.deepcopy(base)
+    root = query["nodes"][0]
+    root["Box"][1] = [1]
+    query["nodes"].append({"Box": [copy.deepcopy(_EMPTY_BOX), []]})
+    query["edgeNames"] = [[[0, 1], FLAG_EVERYTHING_EDGE]]
+    root["Box"][0].setdefault("constraints", []).append({
+        "type": "SizeFilter",
+        "filter": {"type": "NumChilds", "child_name": FLAG_EVERYTHING_EDGE,
+                   "min": IMPOSSIBLE_NUMCHILDS_MIN, "max": None},
+    })
+    return query
+
+
+def _flag_everything_situations(baseline_situations: Optional[set]) -> Optional[set]:
+    """The flag-everything result, derived from the no-op baseline's rather than executed.
+
+    Same population, every binding violated. Verified against real execution on all eleven logs;
+    see `_build_flag_everything_query`.
+    """
+    if baseline_situations is None:
+        return None
+    return {(events, objects, True) for events, objects, _violated in baseline_situations}
+
+
+def _degenerate_floors(gold_situations: set, baseline_situations: Optional[set]) -> tuple:
+    """`(floors, detail)` -- the trivial floor per variant, and the strategies behind it.
+
+    The floor is the best score obtainable **without understanding the question**, so it is the
+    max over degenerate strategies, not the score of one arbitrarily chosen strategy. Using the
+    no-op baseline alone understated it: flag-everything beats it on 54 of the 135 discriminating
+    entries, and the strict floor is 0.7250 rather than 0.5148.
+
+    `floors[variant]` is that max and is what skill is measured against; `detail[variant]` keeps
+    both components so the choice is auditable. A variant undefined on this entry -- `violation`
+    where gold flags nobody -- stays None in both, which is what makes the skill undefined
+    downstream rather than silently zero.
+    """
+    strategies = {
+        "noop": baseline_situations,
+        "flagall": _flag_everything_situations(baseline_situations),
+    }
+    floors, detail = {}, {}
+    for name, project in SIMILARITY_VARIANTS.items():
+        scores = {}
+        for strategy, situations in strategies.items():
+            if situations is None:
+                scores[strategy] = None
+                continue
+            projected = project(gold_situations, situations)
+            scores[strategy] = (None if projected is None
+                                else _set_metrics(*projected).get("f1"))
+        usable = [v for v in scores.values() if v is not None]
+        floors[name] = max(usable) if usable else None
+        detail[name] = scores
+    return floors, detail
+
+
+def _baseline_floors(gold_situations: set, baseline_situations: Optional[set]) -> dict:
+    """The no-op baseline's floor per variant. Superseded by `_degenerate_floors` as *the* floor.
+
+    Kept because it is the determinism anchor: `baseline_f1` and this must keep reproducing the
+    archived pre-floor audit exactly, which is how a re-run is shown not to have moved anything it
+    should not have.
     """
     if baseline_situations is None:
         return {name: None for name in SIMILARITY_VARIANTS}
@@ -370,6 +458,86 @@ def _baseline_floors(gold_situations: set, baseline_situations: Optional[set]) -
         scored = None if projected is None else _set_metrics(*projected)
         floors[name] = (scored or {}).get("f1")
     return floors
+
+
+def rebuild_floors(testset_path: str, output_dir: Path, store_dir: Optional[Path] = None) -> dict:
+    """Recompute every floor from the stored situation sets. No `ocpq_cli`, no re-execution.
+
+    The audit's expensive half is executing 338 queries; its floors are a pure function of the
+    gold and no-op-baseline situation sets, both of which are in the result store. So a change to
+    the floor definition -- adding a degenerate strategy, adding a variant -- costs minutes rather
+    than the hour a full pass takes. This is the audit's counterpart to `--recompute`.
+
+    Verdicts, `root_situations`, `root_violations` and `duration_sec` are carried over untouched:
+    they are execution facts, and rewriting them here would silently launder a stale run into a
+    fresh-looking one.
+
+    Args:
+        testset_path: Testset the summary was built from; refuses to run against a different one.
+        output_dir: Directory holding `testset_discriminability.json`; rewritten in place.
+        store_dir: Result store to read (default `<output_dir>/_discriminability_store`).
+
+    Returns:
+        The rewritten summary.
+
+    Raises:
+        FileNotFoundError: If the summary or the store is missing.
+        ValueError: If the summary was built from a different testset.
+    """
+    summary_path = output_dir / "testset_discriminability.json"
+    if not summary_path.exists():
+        raise FileNotFoundError(f"No testset_discriminability.json in {output_dir}")
+    store = Path(store_dir) if store_dir else output_dir / "_discriminability_store"
+    if not store.is_dir():
+        raise FileNotFoundError(
+            f"No result store at {store}. Floors can only be rebuilt from stored situation "
+            "sets; run a full audit once to populate it.")
+
+    previous = _read_json(str(summary_path))
+    if previous.get("testset_path") != testset_path:
+        raise ValueError(
+            f"summary was built from {previous.get('testset_path')!r}, not {testset_path!r}")
+
+    testset = _read_json(testset_path)
+    proposals_path = output_dir / "testset_discriminability_proposals.json"
+    proposals = _read_json(str(proposals_path)) if proposals_path.exists() else {}
+
+    results, unavailable, changed = [], 0, 0
+    for record in previous.get("entries", []):
+        index = record.get("index")
+        entry = testset[index] if isinstance(index, int) and index < len(testset) else None
+        if entry is None or entry.get("nl_query") != record.get("nl_query"):
+            results.append(record)
+            unavailable += 1
+            continue
+        gold = result_store.load(store, entry["ocel_path"], entry["ocpq_query"])
+        baseline_query = _build_baseline_query(entry["ocpq_query"])
+        baseline = (result_store.load(store, entry["ocel_path"], baseline_query)
+                    if baseline_query else None)
+        if gold is None:
+            # No stored gold means no floor can be derived. Left exactly as it was and counted,
+            # never recomputed from a partial input.
+            results.append(record)
+            unavailable += 1
+            continue
+        gold_situations = gold[2]
+        baseline_situations = baseline[2] if baseline else None
+        before = json.dumps(record.get("baseline_f1_variants"), sort_keys=True)
+        floors, detail = _degenerate_floors(gold_situations, baseline_situations)
+        record["baseline_f1_flagall"] = (detail.get("strict") or {}).get("flagall")
+        record["trivial_floor"] = floors.get("strict")
+        record["baseline_f1_variants"] = floors
+        record["baseline_f1_variants_detail"] = detail
+        if json.dumps(floors, sort_keys=True) != before:
+            changed += 1
+        results.append(record)
+
+    summary = _build_summary(testset_path, results, proposals)
+    _write_json(summary_path, summary)
+    print(f"rebuilt floors for {len(results)} entries from {store}")
+    print(f"  changed: {changed}   unavailable (left as-is): {unavailable}")
+    print(f"wrote {summary_path}")
+    return summary
 
 
 def _log_selected(ocel_path: str, log_filter: str) -> bool:
@@ -527,6 +695,10 @@ def audit(
         # against it. Scored with eval_testset._set_metrics so the floor and the reported metric
         # are computed by the same code (CLAUDE.md 2.5).
         baseline_scores = _set_metrics(situations, baseline_situations)
+        # The second degenerate strategy, derived rather than executed (verified 11/11 across
+        # every log). Scored under the same projections so the floor and the metric agree.
+        floors, floor_detail = _degenerate_floors(situations, baseline_situations)
+        flagall_scores = (floor_detail.get("strict") or {}).get("flagall")
 
         record = {
             "index": index,
@@ -542,10 +714,14 @@ def audit(
             "baseline_f1": (baseline_scores or {}).get("f1"),
             "baseline_precision": (baseline_scores or {}).get("precision"),
             "baseline_recall": (baseline_scores or {}).get("recall"),
-            # The same floor under each decomposition of the result metric, so a relaxed model
-            # F1 is never read against the strict floor. `baseline_f1` above stays the strict
-            # one and must not move: every published number is measured against it.
-            "baseline_f1_variants": _baseline_floors(situations, baseline_situations),
+            # `baseline_f1` above is the NO-OP strategy's strict score and must never move: it is
+            # the determinism anchor against the archived audit. The operative floor is the max
+            # over degenerate strategies below -- see `_degenerate_floors`.
+            "baseline_f1_flagall": flagall_scores,
+            "trivial_floor": floors.get("strict"),
+            # Per-variant floor, so a relaxed model F1 is never read against the strict floor.
+            "baseline_f1_variants": floors,
+            "baseline_f1_variants_detail": floor_detail,
             "duration_sec": round(time.time() - started, 3),
         }
         results_by_index[index] = record
@@ -624,7 +800,23 @@ def main() -> None:
         action="store_true",
         help="Keep verdicts already in the summary file instead of re-executing them.",
     )
+    parser.add_argument(
+        "--floors-only",
+        action="store_true",
+        help="Recompute every floor from the stored situation sets and rewrite the summary in "
+             "place. No ocpq_cli, no re-execution; verdicts and situation counts are carried "
+             "over untouched. Use after changing the floor definition or adding a variant.",
+    )
+    parser.add_argument(
+        "--store-dir", default=None,
+        help="Result store for --floors-only (default: <output-dir>/_discriminability_store).",
+    )
     args = parser.parse_args()
+
+    if args.floors_only:
+        rebuild_floors(args.testset, Path(args.output_dir),
+                       Path(args.store_dir) if args.store_dir else None)
+        return
 
     audit(args.testset, Path(args.output_dir), args.limit, args.log_filter, args.resume)
 

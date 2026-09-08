@@ -516,3 +516,54 @@
       multi-turn trajectory, so G2 is a separate arm -- frontier model with tools vs fine-tuned
       small model, one shot -- and must be reported as one. That changes the comparison but supplies
       the ceiling the thesis lacks.
+
+- DONE (2026-09-02) THE TRIVIAL FLOOR WAS UNDERSTATED. Full write-up in
+  Thesis/notes/11-evaluation-readiness.md 27. The floor must be the best score obtainable WITHOUT
+  understanding the question, and we were using one arbitrarily chosen trivial strategy (the no-op
+  baseline) rather than the best of them. A FLAG-EVERYTHING query -- same population, every binding
+  flagged -- beats it on 54 of 135 discriminating entries.
+  THE FLOOR IS 0.7250 (discriminating) / 0.7803 (overall), not 0.5148 / 0.6124. Skill now divides
+  by `trivial_floor` = max over degenerate strategies; `baseline_f1` keeps meaning the no-op score
+  so older notes stay true statements about that strategy.
+  Biggest single correction: `violation` skill goes +0.1360 -> -0.7285. Its no-op floor was 0.0000
+  BY CONSTRUCTION (a baseline with the constraints stripped cannot flag anything), so the model
+  looked like it beat trivial on the flagging half. It does not. There is no half of this task
+  where it beats a trivial strategy.
+  Expressibility was VALIDATED, not assumed: the real always-violated query (`NumChilds min=10**9`
+  on an empty child) was built and executed on one entry of each of the eleven logs and matched the
+  derived situation set 11/11. Only then was the derivation used for all 169.
+  Gates that must keep passing: every similarity block bit-identical after the change (3380/3380),
+  0 records with IMPROVED skill (123 worse, 2557 unchanged), and `--floors-only` leaves verdicts,
+  situation counts and `baseline_f1` identical to eval_runs/_archive_audit_20260902_prefloor/.
+  Cheap to extend: `audit_testset_discriminability.py --floors-only` rebuilds every floor from
+  eval_runs/_discriminability_store/ in seconds, so adding a third degenerate strategy costs no
+  execution. The floor is a lower bound on ITSELF -- best of two known strategies, not best
+  possible. Do not call 0.7250 the ceiling of triviality.
+
+- DONE (2026-09-02) WHAT THE WRONG POPULATIONS ARE MADE OF. `src/root_population_diagnostic.py`,
+  write-up in notes 28. Decomposes the largest non-syntactic failure class (`wrong_population`,
+  748 records) by comparing gold's root box with the prediction's, first match wins.
+  Fine-tuned arm, 992 scoreable samples, 669 wrong populations:
+    arity_mismatch        455  (68.0%)  different NUMBER of root variables
+    link_mismatch         177  (26.5%)  same variables, different root filters
+    size_filter_mismatch   37  ( 5.5%)
+    type_mismatch           0  ( 0.0%)  <-- ZERO
+    residual                0  ( 0.0%)  <-- every wrong population is explained
+  TYPE SELECTION IS SOLVED in the constrained arm: when the model declares the same NUMBER of root
+  variables as gold, it declares the same TYPES, in all 992 samples. Notes 23.3's ~80% is real and
+  narrower than it sounds -- `schema-allowed-entities-only` constrains the vocabulary, and within
+  that constraint types are not the problem. The unconstrained base arm does show 31 (10.5%).
+  The arity errors are NOT the notes-26 metric artefact: only 82 of 455 (18.0%) are repaired by
+  kind-projection. The other 373 selected genuinely different things.
+  Giving the model the skeleton makes arity WORSE, not better: 66.7% -> 78.4% -> 75.0% across the
+  ablation rungs. That is the notes-25.2 finding arriving from a third direction.
+
+- REVISED (2026-09-02) G1's SCOPE AND EXPECTED REACH, per notes 28.4. The dominant cause of wrong
+  populations is root-variable ARITY (68%), which is a compositional decision, not a grounding one,
+  and notes 25 established this model does not take structural instruction across two prompt
+  formats. Grounding addresses `link_mismatch` = 26.5%.
+  So G1's payload is RELATION CARDINALITY AND DENSITY (how many items per order, whether a
+  qualifier path actually occurs), not type counts and not numeric ranges -- and its realistic
+  reach is about a quarter of the population failures. Scope and PRE-REGISTER it that way rather
+  than pitching it as the fix. The other two-thirds sit in a class three interventions have now
+  failed to move.

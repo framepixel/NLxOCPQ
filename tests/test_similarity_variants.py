@@ -30,9 +30,12 @@ sys.path.insert(0, str(REPO / "src"))
 from eval_testset import (  # noqa: E402
     SIMILARITY_VARIANTS,
     _compute_similarity,
+    _record_floor,
+    _record_skill,
     _record_skill_variants,
     _record_variant_f1,
     _set_metrics,
+    _skill_score,
     _variant_metrics,
 )
 
@@ -176,6 +179,87 @@ check("violation: no floor -> undefined", skills["violation"], None)
 print("\n--- the table the audit and the metric share ---")
 check("four variants, strict first", list(SIMILARITY_VARIANTS),
       ["strict", "population", "violation", "kind_projected"])
+
+print("\n--- the floor is the BEST trivial strategy, not one chosen strategy ---")
+# The no-op baseline is gold with its constraints stripped, so it flags nobody and its violation
+# floor is 0 on every entry -- which made a model scoring 0.1360 there look like positive skill.
+# Flag-everything is the other degenerate strategy; the floor is the max. On the real testset it
+# wins on 54/135 entries and lifts the strict floor from 0.5148 to 0.7250.
+from audit_testset_discriminability import (  # noqa: E402
+    _build_flag_everything_query,
+    _degenerate_floors,
+    _flag_everything_situations,
+)
+
+# Gold: three bound objects, the middle one flagged. Baseline: same population, none flagged.
+GOLD_MIXED = {((), (10,), False), ((), (11,), True), ((), (12,), False)}
+BASELINE = {((), (10,), False), ((), (11,), False), ((), (12,), False), ((), (13,), False)}
+floors, detail = _degenerate_floors(GOLD_MIXED, BASELINE)
+
+check("flag-everything keeps the population, flips every flag",
+      _flag_everything_situations(BASELINE),
+      {((), (10,), True), ((), (11,), True), ((), (12,), True), ((), (13,), True)})
+check("no-op violation floor is 0 -- it cannot flag anything", detail["violation"]["noop"], 0.0)
+check("flag-everything gives violation a real floor",
+      detail["violation"]["flagall"] > 0.0, True)
+check("...and that is the floor used", floors["violation"], detail["violation"]["flagall"])
+for name in SIMILARITY_VARIANTS:
+    parts = [v for v in detail[name].values() if v is not None]
+    check(f"{name}: floor == max of the strategies", floors[name],
+          max(parts) if parts else None)
+check("population is unaffected -- it drops the flag both sides",
+      detail["population"]["noop"], detail["population"]["flagall"])
+# Undefinedness is a property of the entry and must survive the max.
+no_flags = {((), (10,), False), ((), (11,), False)}
+f2, d2 = _degenerate_floors(no_flags, BASELINE)
+check("gold flags nothing -> violation floor stays None", f2["violation"], None)
+check("...in the detail too", d2["violation"], {"noop": None, "flagall": None})
+f3, d3 = _degenerate_floors(GOLD_MIXED, None)
+check("no baseline at all -> every floor None", set(f3.values()), {None})
+
+print("\n--- the flag-everything query is a real query, not an assertion ---")
+# Validated by execution on one entry of each of the eleven logs (11/11 match, notes 27). Here we
+# only assert the construct is what was validated: same root, plus a bound nothing can satisfy.
+gold_q = {"nodes": [{"Box": [{"newEventVars": {}, "newObjectVars": {"0": ["orders"]},
+                              "filters": [], "sizeFilters": [], "constraints": [],
+                              "evVarLabels": {}, "obVarLabels": {}}, []]}],
+          "edgeNames": []}
+fq = _build_flag_everything_query(gold_q)
+check("two nodes: the root and an empty child", len(fq["nodes"]), 2)
+check("root points at the child", fq["nodes"][0]["Box"][1], [1])
+check("the child binds nothing", fq["nodes"][1]["Box"][0]["newObjectVars"], {})
+c = fq["nodes"][0]["Box"][0]["constraints"][0]
+check("the constraint is a NumChilds bound", c["filter"]["type"], "NumChilds")
+check("...that no binding can reach", c["filter"]["min"] >= 10 ** 9, True)
+check("root still declares gold's variable",
+      fq["nodes"][0]["Box"][0]["newObjectVars"], {"0": ["orders"]})
+check("malformed gold degrades", _build_flag_everything_query({"nodes": []}), None)
+
+print("\n--- skill reads the true floor, and old records keep theirs ---")
+# Two of gold's three situations, so F1 0.8: above a 0.5 floor, below a 0.9 one. A PARTIAL
+# prediction is required to see the floor at all -- below the floor skill divides by the floor,
+# so a fully wrong answer scores exactly -1 however high the floor goes. That invariance is
+# deliberate (see `_skill_score`) and is asserted below rather than assumed.
+PARTIAL = [((), (10,), False), ((), (11,), True)]
+NEW = {"similarity": _compute_similarity(ids(GOLD_OBJ), ids(PARTIAL)),
+       "baseline_f1": 0.5, "trivial_floor": 0.9}
+OLDREC = {"similarity": _compute_similarity(ids(GOLD_OBJ), ids(PARTIAL)),
+          "baseline_f1": 0.5}
+check("uses trivial_floor when present", _record_floor(NEW), 0.9)
+check("falls back to baseline_f1 when absent", _record_floor(OLDREC), 0.5)
+check("a run predating the correction keeps the skill it published",
+      _record_skill(OLDREC), _skill_score(0.8, 0.5))
+check("the corrected floor scores the same prediction lower",
+      _record_skill(NEW) < _record_skill(OLDREC), True)
+check("...and flips it from beating trivial to losing to it",
+      (_record_skill(OLDREC) > 0, _record_skill(NEW) < 0), (True, True))
+# The invariance that made the naive version of this test wrong, pinned so it stays true.
+WRONG_LOW = {"similarity": _compute_similarity(ids(GOLD_OBJ), ids(PRED_WRONG_OBJ)),
+             "trivial_floor": 0.5}
+WRONG_HIGH = {"similarity": _compute_similarity(ids(GOLD_OBJ), ids(PRED_WRONG_OBJ)),
+              "trivial_floor": 0.9}
+check("a fully wrong answer is -1 at any floor",
+      (_record_skill(WRONG_LOW), _record_skill(WRONG_HIGH)), (-1.0, -1.0))
 
 print()
 if failures:
