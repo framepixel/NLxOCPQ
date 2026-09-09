@@ -191,6 +191,40 @@ print("\n--- the grammar cache is keyed, not rebuilt per call ---")
 # is itself the assertion that nothing was compiled at import time.
 check("no grammar compiled without a model loaded", LLM._XGRAMMAR_CACHE, {})
 
+
+print("\n--- the rung must be part of the CONDITION's identity, not just the shard ---")
+# The three rungs share model, strategy and schema setting. If the decoding settings do not reach
+# `config_id`, all 507 records collapse onto 169 distinct `_record_key`s and `--merge-shards`
+# drops two thirds as duplicates -- silently, and choosing survivors by glob order. That is the
+# same failure the 96-shard matrix hit on 2026-08-27. The smoke reproduced it: D0 and D2 produced
+# byte-identical `config_id`s and 11 of 25 records collided.
+import eval_testset as ET  # noqa: E402
+
+
+def config_id_for(constrained, budget):
+    """Mirror of the construction in `run_evaluation`, kept in step by the assertions below."""
+    suffix = ""
+    if constrained:
+        suffix += "_constrained"
+    if budget is not None:
+        suffix += f"_tok{budget}"
+    return ET._slug(f"llama31-8b-finetuned_schema-allowed-entities-only_schema-on{suffix}")
+
+
+rung_ids = [config_id_for(False, None), config_id_for(False, 4000), config_id_for(True, 4000)]
+check("the three rungs get three distinct config_ids", len(set(rung_ids)), 3)
+check("D0 keeps the published id unchanged",
+      rung_ids[0], "llama31-8b-finetuned_schema-allowed-entities-only_schema-on")
+check("D1 is distinguishable", rung_ids[1].endswith("_tok4000"), True)
+check("D2 records that it was constrained", "_constrained" in rung_ids[2], True)
+
+# ...and therefore the merge key separates them, which is the property that actually matters.
+def key(config_id):
+    return ET._record_key(1, config_id, 1, "Which orders were late?", "/logs/order-management.json")
+
+check("distinct merge keys, so nothing is dropped as a duplicate",
+      len({key(c) for c in rung_ids}), 3)
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")

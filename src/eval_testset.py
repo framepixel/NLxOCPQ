@@ -1386,6 +1386,15 @@ def run_evaluation(config_path_or_config):
             shard_tag += f"_e{schema_idx_filter}"
         if case_shard is not None:
             shard_tag += f"_c{case_shard[0]}of{case_shard[1]}"
+        # Decoding rungs differ only in these two settings -- same model, strategy and schema
+        # index -- so without them every rung produces the same `shard_m1_s0_e0_*` name. Two
+        # consequences, both silent: nothing on disk says which rung a directory holds, and
+        # `--resume` (which globs that prefix and takes the newest) would resume one rung into
+        # another's directory. Suffixed only when non-default, so existing shard names are unchanged.
+        if config.get("constrained_decoding"):
+            shard_tag += "_constrained"
+        if config.get("generation_token_budget") is not None:
+            shard_tag += f"_tok{int(config['generation_token_budget'])}"
         run_id = f"{shard_tag}_{time.strftime('%Y%m%d_%H%M%S')}"
     else:
         run_id = time.strftime("eval_run_%Y%m%d_%H%M%S")
@@ -1743,8 +1752,24 @@ def run_evaluation(config_path_or_config):
                     if not schema_enforced and not schema_validation_when_no_schema:
                         effective_schema_validation = False
 
+                    # The decoding settings are part of the CONDITION, not of the shard, so they
+                    # belong in `config_id`. Without them the decoding ablation's three rungs are
+                    # one condition: they share model, strategy and schema setting, so all 507
+                    # records collapse to 169 distinct `_record_key`s and `--merge-shards` drops
+                    # two thirds as duplicates -- the exact failure the 96-shard merge hit on
+                    # 2026-08-27, and silent again here. It would also pool all three rungs into a
+                    # single `by_config` row, which is the comparison the experiment exists to make.
+                    #
+                    # Suffixed only when non-default, so every condition recorded before
+                    # 2026-09-02 keeps its published `config_id` and nothing downstream re-slices.
+                    decoding_suffix = ""
+                    if constrained_decoding:
+                        decoding_suffix += "_constrained"
+                    if generation_token_budget is not None:
+                        decoding_suffix += f"_tok{generation_token_budget}"
                     config_id = _slug(
-                        f"{resolved_model['label']}_{prompt_strategy}_schema-{'on' if schema_enforced else 'off'}"
+                        f"{resolved_model['label']}_{prompt_strategy}"
+                        f"_schema-{'on' if schema_enforced else 'off'}{decoding_suffix}"
                     )
 
                     for repeat_idx in range(1, repeats + 1):

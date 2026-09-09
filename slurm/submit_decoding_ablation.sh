@@ -148,11 +148,14 @@ SCHEMA_IDX=0     # eval_config.schema_enforced is [true]; validation+repair stay
 
 case "$TASK" in
   0) RUNG_NAME="D0 baseline / budget 2000, free"
-     DECODE_ARGS=(--no-constrained-decoding) ;;
+     DECODE_ARGS=(--no-constrained-decoding)
+     RUNG_SUFFIX="" ;;
   1) RUNG_NAME="D1 / budget 4000, free -- isolates TRUNCATION"
-     DECODE_ARGS=(--no-constrained-decoding --token-budget 4000) ;;
+     DECODE_ARGS=(--no-constrained-decoding --token-budget 4000)
+     RUNG_SUFFIX="_tok4000" ;;
   2) RUNG_NAME="D2 / budget 4000, CONSTRAINED -- isolates SCHEMA VIOLATION"
-     DECODE_ARGS=(--constrained-decoding --token-budget 4000) ;;
+     DECODE_ARGS=(--constrained-decoding --token-budget 4000)
+     RUNG_SUFFIX="_constrained_tok4000" ;;
   *) echo "FATAL: task ${TASK} is not a rung; this array is 0-2." >&2; exit 1 ;;
 esac
 
@@ -166,7 +169,9 @@ done
 
 RESUME_ARGS=()
 if [ "$OCPQ_RESUME_REQUESTED" = "1" ]; then
-  SHARD_GLOB="$PROJECT_DIR/eval_runs/decoding_ablation/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}_*"
+  # Must include the rung suffix: all three rungs share model/strategy/schema indices, so the
+  # bare prefix matches every rung and `ls -t | head -1` would resume the wrong one.
+  SHARD_GLOB="$PROJECT_DIR/eval_runs/decoding_ablation/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}${RUNG_SUFFIX}_*"
   RESUME_DIR="$(ls -1dt $SHARD_GLOB 2>/dev/null | head -n 1)"
   if [ -z "$RESUME_DIR" ] || [ ! -d "$RESUME_DIR" ]; then
     echo "FATAL: --resume given but no run directory matches ${SHARD_GLOB}" >&2
