@@ -134,6 +134,12 @@ few_shot_k = DEFAULT_FEW_SHOT_K
 generation_temperature = None
 # Consulted only when sampling is active. See `set_generation_seed`.
 generation_seed = None
+# When True, generation is constrained to the OCPQ grammar so invalid output cannot be produced.
+# Default False: every run recorded before 2026-09-02 generated freely, and the flag must not
+# change what those runs meant. See `set_constrained_decoding`.
+constrained_decoding = False
+# Overrides the per-call `max_tokens` the pipelines pass. None keeps their own values.
+generation_token_budget = None
 
 LLM_CALL_STATS = []
 QUERY_EXEC_STATS = []
@@ -300,6 +306,48 @@ def set_generation_seed(value):
     """
     global generation_seed
     generation_seed = None if value is None else int(value)
+
+
+def set_constrained_decoding(value):
+    """Constrain generation to the OCPQ grammar, so invalid output cannot be produced.
+
+    Until now the schema has only ever been applied *after* generation: `schema_enforced` gates
+    `verify_ocpq_json`, which parses the model's text, validates it against `BindingBoxTree`, and
+    on failure spends a second LLM call asking the model to fix itself. That repair pass runs on
+    2043 cases and fails on 1613 of them (79%), each ending as a score of 0. `response_format`
+    never reached `generate()` on the local backend at all -- it only ever appended the sentence
+    "Return only valid JSON", identically in both settings.
+
+    This is the other thing entirely: at every decoding step the grammar says which tokens could
+    still lead to a valid `BindingBoxTree`, and the rest are masked to -inf. Detection becomes
+    prevention.
+
+    Off by default, and deliberately so: it changes what the model can emit, so a run that had it
+    on is not comparable to one that did not. `Thesis/notes/11-evaluation-readiness.md` 29-30.
+    """
+    global constrained_decoding
+    constrained_decoding = bool(value)
+
+
+def get_constrained_decoding():
+    return constrained_decoding
+
+
+def set_generation_token_budget(value):
+    """Override every pipeline's `max_tokens`, or None to leave their own values alone.
+
+    The pipelines hard-code 1000/2000 across eight call sites. Truncation is a *measured* failure
+    mode distinct from schema violation -- failed generations run median 794 completion tokens
+    against 357 for successful ones and pile up at the 2000 cap -- so the budget has to be
+    movable to separate the two. Applied at the single point where generation happens rather than
+    at the call sites, so no pipeline signature changes and nothing can bypass it.
+    """
+    global generation_token_budget
+    generation_token_budget = None if value is None else int(value)
+
+
+def get_generation_token_budget():
+    return generation_token_budget
 
 
 def get_generation_seed():
@@ -1167,6 +1215,60 @@ def _check_context_budget(prompt_tokens, max_tokens):
     )
 
 
+# Compiled grammar + tokenizer info, keyed by tokenizer identity. Compiling is cheap (~0.04 s)
+# but building the token-vocabulary mask is not, and both are invariant across every call in a
+# run, so doing either per call would dominate generation time.
+_XGRAMMAR_CACHE = {}
+
+
+def _ocpq_logits_processor():
+    """A logits processor that masks any token which cannot continue a valid `BindingBoxTree`.
+
+    Built from the Pydantic model itself, so the grammar constraining generation and the validator
+    in `validate_and_normalize_ocpq_json` are one definition and cannot drift apart.
+
+    Two settings are load-bearing and were established by `tests/test_constrained_decoding.py`:
+
+    * `any_order=True` -- gold writes object properties out of schema order (`value_filter` before
+      `at_time` in `FilterObjectAttributeValueFilter`). With ordered matching the grammar rejects
+      **32 of the 169 gold queries**, which would cap the model below gold on 19% of the testset
+      and read as a finding rather than a bug.
+    * `strict_mode=True` -- forbids unknown fields. Pydantic ignores them, so here the grammar is
+      the stricter of the two, which is the safe direction: everything it admits validates.
+
+    Returns None when constrained decoding is off or xgrammar is unavailable, so the caller adds
+    nothing to `generate()` and the free-decoding path stays byte-identical.
+    """
+    if not constrained_decoding:
+        return None
+    try:
+        import xgrammar as xgr
+    except ImportError as exc:  # pragma: no cover - preflight catches this
+        raise RuntimeError(
+            "constrained decoding was requested but xgrammar is not installed. "
+            "Add it to the eval environment (scripts/make_eval_env.sh); "
+            "src/check_eval_deps.py checks for it."
+        ) from exc
+
+    key = (id(local_tokenizer), id(local_model))
+    cached = _XGRAMMAR_CACHE.get(key)
+    if cached is None:
+        # The model's vocabulary is often LARGER than the tokenizer's, because checkpoints pad the
+        # embedding matrix to a round size. The mask has to match the logits row, so its width
+        # comes from the model config, not from the tokenizer -- get this wrong and the mask is
+        # silently misaligned or `generate` raises on a shape mismatch.
+        vocab_size = getattr(getattr(local_model, "config", None), "vocab_size", None)
+        tokenizer_info = xgr.TokenizerInfo.from_huggingface(
+            local_tokenizer, vocab_size=vocab_size)
+        cached = xgr.GrammarCompiler(tokenizer_info).compile_grammar(
+            xgr.Grammar.from_json_schema(BindingBoxTree, any_order=True, strict_mode=True)
+        )
+        _XGRAMMAR_CACHE[key] = cached
+    # The matcher carries per-generation state, so it is built fresh per call; the expensive
+    # part -- compiling the grammar against the vocabulary -- is what the cache holds.
+    return xgr.contrib.hf.LogitsProcessor(cached)
+
+
 def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
     import torch
 
@@ -1202,6 +1304,11 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
         if attention_mask is not None:
             attention_mask = attention_mask.to(local_model.device)
 
+    # Applied here rather than at the eight call sites that hard-code 1000/2000, so no pipeline
+    # signature changes and nothing can bypass it. None leaves each caller's own value alone.
+    if generation_token_budget is not None:
+        max_tokens = generation_token_budget
+
     prompt_tokens = int(input_ids.shape[-1])
     _check_context_budget(prompt_tokens, max_tokens)
 
@@ -1221,6 +1328,13 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
         generate_kwargs["temperature"] = float(temperature)
     if attention_mask is not None:
         generate_kwargs["attention_mask"] = attention_mask
+
+    # Added ONLY when constrained decoding is on. With it off, `generate_kwargs` is byte-identical
+    # to what every recorded run used -- asserted by tests/test_constrained_decoding.py, because a
+    # flag that silently perturbs the free path would invalidate the baseline it is compared to.
+    _grammar_processor = _ocpq_logits_processor()
+    if _grammar_processor is not None:
+        generate_kwargs["logits_processor"] = [_grammar_processor]
 
     # Seeded immediately before the call, not once per process: the draw must depend only on
     # (case, condition, repeat) so a shard boundary cannot change it. No-op when sampling is off,

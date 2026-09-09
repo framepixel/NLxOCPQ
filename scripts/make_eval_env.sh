@@ -18,7 +18,11 @@ set -euo pipefail
 SRC_ENV="${OCPQ_TRAIN_ENV:-nlxocpq-train-v5}"
 DST_ENV="${OCPQ_EVAL_ENV:-nlxocpq-eval-v5}"
 # Only these may be added. Anything else that changes version is a collateral upgrade.
-NEW_PACKAGES=(scikit-learn openai)
+# xgrammar added 2026-09-02 for constrained decoding. It pulls apache-tvm-ffi and
+# nothing else; verified locally that torch, transformers, pydantic and peft all stay
+# put. The check below is what proves that on the cluster too -- if it reports a moved
+# package, stop rather than working around it: the adapters were written by that stack.
+NEW_PACKAGES=(scikit-learn openai xgrammar)
 
 # Resolve relative to this script rather than the caller's cwd.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

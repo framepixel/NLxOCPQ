@@ -34,6 +34,8 @@ from LLM import (
     set_few_shot_k,
     set_generation_temperature,
     set_generation_seed,
+    set_constrained_decoding,
+    set_generation_token_budget,
     set_schema_level,
     set_hf_client,
     set_local_gpu_client,
@@ -1462,6 +1464,12 @@ def run_evaluation(config_path_or_config):
     result_store_max_situations = global_cfg["result_store_max_situations"]
     schema_validation = bool(config.get("schema_validation", True))
     schema_validation_when_no_schema = bool(config.get("schema_validation_when_no_schema", False))
+    # Constrain generation to the OCPQ grammar so invalid output cannot be produced, as opposed to
+    # `schema_enforced`, which only decides whether the output is CHECKED and repaired afterwards.
+    # Both default to today's behaviour so an existing config reproduces exactly.
+    constrained_decoding = bool(config.get("constrained_decoding", False))
+    _budget = config.get("generation_token_budget")
+    generation_token_budget = None if _budget is None else int(_budget)
     repeats = int(config.get("repeats", 1))
     limit = int(config.get("limit", 0))
     seed = int(config.get("seed", 3407))
@@ -1523,6 +1531,11 @@ def run_evaluation(config_path_or_config):
         )
         print(f"Dry run: schema enforcement values = {schema_enforced_values}")
         print(f"Dry run: schema_validation_when_no_schema = {schema_validation_when_no_schema}")
+        print(f"Dry run: constrained_decoding = {constrained_decoding}"
+              f"  (grammar-masked generation; NOT the same as schema_enforced, which only "
+              f"validates and repairs afterwards)")
+        print(f"Dry run: generation_token_budget = "
+              f"{generation_token_budget if generation_token_budget is not None else 'per-pipeline default (1000/2000)'}")
         return None
 
     if not resume_from:
@@ -1573,6 +1586,11 @@ def run_evaluation(config_path_or_config):
         "schema_enforced": schema_enforced_values,
         "schema_validation": schema_validation,
         "schema_validation_when_no_schema": schema_validation_when_no_schema,
+        # Recorded in the manifest, and therefore in `config_fingerprint`, because a constrained
+        # run is NOT comparable to a free one: the model could not have emitted the same tokens.
+        # Two shards that disagree on these must not merge silently.
+        "constrained_decoding": constrained_decoding,
+        "generation_token_budget": generation_token_budget,
         "repeats": repeats,
         # Stated per run, not only in the config, because a timeout rate is meaningless without
         # the budget it was measured against. Also enters `config_fingerprint`, so two shards
@@ -1714,6 +1732,10 @@ def run_evaluation(config_path_or_config):
             # (entities + attributes + relations); schema richness is not a design variable.
             set_schema_level("full")
             set_generation_temperature(resolved_model.get("temperature", global_cfg.get("temperature")))
+            # Both default to today's behaviour, so a config that does not mention them produces
+            # byte-identical generation to every run recorded before 2026-09-02.
+            set_constrained_decoding(constrained_decoding)
+            set_generation_token_budget(generation_token_budget)
 
             for strategy_idx, prompt_strategy in enumerate(prompt_strategies, start=1):
                 for schema_idx, schema_enforced in enumerate(schema_enforced_values, start=1):
@@ -1956,6 +1978,11 @@ def run_evaluation(config_path_or_config):
                             "structure_hint": structure_hint,
                             "schema_enforced": schema_enforced,
                             "schema_validation": effective_schema_validation,
+                            # Per record, not only in the manifest: after `--merge-shards` the
+                            # manifest is gone and a reader still has to be able to tell a
+                            # constrained prediction from a free one.
+                            "constrained_decoding": constrained_decoding,
+                            "generation_token_budget": generation_token_budget,
                             "repeat": repeat_idx,
                             "config_id": config_id,
                             "status": final_status,
@@ -2957,6 +2984,18 @@ def main():
         help="0-based index into the expanded models list. Restricts this job to that model only (for Slurm array parallelism).")
     parser.add_argument("--strategy-idx", type=int, default=None,
         help="0-based index into prompt_strategies. Restricts this job to that strategy only (finer Slurm sharding).")
+    parser.add_argument("--constrained-decoding", dest="constrained_decoding",
+        action="store_true", default=None,
+        help="Constrain generation to the OCPQ grammar so invalid output cannot be produced. "
+             "This is NOT --schema-idx: schema_enforced only decides whether output is validated "
+             "and repaired AFTERWARDS. Overrides the config key of the same name.")
+    parser.add_argument("--no-constrained-decoding", dest="constrained_decoding",
+        action="store_false",
+        help="Force free generation even if the config enables constrained decoding.")
+    parser.add_argument("--token-budget", type=int, default=None,
+        help="Override every pipeline's max_tokens (they hard-code 1000/2000). Truncation is a "
+             "failure mode distinct from schema violation, so the budget has to be movable to "
+             "tell them apart.")
     parser.add_argument("--schema-idx", type=int, default=None,
         help="0-based index into schema_enforced. Restricts this job to that schema setting only (finer Slurm sharding).")
     parser.add_argument("--case-shard", default=None, metavar="I/N",
@@ -3009,6 +3048,13 @@ def main():
             cfg["_strategy_idx"] = args.strategy_idx
         if args.schema_idx is not None:
             cfg["_schema_idx"] = args.schema_idx
+        # Written into the config itself, not a `_`-prefixed shard key, so both land in the run
+        # manifest and therefore in `config_fingerprint` -- a constrained shard and a free one
+        # must not merge silently.
+        if args.constrained_decoding is not None:
+            cfg["constrained_decoding"] = args.constrained_decoding
+        if args.token_budget is not None:
+            cfg["generation_token_budget"] = args.token_budget
         if args.case_shard:
             try:
                 index_str, total_str = str(args.case_shard).split("/")

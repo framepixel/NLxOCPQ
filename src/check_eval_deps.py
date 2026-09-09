@@ -32,6 +32,9 @@ REQUIRED = [
     ("sklearn", "few-shot retrieval (cosine_similarity, LLM.py:595)"),
     ("openai", "imported unconditionally by LLM.py:19; unused when backend=local-gpu"),
     ("pydantic", "BindingBoxTree schema validation"),
+    # Only needed when a config sets `constrained_decoding: true`, but checked unconditionally:
+    # the failure would otherwise surface hours into an array job, at the first generate() call.
+    ("xgrammar", "constrained decoding (grammar-masked generation, LLM._ocpq_logits_processor)"),
 ]
 
 

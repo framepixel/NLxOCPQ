@@ -567,3 +567,49 @@
   reach is about a quarter of the population failures. Scope and PRE-REGISTER it that way rather
   than pitching it as the fix. The other two-thirds sit in a class three interventions have now
   failed to move.
+
+- CLOSED (2026-09-02) G1 (static log profile) is DEAD, killed by the oracle in notes 27. Solving
+  `link_mismatch` -- everything grounding could address -- PERFECTLY yields F1 0.2820 against a
+  floor of 0.7250. It appears in no combination of failure buckets that clears the floor. Do not
+  reopen without new evidence; it was already re-scoped once (26.5% of population failures) before
+  the oracle showed even that was not worth a run.
+  THE ONLY PAIR THAT CLEARS THE FLOOR is `no_result` + `arity_mismatch` = 0.8307. Nothing else at
+  size 2; no single bucket at all (best single is no_result at 0.6099). So this task needs TWO
+  independent failure modes fixed near-perfectly, which is a very different strategic picture from
+  "pick the next lever".
+  ARITY REMAINS UNADDRESSED and has resisted three interventions; the skeleton hint made it worse
+  (66.7% -> 78.4%, notes 28.3). G2 is therefore load-bearing for the paper: with a floor and no
+  ceiling, a reviewer can argue the benchmark is simply unbeatable as posed.
+
+- IN PROGRESS (2026-09-02) CONSTRAINED DECODING, the tractable half of that pair. Design and the
+  feasibility gate in Thesis/notes/11-evaluation-readiness.md 29-30.
+  FIRST, notes 29: `schema_enforced` NEVER CONSTRAINED GENERATION. It switches
+  `effective_schema_validation`, i.e. whether output is validated and repaired AFTER the fact.
+  `response_format` never reaches generate() on local-gpu. Evidence: of the 350 matrix_full pairs
+  where both settings used exactly one LLM call, prompt_tokens and completion_chars are identical
+  350/350. The repair pass it gates runs on 2043 cases and fails on 1613 (79%). Every published
+  number stands; the thesis must simply not call it schema enforcement in the generation sense.
+  THE GATE REJECTED THE APPROVED LIBRARY. lm-format-enforcer does not implement `prefixItems`, and
+  `Box` is `Tuple[BindingBoxData, List[int]]`, so the one unsupported construct sits at the top of
+  the tree and leaves all 29 $defs beneath it unconstrained -- it admitted a string where an int
+  list belongs, an invalid filter type literal, and a document missing required fields. Rewriting
+  the tuple restored correctness at 57x the cost (6 char/s, could not finish a mid-sized gold query
+  in 90 s). Switched to XGRAMMAR: 169/169 gold accepted, 0/8 invalid admitted, 0.04 s compile,
+  ~107,000 char/s.
+  `any_order=True` IS REQUIRED, NOT COSMETIC. Gold writes properties out of schema order
+  (`value_filter` before `at_time`); ordered matching rejects 32/169 gold queries, a silent cap on
+  19% of the testset that would have read as a finding. Asserted in tests/test_constrained_decoding.py.
+  Implemented and INERT BY DEFAULT: `constrained_decoding` and `generation_token_budget` both
+  default to today's behaviour; configs/eval_config.json still dry-runs to 8112 planned runs with
+  the grammar off. Three rungs (D0 free/2000, D1 free/4000, D2 constrained/4000) because TRUNCATION
+  and SCHEMA VIOLATION are separate mechanisms -- failed generations run median 794 completion
+  tokens against 357 and pile up at the 2000 cap -- and without D1 they are confounded.
+  PRE-REGISTERED: the oracle caps this at 0.6099 against a floor of 0.7250, so CLEARING THE FLOOR
+  IS NOT ON THE TABLE. If schema_valid_rate at D2 is not ~1.0 the constraint is not binding and
+  nothing downstream is readable.
+  NEXT, needs the cluster:
+    1. bash scripts/make_eval_env.sh   (adds xgrammar; its guard must report nothing moved)
+    2. sbatch --array=0-2 slurm/submit_decoding_ablation.sh   with --limit 2 first, as a smoke
+    3. the smoke is a REAL GATE: confirm xgrammar works against transformers 5.5.0 (untested
+       locally -- local is 4.57.1), that schema_valid_rate at D2 is ~1.0, and that the per-token
+       overhead leaves 169 cases inside the 14 h limit. If overhead > ~3x, revisit before the run.
