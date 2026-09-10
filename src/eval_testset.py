@@ -206,6 +206,28 @@ def _load_stratum_index():
 _STRATUM_MISS = (None, None, {}, {})
 
 
+def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_budget):
+    """The suffix that distinguishes decoding rungs, used by BOTH `config_id` and the shard name.
+
+    One definition because these had already drifted apart once. `config_id` carried the arity
+    rung and the shard directory name did not, so an oracle run and a non-oracle run landed on the
+    same `shard_m1_s0_e0_constrained_tok4000_*` name -- and `--resume` for the non-oracle rung,
+    which globs that prefix and takes the newest, would have resumed into the ORACLE directory
+    without saying anything.
+
+    Empty when everything is at its default, so every condition recorded before 2026-09-02 keeps
+    the id and the directory name it was published with.
+    """
+    suffix = ""
+    if constrained_decoding:
+        suffix += "_constrained"
+    if force_root_arity:
+        suffix += "_arityforced"
+    if generation_token_budget is not None:
+        suffix += f"_tok{int(generation_token_budget)}"
+    return suffix
+
+
 def _gold_root_arity(gold_query):
     """`(root_index, n_event_vars, n_object_vars)` for gold's root box, or None if unreadable.
 
@@ -1420,10 +1442,16 @@ def run_evaluation(config_path_or_config):
         # consequences, both silent: nothing on disk says which rung a directory holds, and
         # `--resume` (which globs that prefix and takes the newest) would resume one rung into
         # another's directory. Suffixed only when non-default, so existing shard names are unchanged.
-        if config.get("constrained_decoding"):
-            shard_tag += "_constrained"
-        if config.get("generation_token_budget") is not None:
-            shard_tag += f"_tok{int(config['generation_token_budget'])}"
+        # The order here is part of the contract: it must match `config_id`'s suffix and the
+        # `RUNG_SUFFIX` values in the submit scripts, which glob these names to resume. The arity
+        # rung was missed on the first pass and both constrained rungs landed on the same name --
+        # `--resume` for the non-oracle rung would then have picked up the ORACLE run's directory,
+        # silently. `tests/test_forced_arity.py` pins the three strings against each other.
+        shard_tag += _decoding_suffix(
+            config.get("constrained_decoding"),
+            config.get("force_root_arity"),
+            config.get("generation_token_budget"),
+        )
         run_id = f"{shard_tag}_{time.strftime('%Y%m%d_%H%M%S')}"
     else:
         run_id = time.strftime("eval_run_%Y%m%d_%H%M%S")
@@ -1800,13 +1828,8 @@ def run_evaluation(config_path_or_config):
                     #
                     # Suffixed only when non-default, so every condition recorded before
                     # 2026-09-02 keeps its published `config_id` and nothing downstream re-slices.
-                    decoding_suffix = ""
-                    if constrained_decoding:
-                        decoding_suffix += "_constrained"
-                    if force_root_arity:
-                        decoding_suffix += "_arityforced"
-                    if generation_token_budget is not None:
-                        decoding_suffix += f"_tok{generation_token_budget}"
+                    decoding_suffix = _decoding_suffix(
+                        constrained_decoding, force_root_arity, generation_token_budget)
                     config_id = _slug(
                         f"{resolved_model['label']}_{prompt_strategy}"
                         f"_schema-{'on' if schema_enforced else 'off'}{decoding_suffix}"

@@ -187,6 +187,36 @@ for i, entry in enumerate(TESTSET):
         touched.append(("modified", i, get_last_normalized_fields()))
 check("gold is neither rejected nor modified by the normalisation", touched[:3], [])
 
+print("\n--- the rung suffix is ONE definition: config_id, shard name, submit script ---")
+# This drifted twice. First `config_id` carried the decoding rung and the shard name did not, so
+# all three decoding rungs landed on `shard_m1_s0_e0_*`. Then the arity rung was added to
+# `config_id` and missed in the shard name, so N1 and N2 both became
+# `shard_m1_s0_e0_constrained_tok4000_*` -- and `--resume` for N1, which globs that prefix and
+# takes the newest, would have silently resumed into N2's ORACLE directory. The submit script
+# hard-codes the same strings to build its resume glob, so all three are pinned against each other.
+from eval_testset import _decoding_suffix  # noqa: E402
+
+RUNGS = {
+    "N0": (False, False, None),
+    "N1": (True, False, 4000),
+    "N2": (True, True, 4000),
+}
+suffixes = {k: _decoding_suffix(*v) for k, v in RUNGS.items()}
+check("N0 keeps the published, unsuffixed name", suffixes["N0"], "")
+check("N1 and N2 are distinguishable", suffixes["N1"] != suffixes["N2"], True)
+check("all three suffixes are distinct", len(set(suffixes.values())), 3)
+check("the oracle rung is identifiable from its suffix alone",
+      "_arityforced" in suffixes["N2"], True)
+
+script = (REPO / "slurm" / "submit_arity_ablation.sh").read_text(encoding="utf-8")
+for rung, suffix in suffixes.items():
+    declared = f'RUNG_SUFFIX="{suffix}"'
+    check(f"submit script declares {rung}'s suffix exactly ({suffix or 'empty'})",
+          declared in script, True)
+
+# And the resume glob must use it, or a rung resumes into another rung's directory.
+check("the resume glob is built from RUNG_SUFFIX", "${RUNG_SUFFIX}_*" in script, True)
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")
