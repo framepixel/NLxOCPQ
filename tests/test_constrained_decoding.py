@@ -253,6 +253,31 @@ opt = [k for k in BindingBoxTree.model_json_schema()["$defs"]["BindingBoxData"][
        if k not in BindingBoxTree.model_json_schema()["$defs"]["BindingBoxData"]["required"]]
 check("BindingBoxData has exactly one optional property, so the hole is narrow", opt, ["labels"])
 
+
+print("\n--- the arity rung is a third condition, not a relabelled second ---")
+# Same collision risk as the decoding rungs: N1 and N2 share model, strategy, schema setting AND
+# constrained_decoding, differing only in `force_root_arity`. Without that in `config_id` the
+# merge would drop one of them as a duplicate.
+def config_id_for_arity(constrained, forced, budget):
+    suffix = ""
+    if constrained:
+        suffix += "_constrained"
+    if forced:
+        suffix += "_arityforced"
+    if budget is not None:
+        suffix += f"_tok{budget}"
+    return ET._slug(f"llama31-8b-finetuned_schema-allowed-entities-only_schema-on{suffix}")
+
+arity_ids = [config_id_for_arity(False, False, None),
+             config_id_for_arity(True, False, 4000),
+             config_id_for_arity(True, True, 4000)]
+check("N0/N1/N2 get three distinct config_ids", len(set(arity_ids)), 3)
+check("N0 is still the published baseline id",
+      arity_ids[0], "llama31-8b-finetuned_schema-allowed-entities-only_schema-on")
+check("the oracle rung is identifiable from its id alone",
+      "_arityforced" in arity_ids[2], True)
+check("three distinct merge keys", len({key(c) for c in arity_ids}), 3)
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")

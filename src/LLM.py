@@ -4,6 +4,7 @@
 # In[1]:
 
 
+import copy
 import hashlib
 import json
 import numpy as np
@@ -140,6 +141,10 @@ generation_seed = None
 constrained_decoding = False
 # Overrides the per-call `max_tokens` the pipelines pass. None keeps their own values.
 generation_token_budget = None
+# ORACLE control: `(root_index, n_event_vars, n_object_vars)` taken from gold, or None. Tightens
+# the constrained-decoding grammar so the root box must declare exactly that many variables.
+# See `set_forced_root_arity` -- any run using it produces a ceiling, never system performance.
+forced_root_arity = None
 
 LLM_CALL_STATS = []
 QUERY_EXEC_STATS = []
@@ -331,6 +336,32 @@ def set_constrained_decoding(value):
 
 def get_constrained_decoding():
     return constrained_decoding
+
+
+def set_forced_root_arity(value):
+    """Pin how many event/object variables the ROOT box may declare, or None to leave it free.
+
+    **This is an ORACLE control.** The arity comes from the gold query, so any condition using it
+    produces a ceiling and can never be reported as system performance. `eval_testset` owns gold
+    and records `forced_root_arity` on every record, exactly as it does for `structure_hint`.
+
+    Set per (case, condition, repeat) rather than once per process, for the same reason
+    `set_generation_seed` is: the constraint depends on the case, so a shard boundary must not be
+    able to change which grammar a case was generated under.
+
+    Only takes effect when constrained decoding is on -- it is a tightening of that grammar, not a
+    separate mechanism. `None` restores the plain schema grammar.
+
+    Args:
+        value: `(n_event_vars, n_object_vars)` plus the root's index, as
+            `(root_index, n_event_vars, n_object_vars)`, or None.
+    """
+    global forced_root_arity
+    forced_root_arity = None if value is None else tuple(int(v) for v in value)
+
+
+def get_forced_root_arity():
+    return forced_root_arity
 
 
 def set_generation_token_budget(value):
@@ -1221,6 +1252,45 @@ def _check_context_budget(prompt_tokens, max_tokens):
 _XGRAMMAR_CACHE = {}
 
 
+def _arity_pinned_schema(root_index, n_event_vars, n_object_vars):
+    """The OCPQ schema with the ROOT box's variable counts pinned, every other node left free.
+
+    Pinning `BindingBoxData` directly does not work and the feasibility gate caught it: that
+    definition is shared by every node, so pinning it forces child boxes to the root's arity too
+    and rejects **141 of the 169** gold queries, since a child usually binds something different
+    from its parent. The root is therefore given its own `$def` and reached positionally through
+    `prefixItems`, with `items` left generic so the node COUNT stays free -- this experiment forces
+    root arity, not tree shape.
+
+    `root_index` is not assumed to be 0. It is 0 for 166 of the 169 gold queries and 1 or 2 for the
+    rest, and a valid tree may list a child before its parent.
+
+    Verified over the whole testset: gold is accepted under its own arity 169/169 and rejected
+    under a neighbouring arity 169/169 (`tests/test_forced_arity.py`).
+    """
+    schema = copy.deepcopy(OCPQ_JSON_SCHEMA)
+    defs = schema["$defs"]
+
+    pinned = copy.deepcopy(defs["BindingBoxData"])
+    for field, count in (("newEventVars", n_event_vars), ("newObjectVars", n_object_vars)):
+        pinned["properties"][field] = dict(
+            pinned["properties"][field], minProperties=count, maxProperties=count)
+    defs["BindingBoxDataRoot"] = pinned
+
+    root_node = copy.deepcopy(defs["BindingBoxTreeNodeBox"])
+    root_node["properties"]["Box"]["prefixItems"][0] = {"$ref": "#/$defs/BindingBoxDataRoot"}
+    defs["BindingBoxTreeNodeBoxRoot"] = root_node
+
+    generic = {"$ref": "#/$defs/BindingBoxTreeNodeBox"}
+    schema["properties"]["nodes"] = {
+        "type": "array",
+        "prefixItems": [generic] * root_index + [{"$ref": "#/$defs/BindingBoxTreeNodeBoxRoot"}],
+        "items": generic,
+        "minItems": root_index + 1,
+    }
+    return schema
+
+
 def _ocpq_logits_processor():
     """A logits processor that masks any token which cannot continue a valid `BindingBoxTree`.
 
@@ -1250,7 +1320,10 @@ def _ocpq_logits_processor():
             "src/check_eval_deps.py checks for it."
         ) from exc
 
-    key = (id(local_tokenizer), id(local_model))
+    # `forced_root_arity` is per case, so it is part of the key. Gold has only 6 distinct root
+    # arities across 13 (root_index, arity) combinations in the whole testset, so this cache stays
+    # tiny even though the grammar is nominally per-case.
+    key = (id(local_tokenizer), id(local_model), forced_root_arity)
     cached = _XGRAMMAR_CACHE.get(key)
     if cached is None:
         # The model's vocabulary is often LARGER than the tokenizer's, because checkpoints pad the
@@ -1260,8 +1333,12 @@ def _ocpq_logits_processor():
         vocab_size = getattr(getattr(local_model, "config", None), "vocab_size", None)
         tokenizer_info = xgr.TokenizerInfo.from_huggingface(
             local_tokenizer, vocab_size=vocab_size)
+        if forced_root_arity is None:
+            source = BindingBoxTree
+        else:
+            source = json.dumps(_arity_pinned_schema(*forced_root_arity))
         cached = xgr.GrammarCompiler(tokenizer_info).compile_grammar(
-            xgr.Grammar.from_json_schema(BindingBoxTree, any_order=True, strict_mode=True)
+            xgr.Grammar.from_json_schema(source, any_order=True, strict_mode=True)
         )
         _XGRAMMAR_CACHE[key] = cached
     # The matcher carries per-generation state, so it is built fresh per call; the expensive
@@ -1806,13 +1883,81 @@ def run_ocpq_query_with_logging(ocel_path, output_file, query, messages, stage):
             }
         )
 
+# Container fields of `BindingBoxData` whose absence has exactly ONE reading: nothing to apply.
+# Filling them is recovering the model's obvious intent, not guessing at it.
+_BOX_CONTAINER_DEFAULTS = {
+    "filters": list,
+    "sizeFilters": list,
+    "constraints": list,
+    "evVarLabels": dict,
+    "obVarLabels": dict,
+}
+# Names that must NEVER be defaulted, kept as a list rather than left implicit because the reason
+# is not obvious from the schema. `child_names` is the dangerous one: an empty child set satisfies
+# `SAT` VACUOUSLY, so filling it with [] turns a compliance query into one that reports 0%
+# violations while looking correct -- the exact defect Thesis/notes and the OCPQ notes already
+# record. `newEventVars`/`newObjectVars` are excluded because declaring no variables is a
+# meaningful statement rather than a neutral default, and 0 of the 1722 recorded validation
+# failures needed them.
+_NEVER_DEFAULTED = ("child_names", "newEventVars", "newObjectVars")
+
+# What the last `validate_and_normalize_ocpq_json` call filled in, so the caller can record it.
+# A normalisation is the harness doing work the model did not do; the number has to be visible.
+_last_normalized_fields = []
+
+
+def get_last_normalized_fields():
+    """Fields filled by the most recent `validate_and_normalize_ocpq_json` call."""
+    return list(_last_normalized_fields)
+
+
+def _fill_missing_box_containers(ocpq_json):
+    """Fill absent `BindingBoxData` container fields with their empty value.
+
+    Narrow on purpose. Constrained decoding leaves a residue that is not the model's fault:
+    xgrammar's `any_order=True` lets a REQUIRED property be skipped when an optional one is
+    present, and in the 2026-09-10 run 10 of the 11 constrained failures were exactly one shape --
+    a box carrying optional `labels` and omitting required `filters`. An absent `filters` is `[]`
+    under OCPQ semantics, so recovering it costs nothing and loses nothing.
+
+    Measured scope, from 1722 recorded validation failures across every run: 10 are fixable here,
+    655 involve a field with no neutral default (`attribute_name`, `value_filter`, `object`,
+    `is_in`, ...) and stay failures, and 1057 fail for other reasons entirely. This is a repair for
+    a decoder artefact, not a general leniency -- see `_NEVER_DEFAULTED`.
+
+    Returns the (possibly modified) document; the fields filled are recorded in
+    `_last_normalized_fields`.
+    """
+    if not isinstance(ocpq_json, dict):
+        return ocpq_json
+    nodes = ocpq_json.get("nodes")
+    if not isinstance(nodes, list):
+        return ocpq_json
+
+    for index, node in enumerate(nodes):
+        if not isinstance(node, dict):
+            continue
+        box = node.get("Box")
+        if not isinstance(box, list) or not box or not isinstance(box[0], dict):
+            continue
+        node_data = box[0]
+        for field, factory in _BOX_CONTAINER_DEFAULTS.items():
+            if field not in node_data:
+                node_data[field] = factory()
+                _last_normalized_fields.append(f"nodes[{index}].{field}")
+    return ocpq_json
+
+
 def validate_and_normalize_ocpq_json(ocpq_json):
     """
     Strictly validate against the Pydantic BindingBoxTree model.
     Returns a normalized JSON dict (aliases applied) when valid.
     """
+    global _last_normalized_fields
+    _last_normalized_fields = []
     try:
         ocpq_json = _normalize_constraints_shape(ocpq_json)
+        ocpq_json = _fill_missing_box_containers(ocpq_json)
         validated = BindingBoxTree.model_validate(ocpq_json)
         return validated.model_dump(by_alias=True)
     except ValidationError:

@@ -36,6 +36,8 @@ from LLM import (
     set_generation_seed,
     set_constrained_decoding,
     set_generation_token_budget,
+    set_forced_root_arity,
+    get_last_normalized_fields,
     set_schema_level,
     set_hf_client,
     set_local_gpu_client,
@@ -202,6 +204,33 @@ def _load_stratum_index():
 # Named rather than repeated inline: the tuple gained a third element and four call sites had to
 # agree on its width.
 _STRATUM_MISS = (None, None, {}, {})
+
+
+def _gold_root_arity(gold_query):
+    """`(root_index, n_event_vars, n_object_vars)` for gold's root box, or None if unreadable.
+
+    ORACLE information: this comes from the gold query and is used to tighten the decoding grammar,
+    so any condition consuming it produces a ceiling. It lives here rather than in `LLM.py` for the
+    same reason `_build_structure_hint` does -- gold never crosses into the pipeline module.
+
+    `root_index` is carried because the root is not always node 0 (it is 0 for 166 of the 169
+    testset entries, 1 or 2 for the rest) and the grammar pins the root POSITIONALLY.
+    """
+    if not isinstance(gold_query, dict):
+        return None
+    nodes = gold_query.get("nodes")
+    if not isinstance(nodes, list) or not nodes:
+        return None
+    index = root_node_index(gold_query)
+    if index >= len(nodes):
+        return None
+    box = (nodes[index] or {}).get("Box") if isinstance(nodes[index], dict) else None
+    if not isinstance(box, list) or not box or not isinstance(box[0], dict):
+        return None
+    data = box[0]
+    return (index,
+            len(data.get("newEventVars") or {}),
+            len(data.get("newObjectVars") or {}))
 
 
 def _structural_metrics(gold_query, prediction):
@@ -1477,6 +1506,9 @@ def run_evaluation(config_path_or_config):
     # `schema_enforced`, which only decides whether the output is CHECKED and repaired afterwards.
     # Both default to today's behaviour so an existing config reproduces exactly.
     constrained_decoding = bool(config.get("constrained_decoding", False))
+    # ORACLE: pin the root box's variable counts to gold's. Only meaningful with constrained
+    # decoding -- it tightens that grammar rather than being a separate mechanism.
+    force_root_arity = bool(config.get("force_root_arity", False))
     _budget = config.get("generation_token_budget")
     generation_token_budget = None if _budget is None else int(_budget)
     repeats = int(config.get("repeats", 1))
@@ -1543,6 +1575,8 @@ def run_evaluation(config_path_or_config):
         print(f"Dry run: constrained_decoding = {constrained_decoding}"
               f"  (grammar-masked generation; NOT the same as schema_enforced, which only "
               f"validates and repairs afterwards)")
+        print(f"Dry run: force_root_arity = {force_root_arity}"
+              f"{'   *** ORACLE CONDITION -- ceiling, never system performance ***' if force_root_arity else ''}")
         print(f"Dry run: generation_token_budget = "
               f"{generation_token_budget if generation_token_budget is not None else 'per-pipeline default (1000/2000)'}")
         return None
@@ -1600,6 +1634,7 @@ def run_evaluation(config_path_or_config):
         # Two shards that disagree on these must not merge silently.
         "constrained_decoding": constrained_decoding,
         "generation_token_budget": generation_token_budget,
+        "force_root_arity": force_root_arity,
         "repeats": repeats,
         # Stated per run, not only in the config, because a timeout rate is meaningless without
         # the budget it was measured against. Also enters `config_fingerprint`, so two shards
@@ -1614,7 +1649,10 @@ def run_evaluation(config_path_or_config):
         # downstream tool or a reader opening the run cold cannot miss it -- an oracle number
         # quoted out of context is the most damaging mistake this run can produce. Empty for
         # every ordinary run.
-        "oracle_conditions": sorted(
+        # `force_root_arity` takes the root's variable counts from GOLD, so a run using it is a
+        # ceiling and can never be reported as system performance -- same standing as the
+        # oracle- prompt strategies.
+        "oracle_conditions": (["force_root_arity"] if force_root_arity else []) + sorted(
             s for s in prompt_strategies if s in ORACLE_STRUCTURE_LEVELS
         ),
         "temperature": global_cfg.get("temperature"),
@@ -1765,6 +1803,8 @@ def run_evaluation(config_path_or_config):
                     decoding_suffix = ""
                     if constrained_decoding:
                         decoding_suffix += "_constrained"
+                    if force_root_arity:
+                        decoding_suffix += "_arityforced"
                     if generation_token_budget is not None:
                         decoding_suffix += f"_tok{generation_token_budget}"
                     config_id = _slug(
@@ -1817,6 +1857,16 @@ def run_evaluation(config_path_or_config):
                         structure_hint_level = ORACLE_STRUCTURE_LEVELS.get(prompt_strategy)
                         structure_hint = _build_structure_hint(gold_query, structure_hint_level)
 
+                        # ORACLE: pin the root box's variable counts to gold's. Set per case, the
+                        # way `set_generation_seed` is, because the constraint depends on the case
+                        # -- a shard boundary must not change which grammar a case ran under.
+                        # None (flag off, or gold unreadable) leaves the grammar untightened, and
+                        # the record says which so those cases can be excluded.
+                        case_root_arity = (_gold_root_arity(gold_query)
+                                           if force_root_arity else None)
+                        set_forced_root_arity(case_root_arity)
+                        normalized_fields = []
+
                         try:
                             with _case_time_limit(case_timeout_sec):
                                 _, _, ocpq_json, query_stdout, query_result_file = nl_to_ocpq_pipeline(
@@ -1832,6 +1882,10 @@ def run_evaluation(config_path_or_config):
                                     execute_query=True,
                                     structure_hint=structure_hint,
                                 )
+                            # Read straight after the pipeline, before anything else can reset it:
+                            # `validate_and_normalize_ocpq_json` clears the record on every call,
+                            # so a later validation elsewhere would wipe what this case needed.
+                            normalized_fields = get_last_normalized_fields()
                         # Ordered before the general handler below, which would otherwise absorb
                         # the timeout into `pipeline_status = "error"` and lose the distinction.
                         except CaseTimeout as exc:
@@ -2008,6 +2062,13 @@ def run_evaluation(config_path_or_config):
                             # constrained prediction from a free one.
                             "constrained_decoding": constrained_decoding,
                             "generation_token_budget": generation_token_budget,
+                            # The arity actually handed to the decoder, or None where the flag was
+                            # off or gold was unreadable. Recorded per record so a reader can audit
+                            # what was given rather than trust the flag.
+                            "forced_root_arity": case_root_arity,
+                            # What the harness filled in that the model did not produce. A
+                            # normalisation flatters the model; the count has to be visible.
+                            "normalized_fields": normalized_fields,
                             "repeat": repeat_idx,
                             "config_id": config_id,
                             "status": final_status,
@@ -3017,6 +3078,13 @@ def main():
     parser.add_argument("--no-constrained-decoding", dest="constrained_decoding",
         action="store_false",
         help="Force free generation even if the config enables constrained decoding.")
+    parser.add_argument("--force-root-arity", dest="force_root_arity",
+        action="store_true", default=None,
+        help="ORACLE. Pin the root box's variable counts to GOLD's, by tightening the "
+             "constrained-decoding grammar per case. Any run using this produces a CEILING and "
+             "can never be reported as system performance. Requires --constrained-decoding.")
+    parser.add_argument("--no-force-root-arity", dest="force_root_arity", action="store_false",
+        help="Force free root arity even if the config enables it.")
     parser.add_argument("--token-budget", type=int, default=None,
         help="Override every pipeline's max_tokens (they hard-code 1000/2000). Truncation is a "
              "failure mode distinct from schema violation, so the budget has to be movable to "
@@ -3080,6 +3148,8 @@ def main():
             cfg["constrained_decoding"] = args.constrained_decoding
         if args.token_budget is not None:
             cfg["generation_token_budget"] = args.token_budget
+        if args.force_root_arity is not None:
+            cfg["force_root_arity"] = args.force_root_arity
         if args.case_shard:
             try:
                 index_str, total_str = str(args.case_shard).split("/")
