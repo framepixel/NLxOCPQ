@@ -613,3 +613,36 @@
     3. the smoke is a REAL GATE: confirm xgrammar works against transformers 5.5.0 (untested
        locally -- local is 4.57.1), that schema_valid_rate at D2 is ~1.0, and that the per-token
        overhead leaves 169 cases inside the 14 h limit. If overhead > ~3x, revisit before the run.
+
+- DONE (2026-09-10) DECODING ABLATION RAN. Results in Thesis/notes/11-evaluation-readiness.md 31.
+  507 runs, 169 per rung, all completed, 3 distinct config_ids, merge clean (0 dropped).
+  D0 free/2000 -> D1 free/4000 -> D2 constrained/4000:
+    schema-valid  121/169 -> 119/169 -> 158/169
+    F1 (disc)      0.1799 -> 0.1728 -> 0.2162      floor 0.7250
+    skill         -0.6310 -> -0.6419 -> -0.5542
+  (1) TRUNCATION IS NOT A MECHANISM. D0->D1 paired: 0 better, 1 worse, 134 unchanged, CI crosses
+  zero. Doubling the budget did nothing. The notes-30 hypothesis (failed generations run median 794
+  tokens vs 357 and pile at the cap) was WRONG -- long completions are a symptom of the model losing
+  its way, not the cap truncating a good query. D1 cost 169 runs and is the only reason we know.
+  (2) D0->D2 +0.0363 (95% CI +0.0086..+0.0640), significant, 8 better 0 worse. But 32 cases went
+  schema-invalid -> valid, and 25 OF THOSE 32 STILL SCORE EXACTLY ZERO. Constrained decoding turns
+  non-answers into answers and four in five are about the wrong thing. That is the notes-25.3
+  syntax/semantics split for the FOURTH time, from a fourth independent direction.
+  (3) THE CONSTRAINT HAS A CHARACTERISED HOLE. 158/169, not 169/169; 10 of the 11 failures are the
+  single shape "missing required field `filters`". xgrammar `any_order=True` lets a REQUIRED
+  property be skipped when an OPTIONAL one is present -- the model emitted `labels` and dropped
+  `filters`. Cannot be closed from the schema side: any_order=False rejects 32/169 gold, all-required
+  rejects 412/424 gold boxes, dropping optionals rejects 167/169. Caught by validation, never
+  silent. Pinned as an assertion in tests/test_constrained_decoding.py so the day it is fixed
+  upstream the test fails and tells us.
+  The correction to notes 30: constrained decoding is NOT "invalid output is impossible", it is
+  93.5% with a detected residue.
+  NEXT, cheap and specific: an absent list-typed `filters` is `[]` under OCPQ semantics, so a
+  normalisation in LLM.py takes D2 to ~168/169. Deliberately NOT retrofitted into this experiment --
+  it also touches D0/D1 (6 of D0's 48 failures are missing-field) and would move the baseline the
+  comparison rests on. Do it as its own change, with its own re-run.
+  (4) THE STRATEGIC PICTURE IS UNCHANGED. Recomputed on D2: no single bucket clears the floor (best
+  is no_result at 0.5643) and the only clearing pair is STILL `no_result` + `arity_mismatch` =
+  0.8162. Constrained decoding moved the first and left the second untouched -- arity_mismatch is
+  still 63.6% of wrong populations at D2, and still only 16% of that is the notes-26 extra-column
+  artefact. ARITY IS NOW THE WHOLE BALL GAME.

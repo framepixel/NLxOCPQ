@@ -225,6 +225,34 @@ def key(config_id):
 check("distinct merge keys, so nothing is dropped as a duplicate",
       len({key(c) for c in rung_ids}), 3)
 
+print("\n--- KNOWN LIMITATION: any_order lets a required field be skipped ---")
+# This is why the full run came out 158/169 schema-valid at D2 rather than 169/169, and 10 of
+# those 11 failures are this one shape. xgrammar's `any_order=True` permits a REQUIRED property to
+# be omitted when an OPTIONAL one is present: the model emitted `labels` (optional, default []) and
+# dropped `filters` (required). Asserted rather than described, so the day it is fixed upstream
+# this test fails and tells us the residue can be reclaimed.
+#
+# It cannot be closed from the schema side, and the alternatives are worse -- all measured:
+#   any_order=False                -> rejects 32/169 gold outright
+#   every property required        -> rejects gold; 412 of 424 gold boxes omit `labels`
+#   drop optional properties       -> rejects 167/169 gold (qualifier, min_seconds, min/max)
+# The fix is a normalisation in LLM.py -- an absent list-typed `filters` is `[]` under OCPQ
+# semantics -- not a grammar setting. See notes 31.4.
+WITH_OPTIONAL_NO_REQUIRED = (
+    '{"nodes":[{"Box":[{"newEventVars":{},"newObjectVars":{},"labels":[],"sizeFilters":[],'
+    '"constraints":[],"evVarLabels":{},"obVarLabels":{}},[]]}],"edgeNames":[]}')
+check("the hole is still open (grammar admits it)", accepts(g, WITH_OPTIONAL_NO_REQUIRED), True)
+check("...and Pydantic still rejects it, which is what makes it a hole",
+      validates(WITH_OPTIONAL_NO_REQUIRED), False)
+check("without the optional field present, the same omission IS caught",
+      accepts(g, '{"nodes":[{"Box":[{"newEventVars":{},"newObjectVars":{},"sizeFilters":[],'
+                 '"constraints":[],"evVarLabels":{},"obVarLabels":{}},[]]}],"edgeNames":[]}'),
+      False)
+# The residue is bounded: it needs an optional property, and BindingBoxData has exactly one.
+opt = [k for k in BindingBoxTree.model_json_schema()["$defs"]["BindingBoxData"]["properties"]
+       if k not in BindingBoxTree.model_json_schema()["$defs"]["BindingBoxData"]["required"]]
+check("BindingBoxData has exactly one optional property, so the hole is narrow", opt, ["labels"])
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")
