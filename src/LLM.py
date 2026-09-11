@@ -1520,45 +1520,32 @@ def _record_llm_call(response, duration_sec, model_name=None, response_format=No
 # predictor underperforms a constant, the prompt is the first thing to look at, and it must be
 # quotable in the write-up without digging through a call stack.
 ROOT_ARITY_PROMPT = (
-    # The worked examples deliberately use a SUPPORT-DESK domain (tickets, agents, escalations),
-    # which appears in none of the eleven evaluation logs. Writing them in the vocabulary of an
-    # evaluation log -- orders, customers, deliveries -- would be tuning the prompt on the
-    # evaluation set, and the observed distribution of gold arities is left out for the same
-    # reason: it is a label statistic of the testset.
-    "An OCPQ query is a tree of binding boxes. ONLY the ROOT box's variables are the answer. "
-    "Every child box exists to state a CONDITION about that answer, and the variables a child "
-    "declares are never returned.\n\n"
-    "So the question is not \"what does this sentence mention?\" It is \"what is the list I hand "
-    "back?\"\n\n"
-    "Procedure:\n"
-    "1. Find the thing the question asks you to return -- usually the noun right after "
-    "\"which\", \"what\", \"list\" or \"find\".\n"
-    "2. That thing is ONE variable in the root box. A business entity (a ticket, an agent, a "
-    "kiosk, a badge) is an OBJECT variable. An occurrence that happens at a point in time "
-    "(an escalation, a callback, a handover) is an EVENT variable.\n"
-    "3. Everything else in the sentence -- every activity used as a test, every related entity, "
-    "every threshold or time window -- is a CONDITION. It belongs to a child box and is NOT "
-    "counted here.\n\n"
-    "A question almost always asks for ONE kind of thing, so the usual answer is one variable of "
-    "one kind and zero of the other. Two of a kind is unusual. Three or more is a mistake.\n\n"
-    "Worked examples:\n"
-    "  \"Which tickets were escalated twice?\"\n"
-    "      returns TICKETS -> 1 object variable. \"escalated\" is a condition about those "
-    "tickets and lives in a child, so it is NOT an event variable here.\n"
-    "      n_event_vars=0, n_object_vars=1\n\n"
-    "  \"Which escalations happened outside working hours?\"\n"
-    "      returns ESCALATIONS, which are occurrences -> 1 event variable.\n"
-    "      n_event_vars=1, n_object_vars=0\n\n"
-    "  \"Which agents handled a ticket that was reopened within a day?\"\n"
-    "      returns AGENTS -> 1 object variable. The ticket, the reopening and the one-day window "
-    "are all conditions.\n"
-    "      n_event_vars=0, n_object_vars=1\n\n"
-    "  THE MISTAKE TO AVOID: the sentence names an activity prominently, so both counts get set "
-    "to 1. They should not be.\n"
-    "  \"Which tickets got a callback?\" returns TICKETS. The callback is a condition.\n"
-    "      correct: n_event_vars=0, n_object_vars=1\n"
-    "      wrong:   n_event_vars=1, n_object_vars=1\n\n"
-    "Count only what the ROOT box returns.\n\n"
+    # PROMPT v3. Structurally identical to v1 -- same length, same three POSITIVE examples, no
+    # procedure list, no negative example -- and differing from it only in the example nouns.
+    #
+    # v2 changed two things at once and regressed badly (expected value 7.58 -> 5.82, below the
+    # constant's 6.85): it swapped the vocabulary AND added a rule list plus an explicit
+    # "wrong: n_event_vars=1, n_object_vars=1" counter-example. The error that counter-example
+    # named went from 28 cases to 46, and abstentions tripled -- showing a wrong answer primed it.
+    # v3 keeps the vocabulary fix, which is required for hygiene, and drops everything else, so
+    # the comparison against v1 measures the vocabulary change alone.
+    #
+    # The nouns are a support-desk domain that appears in NO evaluation log; writing these in the
+    # vocabulary of one (orders, customers, deliveries) would tune the prompt on the evaluation
+    # set. The observed distribution of gold arities is likewise absent: it is a label statistic
+    # of the testset. Both are asserted in tests/test_arity_predictor.py.
+    "An OCPQ query is a tree of binding boxes. The ROOT box holds the query's ANSWER -- the rows "
+    "the user gets back. Child boxes exist only to express conditions ABOUT those rows, and the "
+    "variables they declare are NOT part of the answer.\n\n"
+    "Decide what the ANSWER is about, not what the question mentions. Examples of the "
+    "distinction:\n"
+    "  \"Which tickets were escalated twice?\"           -> a set of tickets: 0 event variables, "
+    "1 object variable. The escalation is a CONDITION, in a child.\n"
+    "  \"Which escalations happened out of hours?\"      -> a set of events: 1 event variable, "
+    "0 object variables.\n"
+    "  \"Which agents handled a ticket reopened later?\" -> still 1 object variable; both the "
+    "reopening and the ticket are conditions.\n\n"
+    "Count ONLY the variables the root box itself declares.\n\n"
     "{schema_block}\n\n"
     "Question: {query}\n\n"
     "Answer with n_event_vars and n_object_vars for the ROOT box only."

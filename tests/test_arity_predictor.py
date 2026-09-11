@@ -229,12 +229,19 @@ for entry in TESTSET:
 
 # The nouns the examples are built from. If any of these ever names a real evaluation entity, the
 # prompt has started teaching this testset rather than the rule.
-EXAMPLE_NOUNS = ["ticket", "agent", "kiosk", "badge", "escalation", "callback", "handover"]
+EXAMPLE_NOUNS = ["ticket", "agent", "escalation"]
 leaked = [n for n in EXAMPLE_NOUNS
           if any(re.search(r"" + n + r"s?", term) for term in gold_vocab)]
 check("no example noun names an evaluation entity", leaked, [])
 check("...and the examples really are in the prompt",
       all(n in rendered for n in EXAMPLE_NOUNS), True)
+
+# v2 added an explicit counter-example -- "wrong: n_event_vars=1, n_object_vars=1" -- and the
+# error it named went from 28 cases to 46 while abstentions tripled. Showing a wrong answer primed
+# it. Expected value fell 7.58 -> 5.82, below the constant's 6.85. Pinned so it cannot return.
+for forbidden_pattern in ("wrong:", "mistake to avoid", "should not be"):
+    check(f"the prompt contains no counter-example ({forbidden_pattern!r})",
+          forbidden_pattern in rendered, False)
 
 # The gold arity distribution must not appear, in any of the forms it would naturally be written.
 for forbidden in ("63.3", "63%", "0.633", "107 of", "107/169", "21.3"):
