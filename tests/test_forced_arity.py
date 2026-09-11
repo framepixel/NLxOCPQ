@@ -202,6 +202,25 @@ RUNGS = {
     "N2": (True, True, 4000),
 }
 suffixes = {k: _decoding_suffix(*v) for k, v in RUNGS.items()}
+# The typed ablation adds two NON-ORACLE flags, and its three rungs must be three conditions too.
+TYPED = {
+    "T0": dict(constrained_decoding=True, force_root_arity=False, generation_token_budget=4000),
+    "T1": dict(constrained_decoding=True, force_root_arity=False, generation_token_budget=4000,
+               type_aware_filters=True),
+    "T2": dict(constrained_decoding=True, force_root_arity=False, generation_token_budget=4000,
+               type_aware_filters=True, constant_root_arity=True),
+}
+typed_suffixes = {k: _decoding_suffix(**v) for k, v in TYPED.items()}
+check("the typed rungs get three distinct suffixes", len(set(typed_suffixes.values())), 3)
+check("T0 is the same condition as N1, so it is directly comparable",
+      typed_suffixes["T0"], suffixes["N1"])
+typed_script = (REPO / "slurm" / "submit_typed_ablation.sh").read_text(encoding="utf-8")
+for rung, suffix in typed_suffixes.items():
+    check(f"the typed submit script declares {rung}'s suffix ({suffix})",
+          f'RUNG_SUFFIX="{suffix}"' in typed_script, True)
+# The oracle flag and the constant must never both apply: gold would silently win.
+check("force_root_arity suppresses the constant, so a rung cannot be secretly an oracle",
+      _decoding_suffix(True, True, 4000, False, True), _decoding_suffix(True, True, 4000, False, False))
 check("N0 keeps the published, unsuffixed name", suffixes["N0"], "")
 check("N1 and N2 are distinguishable", suffixes["N1"] != suffixes["N2"], True)
 check("all three suffixes are distinct", len(set(suffixes.values())), 3)

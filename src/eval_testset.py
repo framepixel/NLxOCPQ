@@ -37,6 +37,7 @@ from LLM import (
     set_constrained_decoding,
     set_generation_token_budget,
     set_forced_root_arity,
+    set_type_aware_filters,
     get_last_normalized_fields,
     set_schema_level,
     set_hf_client,
@@ -206,7 +207,8 @@ def _load_stratum_index():
 _STRATUM_MISS = (None, None, {}, {})
 
 
-def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_budget):
+def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_budget,
+                     type_aware_filters=False, constant_root_arity=False):
     """The suffix that distinguishes decoding rungs, used by BOTH `config_id` and the shard name.
 
     One definition because these had already drifted apart once. `config_id` carried the arity
@@ -221,8 +223,12 @@ def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_bu
     suffix = ""
     if constrained_decoding:
         suffix += "_constrained"
+    if type_aware_filters:
+        suffix += "_typed"
     if force_root_arity:
         suffix += "_arityforced"
+    elif constant_root_arity:
+        suffix += "_arityconst"
     if generation_token_budget is not None:
         suffix += f"_tok{int(generation_token_budget)}"
     return suffix
@@ -1451,6 +1457,8 @@ def run_evaluation(config_path_or_config):
             config.get("constrained_decoding"),
             config.get("force_root_arity"),
             config.get("generation_token_budget"),
+            config.get("type_aware_filters"),
+            config.get("constant_root_arity"),
         )
         run_id = f"{shard_tag}_{time.strftime('%Y%m%d_%H%M%S')}"
     else:
@@ -1537,6 +1545,13 @@ def run_evaluation(config_path_or_config):
     # ORACLE: pin the root box's variable counts to gold's. Only meaningful with constrained
     # decoding -- it tightens that grammar rather than being a separate mechanism.
     force_root_arity = bool(config.get("force_root_arity", False))
+    # NON-ORACLE: constrain each attribute filter's value_filter to the attribute's declared type,
+    # read from the LOG schema. Unlike `force_root_arity` this uses nothing from gold, so a rung
+    # carrying only this is system performance and stays out of `oracle_conditions`.
+    type_aware_filters = bool(config.get("type_aware_filters", False))
+    # NON-ORACLE: pin the root arity to a fixed (0,1) rather than gold's. Justified from the
+    # synthetic training corpus, whose majority class is also (0,1) -- see notes 33.4.
+    constant_root_arity = bool(config.get("constant_root_arity", False))
     _budget = config.get("generation_token_budget")
     generation_token_budget = None if _budget is None else int(_budget)
     repeats = int(config.get("repeats", 1))
@@ -1603,6 +1618,8 @@ def run_evaluation(config_path_or_config):
         print(f"Dry run: constrained_decoding = {constrained_decoding}"
               f"  (grammar-masked generation; NOT the same as schema_enforced, which only "
               f"validates and repairs afterwards)")
+        print(f"Dry run: type_aware_filters = {type_aware_filters}   (non-oracle; from the log)")
+        print(f"Dry run: constant_root_arity = {constant_root_arity}   (non-oracle; training-corpus majority)")
         print(f"Dry run: force_root_arity = {force_root_arity}"
               f"{'   *** ORACLE CONDITION -- ceiling, never system performance ***' if force_root_arity else ''}")
         print(f"Dry run: generation_token_budget = "
@@ -1663,6 +1680,8 @@ def run_evaluation(config_path_or_config):
         "constrained_decoding": constrained_decoding,
         "generation_token_budget": generation_token_budget,
         "force_root_arity": force_root_arity,
+        "type_aware_filters": type_aware_filters,
+        "constant_root_arity": constant_root_arity,
         "repeats": repeats,
         # Stated per run, not only in the config, because a timeout rate is meaningless without
         # the budget it was measured against. Also enters `config_fingerprint`, so two shards
@@ -1829,7 +1848,8 @@ def run_evaluation(config_path_or_config):
                     # Suffixed only when non-default, so every condition recorded before
                     # 2026-09-02 keeps its published `config_id` and nothing downstream re-slices.
                     decoding_suffix = _decoding_suffix(
-                        constrained_decoding, force_root_arity, generation_token_budget)
+                        constrained_decoding, force_root_arity, generation_token_budget,
+                        type_aware_filters, constant_root_arity)
                     config_id = _slug(
                         f"{resolved_model['label']}_{prompt_strategy}"
                         f"_schema-{'on' if schema_enforced else 'off'}{decoding_suffix}"
@@ -1885,9 +1905,17 @@ def run_evaluation(config_path_or_config):
                         # -- a shard boundary must not change which grammar a case ran under.
                         # None (flag off, or gold unreadable) leaves the grammar untightened, and
                         # the record says which so those cases can be excluded.
-                        case_root_arity = (_gold_root_arity(gold_query)
-                                           if force_root_arity else None)
+                        if force_root_arity:
+                            case_root_arity = _gold_root_arity(gold_query)   # ORACLE
+                        elif constant_root_arity:
+                            # NON-ORACLE: the majority class of the synthetic TRAINING corpus, and
+                            # root index 0 because a system cannot know where the root will land.
+                            case_root_arity = (0, 0, 1)
+                        else:
+                            case_root_arity = None
                         set_forced_root_arity(case_root_arity)
+                        # Read from the log, never from gold -- see `set_type_aware_filters`.
+                        set_type_aware_filters(ocel_path if type_aware_filters else None)
                         normalized_fields = []
 
                         try:
@@ -2089,6 +2117,8 @@ def run_evaluation(config_path_or_config):
                             # off or gold was unreadable. Recorded per record so a reader can audit
                             # what was given rather than trust the flag.
                             "forced_root_arity": case_root_arity,
+                            "type_aware_filters": type_aware_filters,
+                            "constant_root_arity": constant_root_arity,
                             # What the harness filled in that the model did not produce. A
                             # normalisation flatters the model; the count has to be visible.
                             "normalized_fields": normalized_fields,
@@ -3108,6 +3138,19 @@ def main():
              "can never be reported as system performance. Requires --constrained-decoding.")
     parser.add_argument("--no-force-root-arity", dest="force_root_arity", action="store_false",
         help="Force free root arity even if the config enables it.")
+    parser.add_argument("--type-aware-filters", dest="type_aware_filters",
+        action="store_true", default=None,
+        help="NON-ORACLE. Constrain each attribute filter's value_filter to the attribute's "
+             "DECLARED type, read from the log schema. The model emits Boolean->String 16 times "
+             "and Integer->String 11 times against a schema that states the type correctly.")
+    parser.add_argument("--no-type-aware-filters", dest="type_aware_filters",
+        action="store_false", help="Leave value filters unconstrained by declared type.")
+    parser.add_argument("--constant-root-arity", dest="constant_root_arity",
+        action="store_true", default=None,
+        help="NON-ORACLE. Pin the root arity to (0 event, 1 object) for every case -- the majority "
+             "class of the synthetic training corpus. Ignored when --force-root-arity is set.")
+    parser.add_argument("--no-constant-root-arity", dest="constant_root_arity",
+        action="store_false", help="Leave the root arity free.")
     parser.add_argument("--token-budget", type=int, default=None,
         help="Override every pipeline's max_tokens (they hard-code 1000/2000). Truncation is a "
              "failure mode distinct from schema violation, so the budget has to be movable to "
@@ -3173,6 +3216,10 @@ def main():
             cfg["generation_token_budget"] = args.token_budget
         if args.force_root_arity is not None:
             cfg["force_root_arity"] = args.force_root_arity
+        if args.type_aware_filters is not None:
+            cfg["type_aware_filters"] = args.type_aware_filters
+        if args.constant_root_arity is not None:
+            cfg["constant_root_arity"] = args.constant_root_arity
         if args.case_shard:
             try:
                 index_str, total_str = str(args.case_shard).split("/")

@@ -697,3 +697,53 @@
   notes 28.2 concluded "type selection is solved"; that held only while arity was free to absorb
   the error. Forced to declare exactly N variables, the model sometimes fills them with the wrong
   types. Not a regression -- a previously hidden error becoming visible.
+
+- CLOSED (2026-09-11) ARITY IS CAUSAL BUT NOT PREDICTABLE by this model. Write-up in
+  Thesis/notes/11-evaluation-readiness.md 33. The four-rung ablation was built and DELIBERATELY NOT
+  RUN: the gate showed its predictor rung would land below the no-forcing rung. ~30 min of GPU
+  across three probes instead of ~8 GPU-hours.
+    constant "always (0,1)"                       63.3% acc,  0% minority, EV 6.85
+    the model while generating (notes 32.4)       43.8% acc
+    prompt v1 (evaluation-log vocabulary)         52.7% acc, 37.1% minority, EV 7.58
+    prompt v2 (neutral + procedure + counterex.)  37.9% acc, 33.9% minority, EV 5.82
+    prompt v3 (neutral, v1's structure)           46.2% acc, 27.4% minority, EV 6.39
+  ACCURACY IS THE WRONG STATISTIC and the first gate used it. A minority-arity hit is worth ~2.3x a
+  majority one (notes 32.4: +0.146 vs +0.064), so a predictor can be LESS accurate than a constant
+  and worth more -- v1 was exactly that. The gate now scores expected value.
+  THE ONLY VERSION THAT PASSED DID SO ON CONTAMINATED VOCABULARY. v3 differs from v1 in ONLY the
+  example nouns (v1 used orders/customers/deliveries -- order-management.json is an eval log) and
+  EV fell 7.58 -> 6.39. Generation is greedy, so that difference is real, not noise. The clean
+  prompts do not beat a constant.
+  System estimates, joined against notes 32's per-case F1:
+    N1 no forcing   0.2162
+    constant (0,1)  0.2268 (wrongly-forced=0) .. 0.2557 (wrongly-forced=N1)
+    v3 predictor    0.2028 .. 0.2578        <- BELOW no-forcing under the pessimistic reading
+    N2 oracle       0.3109
+  A predictor worse than a constant does not merely fail to help, it SUBTRACTS: forcing a wrong
+  arity makes the correct query unreachable, while free decoding leaves the model its own 43.8%.
+  `(1,0)` recall was 0% in all three versions -- it never once identified a question whose answer is
+  a set of events.
+  TWO HYGIENE RULES now asserted in tests/test_arity_predictor.py, both learned the hard way:
+    * the gold arity distribution must never appear in the prompt (it is a testset label statistic;
+      an earlier draft of this work proposed putting it in);
+    * no counter-examples -- v2's explicit `wrong: n_event_vars=1, n_object_vars=1` took the error
+      it named from 28 cases to 46 and tripled abstentions. Showing a wrong answer primes it.
+  THREE ITERATIONS IS THREE ATTEMPTS AT FITTING THE TESTSET. The cap was two; the third was
+  justified by a confound the analysis itself introduced. Read the numbers as best-of-three on the
+  test data, i.e. optimistic. That they still lose to a constant is what makes the conclusion safe.
+
+- USABLE (2026-09-11) A CONSTANT ARITY PREDICTOR is a legitimate system component and the best
+  non-oracle one measured: "always (0,1)", estimated 0.2268-0.2557 against 0.2162 for no forcing.
+  NOT tuned on the testset -- (0,1) is also the majority class of the synthetic training corpus
+  (34.6%), so the choice is justified from training data alone. Not run as its own rung: +0.011 to
+  +0.040 on 135 cases with one greedy sample is inside what a single run resolves, and no decision
+  turns on the exact value. Run it if a measured non-oracle number is wanted for the write-up.
+
+- NEXT (2026-09-11) G1 / GROUNDING, reopened on evidence in notes 32.6 and still the only route
+  that clears the floor. Recomputed on the arity-forced rung:
+    no_result alone             0.6517
+    no_result + link_mismatch   0.8063   CLEARS the 0.7250 floor
+  `link_mismatch` is 59.6% of wrong populations once arity is forced (was 28.6%) and is exactly
+  what grounding targets. Note the standing lesson from notes 32.6: an oracle computed on one
+  distribution stops being valid once an intervention changes it -- so re-derive the failure budget
+  before designing, and re-check anything closed in notes 26.6.

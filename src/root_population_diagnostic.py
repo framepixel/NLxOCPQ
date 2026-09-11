@@ -110,6 +110,20 @@ def _types(var_map: Any) -> tuple:
     return tuple(sorted(out))
 
 
+def _strip_nulls(node: Any) -> Any:
+    """Drop `None`-valued keys, recursively. An absent optional and an explicit null are the same.
+
+    Applies to nested objects too: a `value_filter` of `{"type":"Integer","min":41,"max":null}` and
+    one of `{"type":"Integer","min":41}` are the same filter, and gold and the model disagree about
+    which to write.
+    """
+    if isinstance(node, dict):
+        return {k: _strip_nulls(v) for k, v in node.items() if v is not None}
+    if isinstance(node, list):
+        return [_strip_nulls(v) for v in node]
+    return node
+
+
 def _filter_key(query_filter: Any) -> tuple:
     """A filter keyed on what it LINKS, not merely on what kind of filter it is.
 
@@ -122,15 +136,23 @@ def _filter_key(query_filter: Any) -> tuple:
     Both mistakes sent real, explained differences into `residual` -- the one class that means
     "the root box does not explain this" and so must never absorb causes it does explain.
 
-    Keying on the whole dict is exact by construction and cannot drift from the schema. Nothing is
-    normalised away: an `Integer` bound and a `String` membership test really are different
-    filters selecting different rows, so they must key differently. Only the key ORDER is
-    canonicalised, because gold and the model serialise the same filter's fields in different
-    orders.
+    Keying on the whole dict is exact by construction and cannot drift from the schema. Almost
+    nothing is normalised away: an `Integer` bound and a `String` membership test really are
+    different filters selecting different rows, so they must key differently.
+
+    Two things ARE normalised, because they are serialisation and not meaning:
+
+    * key ORDER, since gold and the model write the same filter's fields in different orders;
+    * `None`-valued keys, since Pydantic treats an absent optional and an explicitly-null one
+      identically. Without this, gold's `{"type":"O2E","object":0,"event":0}` and the model's
+      `{...,"filterLabel":null}` -- the same filter -- keyed as different, and 4 of the 31
+      `link_mismatch` cases at N2 (2 of 22 at N1) were this artefact. That inflated the class by
+      13%, and the oracle computed on the inflated number is what nearly sent a week into
+      grounding. See notes 34.
     """
     if not isinstance(query_filter, dict):
         return ("<unreadable>",)
-    return (json.dumps(query_filter, sort_keys=True, default=str),)
+    return (json.dumps(_strip_nulls(query_filter), sort_keys=True, default=str),)
 
 
 def _filters(box: dict) -> tuple:

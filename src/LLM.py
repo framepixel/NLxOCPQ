@@ -145,6 +145,9 @@ generation_token_budget = None
 # the constrained-decoding grammar so the root box must declare exactly that many variables.
 # See `set_forced_root_arity` -- any run using it produces a ceiling, never system performance.
 forced_root_arity = None
+# NON-ORACLE per-case constraint: the log whose declared attribute types the value filters must
+# respect, or None. Unlike `forced_root_arity` this comes from the log schema, not gold.
+type_aware_filters_log = None
 # Per-call override: constrain generation to a DIFFERENT Pydantic model than the OCPQ tree. Used
 # by the arity predictor, which asks a narrow question and wants a two-integer answer, not a query.
 # None keeps the OCPQ grammar. See `set_constrained_schema`.
@@ -385,6 +388,24 @@ def set_forced_root_arity(value):
 
 def get_forced_root_arity():
     return forced_root_arity
+
+
+def set_type_aware_filters(ocel_path):
+    """Constrain attribute filters to the declared types of `ocel_path`, or None to leave free.
+
+    **Not an oracle**, and the distinction matters for how any result is reported: the types come
+    from the log schema, which a deployment has, where `set_forced_root_arity` takes its number
+    from the gold query. A run using only this remains system performance.
+
+    Per case for the same reason the others are -- the constraint depends on which log the case
+    uses -- though the compiled grammar caches on the log, so it holds at most one entry per log.
+    """
+    global type_aware_filters_log
+    type_aware_filters_log = ocel_path or None
+
+
+def get_type_aware_filters():
+    return type_aware_filters_log
 
 
 def set_generation_token_budget(value):
@@ -1275,6 +1296,103 @@ def _check_context_budget(prompt_tokens, max_tokens):
 _XGRAMMAR_CACHE = {}
 
 
+# Which `value_filter` variants are admissible for an attribute of each declared type. Integer and
+# Float are mutually permitted because gold uses Float bounds on integer-ish attributes and the
+# distinction is not one the log's own typing makes reliably; Time permits String because OCEL
+# serialises timestamps as strings.
+VALUE_FILTER_FOR_DECLARED = {
+    "integer": ("ValueFilterInteger", "ValueFilterFloat"),
+    "float": ("ValueFilterFloat", "ValueFilterInteger"),
+    "boolean": ("ValueFilterBoolean",),
+    "string": ("ValueFilterString",),
+    "time": ("ValueFilterTime", "ValueFilterString"),
+}
+_ATTRIBUTE_FILTERS = {
+    "FilterObjectAttributeValueFilter": "object_attributes",
+    "FilterEventAttributeValueFilter": "event_attributes",
+}
+
+
+def _type_aware_schema(schema, ocel_path):
+    """Constrain each attribute filter's `value_filter` to the attribute's DECLARED type.
+
+    The model's most repeated semantic error is collapsing comparisons into string membership:
+    `Age` is declared Integer and the prompt says so, yet "older than 40" comes out as
+    `String{is_in: ["40"]}` where gold has `Integer{min: 41}`. Across the 2026-09-11 run it emitted
+    `Boolean -> String` 16 times and `Integer -> String` 11 times; gold contradicts a declared type
+    0 times in 117. The information was never missing -- `build_schema_block` renders
+    `Age (Integer)` correctly -- so what this adds is the constraint, not the knowledge.
+
+    **This is not an oracle.** The types come from the log schema, which any deployment has. That is
+    what separates it from the arity forcing of notes 32.
+
+    Grouped by declared TYPE rather than by attribute: one branch per type (at most five), each
+    carrying an enum of the names that have it. Branching per attribute would need one branch per
+    name, and bpic2017 has 494 (event type, name) pairs. Grouping by name is safe because no
+    attribute name carries conflicting declared types in any of the 25 logs -- checked, not assumed.
+
+    Returns the schema unchanged when the log declares no typed attributes, so a log without them
+    costs nothing and cannot fail.
+    """
+    try:
+        log_schema = extract_ocel_schema(ocel_path)
+    except Exception as exc:  # noqa: BLE001 - a constraint we cannot build is one we skip
+        print(f"   type-aware filters unavailable for {ocel_path}: {exc}")
+        return schema
+
+    defs = schema["$defs"]
+    replacements = {}
+    for filter_def, attribute_key in _ATTRIBUTE_FILTERS.items():
+        if filter_def not in defs:
+            continue
+        by_type = {}
+        for attributes in (log_schema.get(attribute_key) or {}).values():
+            for attribute in attributes:
+                declared = str(attribute.get("type", "")).lower()
+                if declared in VALUE_FILTER_FOR_DECLARED:
+                    by_type.setdefault(declared, set()).add(attribute["name"])
+        if not by_type:
+            continue
+        branches = []
+        for declared, names in sorted(by_type.items()):
+            branch = copy.deepcopy(defs[filter_def])
+            branch["properties"]["attribute_name"] = {"enum": sorted(names)}
+            branch["properties"]["value_filter"] = {
+                "anyOf": [{"$ref": f"#/$defs/{v}"} for v in VALUE_FILTER_FOR_DECLARED[declared]]}
+            name = f"{filter_def}__{declared}"
+            defs[name] = branch
+            branches.append({"$ref": f"#/$defs/{name}"})
+        replacements[f"#/$defs/{filter_def}"] = branches
+
+    if not replacements:
+        return schema
+
+    def rewrite_union(node):
+        """Swap each attribute-filter ref for its typed branches, wherever the union appears."""
+        if isinstance(node, dict):
+            for key in ("anyOf", "oneOf"):
+                variants = node.get(key)
+                if isinstance(variants, list) and any(
+                        v.get("$ref") in replacements for v in variants if isinstance(v, dict)):
+                    rebuilt = []
+                    for variant in variants:
+                        ref = variant.get("$ref") if isinstance(variant, dict) else None
+                        rebuilt.extend(replacements[ref] if ref in replacements else [variant])
+                    node[key] = rebuilt
+                    # The discriminator maps a `type` literal to ONE ref, and every branch here
+                    # keeps the same literal. Leaving it would be a mapping that no longer
+                    # describes the union -- drop it rather than let it drift.
+                    node.pop("discriminator", None)
+            for value in node.values():
+                rewrite_union(value)
+        elif isinstance(node, list):
+            for value in node:
+                rewrite_union(value)
+
+    rewrite_union(schema)
+    return schema
+
+
 def _arity_pinned_schema(root_index, n_event_vars, n_object_vars):
     """The OCPQ schema with the ROOT box's variable counts pinned, every other node left free.
 
@@ -1346,7 +1464,7 @@ def _ocpq_logits_processor():
     # `forced_root_arity` is per case, so it is part of the key. Gold has only 6 distinct root
     # arities across 13 (root_index, arity) combinations in the whole testset, so this cache stays
     # tiny even though the grammar is nominally per-case.
-    key = (id(local_tokenizer), id(local_model), forced_root_arity,
+    key = (id(local_tokenizer), id(local_model), forced_root_arity, type_aware_filters_log,
            getattr(constrained_schema_override, "__name__", None))
     cached = _XGRAMMAR_CACHE.get(key)
     if cached is None:
@@ -1358,13 +1476,20 @@ def _ocpq_logits_processor():
         tokenizer_info = xgr.TokenizerInfo.from_huggingface(
             local_tokenizer, vocab_size=vocab_size)
         if constrained_schema_override is not None:
-            # A narrow question (the arity predictor), not a query. Root-arity pinning is
-            # meaningless here and is deliberately ignored rather than combined.
+            # A narrow question (the arity predictor), not a query. The query-shaped constraints
+            # are meaningless here and are deliberately ignored rather than combined.
             source = constrained_schema_override
-        elif forced_root_arity is None:
+        elif forced_root_arity is None and type_aware_filters_log is None:
             source = BindingBoxTree
         else:
-            source = json.dumps(_arity_pinned_schema(*forced_root_arity))
+            # The two transforms compose: both rewrite the same schema and touch disjoint parts of
+            # it -- arity pins the root box's variable counts, type-awareness rewrites the
+            # attribute-filter union. Applied in sequence so a rung can carry either or both.
+            built = (_arity_pinned_schema(*forced_root_arity) if forced_root_arity
+                     else copy.deepcopy(OCPQ_JSON_SCHEMA))
+            if type_aware_filters_log is not None:
+                built = _type_aware_schema(built, type_aware_filters_log)
+            source = json.dumps(built)
         cached = xgr.GrammarCompiler(tokenizer_info).compile_grammar(
             xgr.Grammar.from_json_schema(source, any_order=True, strict_mode=True)
         )
