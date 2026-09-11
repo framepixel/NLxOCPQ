@@ -178,6 +178,27 @@ except SystemExit as exc:
     check("an out-of-range index raises SystemExit", True, True)
     check("...and names the available models", "llama31-8b-finetuned" in str(exc), True)
 
+print("\n--- every testset log resolves to a file that exists ---")
+# The second thing that cost a cluster job. The probe anchored log paths on the TESTSET file's
+# directory; the testset lives in `data/`, so every log resolved to a nonexistent `NLxOCPQ/Logs/`.
+# `eval_testset._load_testset` anchors on the REPO ROOT and carries a comment saying exactly why.
+# Resolving all 169 takes milliseconds and does not need a GPU, so there is no excuse for finding
+# this on a compute node again.
+import paths  # noqa: E402
+from eval_testset import _resolve_ocel_path  # noqa: E402
+
+resolved = [_resolve_ocel_path(e["ocel_path"], paths.REPO_ROOT) for e in TESTSET]
+missing = [r for r in resolved if not Path(r).exists()]
+check(f"all {len(TESTSET)} testset logs exist once resolved", missing[:3], [])
+check("...and they land outside the repo, where Logs/ actually is",
+      "NLxOCPQ" not in str(Path(resolved[0]).parent), True)
+
+# Pin the anchor itself: resolving against the testset's own directory must NOT work, or the
+# assertion above would pass for the wrong reason on someone's machine.
+wrong = _resolve_ocel_path(TESTSET[0]["ocel_path"], REPO / "data")
+check("anchoring on the testset directory resolves to a path that does not exist",
+      Path(wrong).exists(), False)
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")

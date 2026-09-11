@@ -102,7 +102,11 @@ def probe(testset_path, config, model_idx, limit):
     started = time.time()
     for index, entry in enumerate(testset):
         gold = _gold_root_arity(entry.get("ocpq_query"))
-        ocel_path = _resolve_ocel_path(entry["ocel_path"], Path(testset_path).parent)
+        # Anchored on the REPO ROOT, not on the testset file's directory. The testset
+        # lives in `data/`, so anchoring there resolves every log to a nonexistent
+        # `NLxOCPQ/Logs/` -- which is exactly what this got wrong first time, and what
+        # the comment above `anchor_dir` in eval_testset._load_testset warns about.
+        ocel_path = _resolve_ocel_path(entry["ocel_path"], paths.REPO_ROOT)
         if ocel_path not in schema_cache:
             schema_cache[ocel_path] = build_schema_block(extract_ocel_schema(ocel_path))
         t0 = time.time()
