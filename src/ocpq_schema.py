@@ -188,6 +188,20 @@ class BindingBoxTree(BaseModel):
     nodes: List[BindingBoxTreeNodeBox]
     edgeNames: List[Tuple[Tuple[int, int], str]]
 
+class RootArity(BaseModel):
+    """How many variables the ROOT binding box declares -- the prediction target of the arity
+    predictor.
+
+    Forcing this to gold's value took result F1 from 0.2162 to 0.3109 (notes 32), the largest
+    effect any intervention in this project has had. That condition is an ORACLE; predicting the
+    pair from the question is what turns it into a system.
+
+    Bounded at 4 because gold never exceeds 2 of either kind and the model has no business
+    proposing more: an unbounded integer lets a constrained decoder emit 999 and stall.
+    """
+    n_event_vars: int = Field(ge=0, le=4)
+    n_object_vars: int = Field(ge=0, le=4)
+
 class QueryVerification(BaseModel):
     is_correct: bool
     issues: List[str]
@@ -221,6 +235,7 @@ class QueryTree(BaseModel):
     edges: List[QueryTreeEdge]
 
 OCPQ_JSON_SCHEMA = BindingBoxTree.model_json_schema()
+ROOT_ARITY_SCHEMA = RootArity.model_json_schema()
 VERIFICATION_JSON_SCHEMA = QueryVerification.model_json_schema()
 EXTRACTED_STRUCTURE_SCHEMA = ExtractedStructure.model_json_schema()
 QUERY_TREE_SCHEMA = QueryTree.model_json_schema()

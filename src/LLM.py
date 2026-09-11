@@ -22,7 +22,7 @@ from huggingface_hub import InferenceClient
 from pydantic import ValidationError
 
 import paths
-from ocpq_schema import OCPQ_JSON_SCHEMA, BindingBoxTree, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
+from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
 
 from LogEvents import events_and_objects_from_ocel, extract_ocel_schema
 
@@ -145,6 +145,10 @@ generation_token_budget = None
 # the constrained-decoding grammar so the root box must declare exactly that many variables.
 # See `set_forced_root_arity` -- any run using it produces a ceiling, never system performance.
 forced_root_arity = None
+# Per-call override: constrain generation to a DIFFERENT Pydantic model than the OCPQ tree. Used
+# by the arity predictor, which asks a narrow question and wants a two-integer answer, not a query.
+# None keeps the OCPQ grammar. See `set_constrained_schema`.
+constrained_schema_override = None
 
 LLM_CALL_STATS = []
 QUERY_EXEC_STATS = []
@@ -336,6 +340,25 @@ def set_constrained_decoding(value):
 
 def get_constrained_decoding():
     return constrained_decoding
+
+
+def set_constrained_schema(model):
+    """Constrain the next generation to `model` instead of the OCPQ tree, or None to restore it.
+
+    The grammar machinery is per-call state exactly as `set_generation_seed` and
+    `set_forced_root_arity` are, and for the same reason: which schema applies depends on what is
+    being asked, so it must not be process-global.
+
+    Only consulted when constrained decoding is on. Callers are expected to clear it in a
+    `finally`, because a leaked override would silently constrain the NEXT query generation to a
+    two-integer object and fail every case after it.
+    """
+    global constrained_schema_override
+    constrained_schema_override = model
+
+
+def get_constrained_schema():
+    return constrained_schema_override
 
 
 def set_forced_root_arity(value):
@@ -1323,7 +1346,8 @@ def _ocpq_logits_processor():
     # `forced_root_arity` is per case, so it is part of the key. Gold has only 6 distinct root
     # arities across 13 (root_index, arity) combinations in the whole testset, so this cache stays
     # tiny even though the grammar is nominally per-case.
-    key = (id(local_tokenizer), id(local_model), forced_root_arity)
+    key = (id(local_tokenizer), id(local_model), forced_root_arity,
+           getattr(constrained_schema_override, "__name__", None))
     cached = _XGRAMMAR_CACHE.get(key)
     if cached is None:
         # The model's vocabulary is often LARGER than the tokenizer's, because checkpoints pad the
@@ -1333,7 +1357,11 @@ def _ocpq_logits_processor():
         vocab_size = getattr(getattr(local_model, "config", None), "vocab_size", None)
         tokenizer_info = xgr.TokenizerInfo.from_huggingface(
             local_tokenizer, vocab_size=vocab_size)
-        if forced_root_arity is None:
+        if constrained_schema_override is not None:
+            # A narrow question (the arity predictor), not a query. Root-arity pinning is
+            # meaningless here and is deliberately ignored rather than combined.
+            source = constrained_schema_override
+        elif forced_root_arity is None:
             source = BindingBoxTree
         else:
             source = json.dumps(_arity_pinned_schema(*forced_root_arity))
@@ -1486,6 +1514,77 @@ def _record_llm_call(response, duration_sec, model_name=None, response_format=No
     if isinstance(response_format, dict):
         entry["response_format"] = response_format.get("type")
     LLM_CALL_STATS.append(entry)
+
+
+# The question the arity predictor asks. Kept at module level because it IS the experiment: if the
+# predictor underperforms a constant, the prompt is the first thing to look at, and it must be
+# quotable in the write-up without digging through a call stack.
+ROOT_ARITY_PROMPT = (
+    "An OCPQ query is a tree of binding boxes. The ROOT box holds the query's ANSWER -- the "
+    "rows the user gets back. Child boxes exist only to express conditions ABOUT those rows, "
+    "and the variables they declare are NOT part of the answer.\n\n"
+    "Decide what the ANSWER is about, not what the question mentions. Examples of the "
+    "distinction:\n"
+    "  \"Which orders were delivered late?\"            -> a set of orders: "
+    "0 event variables, 1 object variable. The delivery event is a CONDITION, in a child.\n"
+    "  \"Which deliveries happened after the deadline?\" -> a set of events: "
+    "1 event variable, 0 object variables.\n"
+    "  \"Which orders had an item shipped separately?\"  -> still 1 object "
+    "variable; both the shipping event and the item are conditions.\n\n"
+    "Count ONLY the variables the root box itself declares.\n\n"
+    "{schema_block}\n\n"
+    "Question: {query}\n\n"
+    "Answer with n_event_vars and n_object_vars for the ROOT box only."
+)
+
+
+def predict_root_arity(query, ocel_path, model_name, schema_block=None):
+    """Predict `(n_event_vars, n_object_vars)` for the root box, from the question alone.
+
+    The non-oracle half of notes 32. Forcing the root arity to GOLD's value moved result F1 from
+    0.2162 to 0.3109, the largest effect in the project; this is the component that has to supply
+    that number without gold.
+
+    Answered through the same constrained decoder as everything else, against `RootArity`, so the
+    reply is a parseable two-integer object by construction rather than prose to be regex'd. That
+    matters more than usual here: a malformed answer means no prediction, and no prediction is
+    strictly better than a wrong one -- forcing the wrong arity makes the correct query
+    UNREACHABLE, whereas not forcing leaves the model its own 43.8% chance.
+
+    Returns:
+        `(n_event_vars, n_object_vars)`, or None when the model gave nothing usable. The caller is
+        expected to treat None as "do not force".
+    """
+    if schema_block is None:
+        schema_block = build_schema_block(extract_ocel_schema(ocel_path))
+    messages = [
+        {"role": "system", "content": "You are a process mining expert. Answer with JSON only."},
+        {"role": "user", "content": ROOT_ARITY_PROMPT.format(
+            schema_block=schema_block, query=query)},
+    ]
+    previous = get_constrained_schema()
+    set_constrained_schema(RootArity)
+    try:
+        response = call_hf_with_retry(
+            model=model_name,
+            messages=messages,
+            max_tokens=64,
+            response_format=_build_response_format("root_arity", ROOT_ARITY_SCHEMA, True),
+        )
+    except Exception as exc:  # noqa: BLE001 - a failed prediction must not fail the case
+        print(f"   arity prediction failed: {exc}")
+        return None
+    finally:
+        # In a finally because a leaked override would constrain the NEXT query generation to a
+        # two-integer object and fail every case after this one.
+        set_constrained_schema(previous)
+
+    parsed = parse_llm_json(response.choices[0].message.content or "")
+    try:
+        arity = RootArity.model_validate(parsed)
+    except Exception:  # noqa: BLE001
+        return None
+    return arity.n_event_vars, arity.n_object_vars
 
 
 def _build_response_format(schema_name, schema, enforce_schema=True):

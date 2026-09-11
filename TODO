@@ -646,3 +646,54 @@
   0.8162. Constrained decoding moved the first and left the second untouched -- arity_mismatch is
   still 63.6% of wrong populations at D2, and still only 16% of that is the notes-26 extra-column
   artefact. ARITY IS NOW THE WHOLE BALL GAME.
+
+- DONE (2026-09-11) ARITY ABLATION: FORCING STRUCTURE WORKS. Results in
+  Thesis/notes/11-evaluation-readiness.md 32. 507 runs, 169 per rung, all complete, merge clean.
+    N0 free -> N1 constrained+normalisation -> N2 ORACLE forced arity
+    schema-valid  121/169 -> 168/169 -> 156/169
+    F1 (disc)      0.1799 -> 0.2162 -> 0.3109      floor 0.7250
+    skill         -0.6310 -> -0.5542 -> -0.3857
+    root arity ok  54/169 ->  74/169 -> 169/169 (by construction)
+  N1 -> N2 paired: 23 better, 0 worse, +0.0947 (95% CI +0.0512..+0.1382), SIGNIFICANT.
+  THE FIRST INTERVENTION THAT MOVED THE PRIMARY METRIC MATERIALLY. notes 25 ASKED the model to
+  adopt gold's tree and it declined (33% -> 30% -> 27%). This does not ask: the decoding grammar is
+  tightened per case so the root box CAN ONLY declare gold's variable count. The composition
+  programme is not dead -- it was the PROMPTING that did not work, not the structure.
+  Recovers 51% of notes-27's 0.4033 oracle estimate for solving arity_mismatch perfectly. COST WAS
+  NIL: N2 lost 10 queries that were schema-valid at N1, and all 10 scored exactly 0.0000 anyway. On
+  the 124 valid in both, 0.2354 -> 0.3385.
+  N1 hit the pre-registered 168/169 exactly; the `filters` normalisation fired 9 times (and 4 at
+  N2), each recorded in `normalized_fields`.
+  Compliance is 169/169. A first reading said 167/169 -- that was the CHECK being wrong, comparing
+  arity at the PREDICTION's computed root index rather than the position the grammar pinned.
+
+- KEY FINDING (2026-09-11) THE MODEL IS WORSE THAN A CONSTANT AT CHOOSING ARITY.
+    constant "always 0 event / 1 object"  107/169 = 63.3%
+    fine-tuned model, constrained          74/169 = 43.8%
+    fine-tuned model, free                 54/169 = 32.0%
+  Gold's root arity is concentrated: (0,1) is 107/169, (1,1) is 36, (1,0) is 13, and three other
+  values share the remaining 13. A predictor that ignores the question entirely beats the model by
+  20 points. This is what makes the next step cheap.
+
+- NEXT (2026-09-11) MAKE ARITY NON-ORACLE -- turn the ceiling into a system. Predict (n_event_vars,
+  n_object_vars) for the root from the question + schema, then force it with the same per-case
+  grammar. It is a 6-class problem with a 63.3% majority class, and notes 32.4 shows anything at
+  all beats the model's own 43.8%. Rungs: constant-majority predictor (the floor of this idea),
+  then a real classifier, both against N2 = 0.3109 as the ceiling. Cheap: no retraining of the
+  generator, and the forcing machinery already exists and is tested.
+
+- REOPENED (2026-09-11) G1 (static log grounding), closed in notes 31 on an oracle that no longer
+  applies. That oracle put "solve link_mismatch perfectly" at 0.2820 and found it in no clearing
+  combination -- but it was computed BEFORE arity was forced. Recomputed on N2:
+    no_result alone                0.6517  (was 0.5643)
+    no_result + link_mismatch      0.8063  CLEARS the 0.7250 floor
+    no_result + pop_exact          0.7350  clears
+  link_mismatch is 59.6% of wrong populations at N2 (was 28.6%) and is what grounding targets.
+  GENERAL LESSON, worth applying to every closed direction in notes 26.6: AN ORACLE COMPUTED ON ONE
+  DISTRIBUTION STOPS BEING VALID ONCE AN INTERVENTION CHANGES THAT DISTRIBUTION. Re-derive the
+  failure budget after anything that moves it.
+
+- NOTE (2026-09-11) `type_mismatch` went 0% -> 26.9% of wrong populations when arity was forced.
+  notes 28.2 concluded "type selection is solved"; that held only while arity was free to absorb
+  the error. Forced to declare exactly N variables, the model sometimes fills them with the wrong
+  types. Not a regression -- a previously hidden error becoming visible.
