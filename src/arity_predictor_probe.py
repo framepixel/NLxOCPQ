@@ -177,17 +177,39 @@ def report(rows):
         mark = "  correct" if gold == pred else ""
         print(f"    {str(gold):10s} -> {str(pred):10s}  {n:>4}{mark}")
 
-    verdict_pooled = correct > const_correct
-    verdict_minority = minority_n and minority_hits > 0
+    # ACCURACY IS THE WRONG STATISTIC, and the first version of this gate used it. A correct
+    # prediction on a minority-arity case is worth roughly 2.3x one on a majority case, because
+    # that is the per-case gain forcing bought in notes 32.4:
+    #     gold IS  (0,1)   free 0.3009 -> forced 0.3644   = +0.064
+    #     gold NOT (0,1)   free 0.0766 -> forced 0.2228   = +0.146
+    # So a predictor can be LESS accurate than the constant overall and still be worth more. The
+    # 2026-09-11 probe was exactly that: 52.7% against the constant's 63.3%, yet ahead of it on
+    # expected F1 because it recovered 37.1% of the minority cases a constant always misses.
+    GAIN_MAJORITY, GAIN_MINORITY = 0.064, 0.146
+    majority_n = by_class.get(MAJORITY, {"n": 0})["n"]
+    majority_hits = by_class.get(MAJORITY, {"hit": 0})["hit"]
+    value = majority_hits * GAIN_MAJORITY + minority_hits * GAIN_MINORITY
+    const_value = majority_n * GAIN_MAJORITY          # a constant never wins a minority case
+
+    print(f"\n  EXPECTED VALUE (per-class gains from notes 32.4, not accuracy):")
+    print(f"    predictor : {majority_hits} x {GAIN_MAJORITY} + {minority_hits} x "
+          f"{GAIN_MINORITY} = {value:.2f}")
+    print(f"    constant  : {majority_n} x {GAIN_MAJORITY} + 0 x {GAIN_MINORITY} = "
+          f"{const_value:.2f}")
+
+    verdict_value = value > const_value
+    verdict_minority = bool(minority_n and minority_hits > 0)
     print(f"\n{'=' * 66}")
-    print(f"  beats the constant        : {'YES' if verdict_pooled else 'NO'}")
-    print(f"  finds minority arities    : {'YES' if verdict_minority else 'NO'}")
-    if verdict_pooled and verdict_minority:
+    print(f"  worth more than the constant : {'YES' if verdict_value else 'NO'}   "
+          f"(expected value -- the statistic that matters)")
+    print(f"  finds minority arities       : {'YES' if verdict_minority else 'NO'}")
+    print(f"  pooled accuracy vs constant  : {correct / len(scored):.1%} vs "
+          f"{const_correct / len(scored):.1%}   (reported, NOT the criterion)")
+    if verdict_value and verdict_minority:
         print("  GATE: PASS -> the rung run is worth its GPU time.")
     else:
-        print("  GATE: FAIL -> a predictor that is the constant plus noise captures none of")
-        print("        the oracle's gain. Fix the prompt or drop the direction; do NOT")
-        print("        spend 676 runs on it.")
+        print("  GATE: FAIL -> this predictor is not worth more than ignoring the question.")
+        print("        Fix the prompt and re-probe (10 min); do NOT spend 676 runs on it.")
     print("=" * 66)
     return {
         "n": len(scored), "correct": correct, "abstained": abstained,
@@ -195,7 +217,9 @@ def report(rows):
         "constant_accuracy": const_correct / len(scored) if scored else None,
         "minority_recall": (minority_hits / minority_n) if minority_n else None,
         "per_class": {str(k): v for k, v in by_class.items()},
-        "gate_passed": bool(verdict_pooled and verdict_minority),
+        "expected_value": value,
+        "constant_expected_value": const_value,
+        "gate_passed": bool(verdict_value and verdict_minority),
     }
 
 

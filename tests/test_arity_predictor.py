@@ -199,6 +199,48 @@ wrong = _resolve_ocel_path(TESTSET[0]["ocel_path"], REPO / "data")
 check("anchoring on the testset directory resolves to a path that does not exist",
       Path(wrong).exists(), False)
 
+print("\n--- the prompt is not tuned on the evaluation set ---")
+# Prompt-engineering against the probe's confusion matrix IS test-set fitting, and it is easy to
+# do without noticing. Two rules, both asserted rather than intended:
+#   * the worked examples use a domain that appears in NO evaluation log, so the model is taught
+#     the principle rather than this testset's vocabulary;
+#   * the observed distribution of gold arities is NOT stated in the prompt. It is a label
+#     statistic of the evaluation set, and quoting it would make the predictor part oracle --
+#     exactly what notes 32 is careful to keep separate.
+import re  # noqa: E402
+from LLM import ROOT_ARITY_PROMPT  # noqa: E402
+
+rendered = ROOT_ARITY_PROMPT.format(schema_block="", query="").lower()
+
+gold_vocab = set()
+def _collect(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ("newEventVars", "newObjectVars") and isinstance(value, dict):
+                for names in value.values():
+                    for name in (names if isinstance(names, list) else [names]):
+                        gold_vocab.add(str(name).lower())
+            _collect(value)
+    elif isinstance(node, list):
+        for value in node:
+            _collect(value)
+for entry in TESTSET:
+    _collect(entry["ocpq_query"])
+
+# The nouns the examples are built from. If any of these ever names a real evaluation entity, the
+# prompt has started teaching this testset rather than the rule.
+EXAMPLE_NOUNS = ["ticket", "agent", "kiosk", "badge", "escalation", "callback", "handover"]
+leaked = [n for n in EXAMPLE_NOUNS
+          if any(re.search(r"" + n + r"s?", term) for term in gold_vocab)]
+check("no example noun names an evaluation entity", leaked, [])
+check("...and the examples really are in the prompt",
+      all(n in rendered for n in EXAMPLE_NOUNS), True)
+
+# The gold arity distribution must not appear, in any of the forms it would naturally be written.
+for forbidden in ("63.3", "63%", "0.633", "107 of", "107/169", "21.3"):
+    check(f"the prompt does not quote the gold distribution ({forbidden!r})",
+          forbidden in rendered, False)
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")
