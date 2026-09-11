@@ -151,6 +151,33 @@ abstaining = _gate([{"gold": list(gd), "predicted": None} for gd in golds])
 check("abstentions are counted separately", abstaining["abstained"], len(golds))
 check("...and never count as correct", abstaining["correct"], 0)
 
+print("\n--- the probe resolves a REAL config, the way the evaluation does ---")
+# This is here because guessing `expand_models`' signature cost a cluster job: the probe called
+# `expand_models(models, ft_map)` when it takes and returns the whole CONFIG, and died on the first
+# line after the model finished loading. A no-GPU resolution check catches that in milliseconds.
+from arity_predictor_probe import _expand_model  # noqa: E402
+
+cfg = json.loads((REPO / "configs" / "eval_config.json").read_text(encoding="utf-8"))
+resolved = _expand_model(cfg, 1)
+check("model-idx 1 resolves", isinstance(resolved, dict) and "name" in resolved, True)
+check("...to the fine-tuned Llama the ablations use",
+      resolved.get("label"), "llama31-8b-finetuned")
+# The index must mean the same thing here as in eval_testset, or the probe measures another model.
+import eval_testset as ET  # noqa: E402
+ev_cfg = json.loads((REPO / "configs" / "eval_config.json").read_text(encoding="utf-8"))
+if ev_cfg.get("auto_expand_finetuned"):
+    from expand_models import expand_models  # noqa: E402
+    ev_cfg = expand_models(ev_cfg)
+check("the probe and eval_testset agree on what --model-idx 1 means",
+      ev_cfg["models"][1].get("label"), resolved.get("label"))
+# And an out-of-range index must fail loudly, naming the options.
+try:
+    _expand_model(cfg, 999)
+    check("an out-of-range index raises", False, True)
+except SystemExit as exc:
+    check("an out-of-range index raises SystemExit", True, True)
+    check("...and names the available models", "llama31-8b-finetuned" in str(exc), True)
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")

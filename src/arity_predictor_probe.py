@@ -60,14 +60,21 @@ MAJORITY = (0, 1)
 
 
 def _expand_model(config, model_idx):
-    """The model entry the evaluation would use, so the probe measures the same thing it does."""
-    models = config.get("models", [])
-    fine_tune_map = config.get("fine_tune_map", {})
-    if config.get("auto_expand_finetuned", True):
+    """The model entry the evaluation would use, so the probe measures the same thing it does.
+
+    Mirrors `eval_testset.run_evaluation` exactly: `expand_models` takes and returns the whole
+    CONFIG, not a models list. Getting that wrong cost a cluster job -- the probe died at the first
+    line after model load, which is the most expensive place to discover a two-argument mistake.
+    `tests/test_arity_predictor.py` now resolves a real config so it cannot recur silently.
+    """
+    if config.get("auto_expand_finetuned"):
         from expand_models import expand_models
-        models = expand_models(models, fine_tune_map)
+        config = expand_models(config)
+    models = config.get("models", [])
     if model_idx is None or model_idx >= len(models):
-        raise SystemExit(f"--model-idx {model_idx} out of range (0-{len(models) - 1}).")
+        labels = [m.get("label") for m in models]
+        raise SystemExit(
+            f"--model-idx {model_idx} out of range (0-{len(models) - 1}). Available: {labels}")
     return models[model_idx]
 
 
