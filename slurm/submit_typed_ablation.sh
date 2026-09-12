@@ -145,11 +145,23 @@ case "$TASK" in
 esac
 
 OCPQ_RESUME_REQUESTED="${OCPQ_RESUME:-0}"
-for arg in "$@"; do
-  case "$arg" in
+# `--case-shard I/N` is accepted as an ARGUMENT as well as via $OCPQ_CASE_SHARD. The env var needs
+# sbatch to propagate the submitting environment, and that silently did not happen three times
+# running (2026-09-12, jobs 4041388 and 4042439: no CASE SHARD line, _case_shard null, slice 0
+# again). Arguments after the script name are passed through by sbatch directly, so this form
+# cannot be lost in propagation:
+#     sbatch --array=0-2 slurm/submit_typed_ablation.sh --case-shard 2/11
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --resume) OCPQ_RESUME_REQUESTED=1 ;;
-    *) echo "Warning: ignoring unrecognised argument '$arg'" >&2 ;;
+    --case-shard)
+      shift
+      [ "$#" -gt 0 ] || { echo "FATAL: --case-shard needs a value like 2/11" >&2; exit 1; }
+      OCPQ_CASE_SHARD="$1" ;;
+    --case-shard=*) OCPQ_CASE_SHARD="${1#*=}" ;;
+    *) echo "Warning: ignoring unrecognised argument '$1'" >&2 ;;
   esac
+  shift
 done
 
 RESUME_ARGS=()
@@ -182,7 +194,16 @@ fi
 #
 # --case-shard appends `_c{I}of{N}` to the run directory, so a targeted smoke can never collide
 # with, or be merged into, the full run.
+# A malformed value must stop the job, not silently fall through to a full slice-0 run -- that is
+# the failure this whole block exists to prevent.
 CASE_ARGS=()
+if [ -n "${OCPQ_CASE_SHARD:-}" ]; then
+  case "$OCPQ_CASE_SHARD" in
+    [0-9]*/[0-9]*) : ;;
+    *) echo "FATAL: --case-shard/OCPQ_CASE_SHARD must look like I/N (got '$OCPQ_CASE_SHARD')." >&2
+       exit 1 ;;
+  esac
+fi
 if [ -n "${OCPQ_CASE_SHARD:-}" ]; then
   CASE_ARGS=(--case-shard "$OCPQ_CASE_SHARD")
   echo "CASE SHARD: ${OCPQ_CASE_SHARD} -- targeted SUBSET, not a full run."
