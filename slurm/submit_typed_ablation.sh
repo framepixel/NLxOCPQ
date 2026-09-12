@@ -166,6 +166,28 @@ if [ "$OCPQ_RESUME_REQUESTED" = "1" ]; then
   RESUME_ARGS=(--resume-from "$RESUME_DIR")
 fi
 
+# Targeted smoke: OCPQ_CASE_SHARD=I/N restricts this task to case slice I of N.
+#
+# The slice is CONTIGUOUS, and the testset's first 16 cases contain ZERO gold attribute
+# value-filters -- so a plain 10-minute smoke (which just processes cases in order until the wall
+# clock stops it) exercises NONE of what this ablation tests. The 2026-09-12 smoke did exactly
+# that: T0 and T1 produced byte-identical predictions on all 14 shared cases, and the
+# type-contradiction gate passed 0-of-0. A constraint that never binds is indistinguishable from
+# the pre-registered "T1 ~ T0" result, so that gate has to be made non-vacuous BEFORE the full run.
+#
+#   OCPQ_CASE_SHARD=2/11 sbatch --array=0-2 slurm/submit_typed_ablation.sh
+#
+# covers cases 32-47: 6 renting_log_high cases (the log carrying the exact Age/isMarried errors of
+# notes 34.3) and 7 whose gold uses an attribute value-filter.
+#
+# --case-shard appends `_c{I}of{N}` to the run directory, so a targeted smoke can never collide
+# with, or be merged into, the full run.
+CASE_ARGS=()
+if [ -n "${OCPQ_CASE_SHARD:-}" ]; then
+  CASE_ARGS=(--case-shard "$OCPQ_CASE_SHARD")
+  echo "CASE SHARD: ${OCPQ_CASE_SHARD} -- targeted SUBSET, not a full run."
+fi
+
 echo "Starting typed ablation task=${TASK} rung=${RUNG_NAME} at: $(date)"
 echo "Decode args: ${DECODE_ARGS[*]}"
 if [ "$TASK" != "0" ]; then
@@ -176,7 +198,7 @@ fi
 echo "Python: $(which python)"; python --version
 
 set -e
-python -u "$PROJECT_DIR/src/eval_testset.py"     --config "$PROJECT_DIR/configs/eval_config.typed_ablation.json"     --model-idx "${MODEL_IDX}"     --strategy-idx "${STRATEGY_IDX}"     --schema-idx "${SCHEMA_IDX}"     "${DECODE_ARGS[@]}"     "${RESUME_ARGS[@]}"     2>&1 | tee "logs/nlxocpq-typedabl-shard${TASK}.log"
+python -u "$PROJECT_DIR/src/eval_testset.py"     --config "$PROJECT_DIR/configs/eval_config.typed_ablation.json"     --model-idx "${MODEL_IDX}"     --strategy-idx "${STRATEGY_IDX}"     --schema-idx "${SCHEMA_IDX}"     "${DECODE_ARGS[@]}"     "${CASE_ARGS[@]}"     "${RESUME_ARGS[@]}"     2>&1 | tee "logs/nlxocpq-typedabl-shard${TASK}.log"
 rc=${PIPESTATUS[0]:-0}
 echo "Typed ablation rung ${TASK} exit code: $rc"
 exit $rc
