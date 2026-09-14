@@ -223,6 +223,10 @@ if [ "$TASK" = "1" ] || [ "$TASK" = "3" ]; then
   echo "      Every schema-valid record must carry structural_report; if not, the switch did not reach the pipeline."
 fi
 echo "Python: $(which python)"; python --version
+# Recorded because greedy generation is not bit-reproducible across jobs: in the 2026-09-14 smoke,
+# 1 of 15 S0 predictions and 1 of 7 S2 predictions differed from the same condition on 2026-09-13
+# with the structural switch off (notes 36). Node and GPU are what make such a difference attributable.
+echo "Node: $(hostname)  GPU: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | head -1)"
 
 set -e
 python -u "$PROJECT_DIR/src/eval_testset.py"     --config "$PROJECT_DIR/configs/eval_config.structural_ablation.json"     --model-idx "${MODEL_IDX}"     --strategy-idx "${STRATEGY_IDX}"     --schema-idx "${SCHEMA_IDX}"     "${DECODE_ARGS[@]}"     "${CASE_ARGS[@]}"     "${RESUME_ARGS[@]}"     2>&1 | tee "logs/nlxocpq-structabl-shard${TASK}.log"
