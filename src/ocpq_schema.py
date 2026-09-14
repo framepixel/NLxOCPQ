@@ -239,3 +239,247 @@ ROOT_ARITY_SCHEMA = RootArity.model_json_schema()
 VERIFICATION_JSON_SCHEMA = QueryVerification.model_json_schema()
 EXTRACTED_STRUCTURE_SCHEMA = ExtractedStructure.model_json_schema()
 QUERY_TREE_SCHEMA = QueryTree.model_json_schema()
+
+# --- STRUCTURAL VALIDATION ---
+#
+# Pydantic checks that a tree has the right SHAPE. It cannot check that the tree is EVALUABLE, and
+# ocpq_cli does not reject an unevaluable tree loudly: `evaluate_box_tree` returns an `Err` before
+# printing "Evaluated in", and `run_evaluate` serialises that `Result` straight into the export and
+# exits 0 (OCPQ/backend/ocpq_cli/src/main.rs). On 2026-09-13 that was 88 of the 507 executions of
+# the three arity rungs. Replayed through the CLI, 61 of the 68 distinct failing trees reported
+# "Could not get oN": a filter names a variable no enclosing box declares, so the step planner tries
+# to bind it in a box that never declared it (backend/shared/src/binding_box/expand_step.rs).
+# See Thesis/notes/11-evaluation-readiness.md §36.
+#
+# Every defect is a string "[kind] message", so one list can be counted and shown to a model. The
+# kinds split by what the Rust evaluator does when it reaches them:
+#   BLOCKING -- it errors or panics. Only these may trigger a repair.
+#   advisory -- it tolerates them: an optional reference with no value is treated as absent
+#               (`if let Some(..)`), and an edge name nobody walks is never looked up. Reported,
+#               never repaired. On 2026-09-13, 26 trees that evaluated normally carried one.
+BLOCKING_DEFECT_KINDS = frozenset({
+    "malformed_tree",
+    "child_out_of_range",
+    "multiple_parents",
+    "cycle",
+    "root_count",
+    "unbound_variable",
+})
+
+_EVENT_REFERENCE_FIELDS = ("event", "from_event", "to_event")
+_OBJECT_REFERENCE_FIELDS = ("object", "other_object")
+_CHILD_NAME_CONSTRAINTS = ("SAT", "ANY", "NOT", "OR", "AND")
+
+
+def defect_kind(defect: str) -> str:
+    """The `kind` of a "[kind] message" defect string, or "" if it has none."""
+    if isinstance(defect, str) and defect.startswith("[") and "]" in defect:
+        return defect[1:defect.index("]")]
+    return ""
+
+
+def blocking_defects(defects: List[str]) -> List[str]:
+    """The defects the evaluator errors on -- the only ones worth spending a repair on."""
+    return [defect for defect in defects if defect_kind(defect) in BLOCKING_DEFECT_KINDS]
+
+
+def _is_index(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _variable_keys(declared: Any) -> set:
+    """The variable indices a `newEventVars` / `newObjectVars` map declares."""
+    if not isinstance(declared, dict):
+        return set()
+    keys = set()
+    for key in declared:
+        try:
+            keys.add(int(key))
+        except (TypeError, ValueError):
+            continue
+    return keys
+
+
+def _filter_references(query_filter: dict) -> List[Tuple[str, str, int]]:
+    """Every variable one filter reads, as `(defect kind if unbound, "event"/"object", index)`.
+
+    A plain operand (`event`, `object`, `from_event`, ...) is looked up with `ok_or_else(..)?` and
+    errors when unbound. An at-event timepoint and a NotEqual operand are looked up as optional
+    values and silently treated as absent, so an unbound one is advisory.
+    """
+    references: List[Tuple[str, str, int]] = []
+    for field in _EVENT_REFERENCE_FIELDS:
+        if _is_index(query_filter.get(field)):
+            references.append(("unbound_variable", "event", query_filter[field]))
+    for field in _OBJECT_REFERENCE_FIELDS:
+        if _is_index(query_filter.get(field)):
+            references.append(("unbound_variable", "object", query_filter[field]))
+    at_time = query_filter.get("at_time")
+    if isinstance(at_time, dict) and _is_index(at_time.get("event")):
+        references.append(("unbound_optional_reference", "event", at_time["event"]))
+    if query_filter.get("type") == "NotEqual":
+        for side in ("var_1", "var_2"):
+            variable = query_filter.get(side)
+            if isinstance(variable, dict):
+                if _is_index(variable.get("Event")):
+                    references.append(("unbound_optional_reference", "event", variable["Event"]))
+                if _is_index(variable.get("Object")):
+                    references.append(("unbound_optional_reference", "object",
+                                       variable["Object"]))
+    return references
+
+
+def structural_defects(tree: Any) -> List[str]:
+    """What would stop ocpq_cli evaluating this tree, as far as can be told without running it.
+
+    Checks what Pydantic cannot: that the nodes form one tree, that each node's child list agrees
+    with `edgeNames`, that every child name a size filter or constraint uses is one of the node's
+    own children, and that every variable a filter reads is declared by the node or an ancestor.
+    Variables declared by a sibling or a descendant are NOT in scope.
+
+    Use `blocking_defects` to keep only the kinds the evaluator errors on. An empty list means none
+    of these defects were found -- not that the query is correct.
+
+    Args:
+        tree: A BindingBoxTree as a plain dict, typically model output.
+
+    Returns:
+        Deterministically ordered, de-duplicated "[kind] message" strings. Never raises: it runs
+        on model output, and a malformed prediction must be reportable rather than fatal.
+    """
+    defects: List[str] = []
+    if not isinstance(tree, dict) or not isinstance(tree.get("nodes"), list):
+        return ["[malformed_tree] no `nodes` list"]
+    nodes = tree["nodes"]
+    count = len(nodes)
+    if count == 0:
+        return defects
+
+    boxes: List[Tuple[dict, list]] = []
+    for index, node in enumerate(nodes):
+        box = node.get("Box") if isinstance(node, dict) else None
+        if (not isinstance(box, (list, tuple)) or len(box) != 2 or not isinstance(box[0], dict)
+                or not isinstance(box[1], list)):
+            defects.append(f"[malformed_tree] node {index} is not a Box of (data, children)")
+            boxes.append(({}, []))
+        else:
+            boxes.append((box[0], box[1]))
+
+    # The child lists are what evaluation walks, so they define the parent of each node.
+    parents: Dict[int, int] = {}
+    for index, (_data, children) in enumerate(boxes):
+        for child in children:
+            if not _is_index(child) or not 0 <= child < count:
+                defects.append(f"[child_out_of_range] node {index} lists child {child!r}, but the "
+                               f"tree has nodes 0..{count - 1}")
+                continue
+            if child == index:
+                defects.append(f"[cycle] node {index} lists itself as a child")
+                continue
+            if child in parents and parents[child] != index:
+                defects.append(f"[multiple_parents] node {child} is a child of both node "
+                               f"{parents[child]} and node {index}")
+                continue
+            parents[child] = index
+
+    edge_children: Dict[int, set] = {}
+    child_names: Dict[int, set] = {}
+    edges = tree.get("edgeNames")
+    for entry in edges if isinstance(edges, list) else []:
+        try:
+            (parent, child), name = entry
+        except (TypeError, ValueError):
+            defects.append(f"[malformed_tree] edgeNames entry {entry!r} is not "
+                           f"[[parent, child], name]")
+            continue
+        if not (_is_index(parent) and _is_index(child)
+                and 0 <= parent < count and 0 <= child < count):
+            defects.append(f"[edge_name_out_of_range] edgeNames entry [[{parent!r}, {child!r}], "
+                           f"{name!r}] points outside nodes 0..{count - 1}")
+            continue
+        edge_children.setdefault(parent, set()).add(child)
+        child_names.setdefault(parent, set()).add(name)
+
+    for index, (_data, children) in enumerate(boxes):
+        listed = {c for c in children if _is_index(c) and 0 <= c < count and c != index}
+        named = edge_children.get(index, set())
+        if listed != named:
+            defects.append(f"[children_mismatch] node {index} lists children {sorted(listed)} "
+                           f"but edgeNames link it to {sorted(named)}")
+
+    in_cycle = set()
+    for index in range(count):
+        current, steps = index, 0
+        while current in parents and steps <= count:
+            current, steps = parents[current], steps + 1
+        if steps > count:
+            in_cycle.add(index)
+    if in_cycle:
+        defects.append(f"[cycle] nodes {sorted(in_cycle)} are their own ancestors")
+
+    roots = [index for index in range(count) if index not in parents]
+    if len(roots) != 1:
+        defects.append(f"[root_count] {len(roots)} node(s) have no parent {roots}; a tree has "
+                       f"exactly one root")
+
+    def in_scope(index: int) -> Tuple[set, set]:
+        events, objects, seen = set(), set(), set()
+        current: Optional[int] = index
+        while current is not None and current not in seen:
+            seen.add(current)
+            data = boxes[current][0]
+            events |= _variable_keys(data.get("newEventVars"))
+            objects |= _variable_keys(data.get("newObjectVars"))
+            current = parents.get(current)
+        return events, objects
+
+    for index, (data, _children) in enumerate(boxes):
+        scope = dict(zip(("event", "object"), in_scope(index)))
+        names = child_names.get(index, set())
+        shown_names = sorted(str(name) for name in names)
+
+        def check_filter(query_filter: dict, where: str) -> None:
+            filter_type = query_filter.get("type")
+            for kind, variable_kind, variable in _filter_references(query_filter):
+                if variable in scope[variable_kind]:
+                    continue
+                if kind == "unbound_variable":
+                    defects.append(f"[unbound_variable] node {index}: {where}{filter_type} reads "
+                                   f"{variable_kind} variable {variable}, which neither node "
+                                   f"{index} nor its ancestors declare")
+                else:
+                    defects.append(f"[unbound_optional_reference] node {index}: {where}"
+                                   f"{filter_type} refers to {variable_kind} variable {variable}, "
+                                   f"which is not in scope, so the engine treats it as absent")
+
+        def check_child_name(size_filter: dict, where: str) -> None:
+            if size_filter.get("type") != "NumChilds":
+                return
+            name = size_filter.get("child_name")
+            if name not in names:
+                defects.append(f"[unknown_child_name] node {index}: {where}NumChilds names child "
+                               f"{name!r}, but node {index}'s children are named {shown_names}")
+
+        for query_filter in data.get("filters") or []:
+            if isinstance(query_filter, dict):
+                check_filter(query_filter, "")
+        for size_filter in data.get("sizeFilters") or []:
+            if isinstance(size_filter, dict):
+                check_child_name(size_filter, "size filter ")
+        for constraint in data.get("constraints") or []:
+            if not isinstance(constraint, dict):
+                continue
+            constraint_type = constraint.get("type")
+            inner = constraint.get("filter")
+            if constraint_type == "Filter" and isinstance(inner, dict):
+                check_filter(inner, "constraint ")
+            elif constraint_type == "SizeFilter" and isinstance(inner, dict):
+                check_child_name(inner, "constraint ")
+            elif constraint_type in _CHILD_NAME_CONSTRAINTS:
+                for name in constraint.get("child_names") or []:
+                    if name not in names:
+                        defects.append(f"[unknown_child_name] node {index}: {constraint_type} "
+                                       f"names child {name!r}, but node {index}'s children are "
+                                       f"named {shown_names}")
+
+    return list(dict.fromkeys(defects))

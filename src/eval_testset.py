@@ -38,6 +38,8 @@ from LLM import (
     set_generation_token_budget,
     set_forced_root_arity,
     set_type_aware_filters,
+    set_structural_validation,
+    get_last_structural_report,
     get_last_normalized_fields,
     set_schema_level,
     set_hf_client,
@@ -208,7 +210,8 @@ _STRATUM_MISS = (None, None, {}, {})
 
 
 def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_budget,
-                     type_aware_filters=False, constant_root_arity=False):
+                     type_aware_filters=False, constant_root_arity=False,
+                     structural_validation=False):
     """The suffix that distinguishes decoding rungs, used by BOTH `config_id` and the shard name.
 
     One definition because these had already drifted apart once. `config_id` carried the arity
@@ -225,6 +228,8 @@ def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_bu
         suffix += "_constrained"
     if type_aware_filters:
         suffix += "_typed"
+    if structural_validation:
+        suffix += "_structval"
     if force_root_arity:
         suffix += "_arityforced"
     elif constant_root_arity:
@@ -1332,8 +1337,110 @@ def _load_testset(path, limit, seed, shuffle):
     return rows
 
 
+# How ocpq_cli reports an evaluation it could not perform. `run_evaluate`
+# (OCPQ/backend/ocpq_cli/src/main.rs) serialises `Result<EvaluateBoxTreeResult, String>` straight
+# into its export and exits 0 either way, and `evaluate_box_tree` (backend/shared/src/binding_box/
+# mod.rs) returns through `?` BEFORE printing "Evaluated in". So an `{"Err": ...}` export and a stdout
+# that reached "Exported result in" without "Evaluated in" are the same event -- seen live, and after
+# the export has been discarded. Until 2026-09-14 neither was read, and 31 of N2's 117 discriminating
+# "successes" had never been evaluated. See Thesis/notes/11-evaluation-readiness.md §36.
+_CLI_EVALUATED_MARKER = "Evaluated in"
+_CLI_EXPORTED_MARKER = "Exported result in"
+# Written by `QueryExecutor._clip_cli_output` into the middle of an over-long stdout. The evaluation
+# line may be in what was cut, so a clipped stdout can never prove that evaluation did not happen.
+_CLI_CLIPPED_MARKER = "lines omitted (cap "
+_CLI_ERROR_EXPORT_MAX_BYTES = 1024 * 1024
+
+
+def _cli_reported_evaluation(query_stdout: Any) -> Optional[bool]:
+    """Whether ocpq_cli's own stdout says the tree was evaluated.
+
+    Returns:
+        True when the evaluation line is present; False when the CLI ran as far as exporting
+        without it; None when the stdout is absent, clipped, or not a completed CLI run (a harness
+        warning, a panic dump, a record from before stdout was stored). Unknown is never guessed.
+    """
+    if not query_stdout:
+        return None
+    text = str(query_stdout)
+    if _CLI_EVALUATED_MARKER in text:
+        return True
+    if _CLI_CLIPPED_MARKER in text:
+        return None
+    if _CLI_EXPORTED_MARKER in text:
+        return False
+    return None
+
+
+def _read_cli_error(result_path: Optional[str],
+                    max_bytes: int = _CLI_ERROR_EXPORT_MAX_BYTES) -> Optional[str]:
+    """The message of an `{"Err": ...}` export, or None for anything else.
+
+    Bounded by size before reading: an error export is a few dozen bytes and a real result can be
+    gigabytes, so a large file is never parsed here just to learn it is not an error.
+    """
+    if not result_path or not os.path.exists(result_path):
+        return None
+    try:
+        if os.path.getsize(result_path) > max_bytes:
+            return None
+        data = _read_json(result_path)
+    except Exception:
+        return None
+    if not isinstance(data, dict) or "Err" not in data or "Ok" in data:
+        return None
+    message = data.get("Err")
+    return message if isinstance(message, str) else json.dumps(message, default=str)
+
+
+def _execution_succeeded(record: dict) -> bool:
+    """A successful execution means ocpq_cli exited cleanly AND evaluated the tree.
+
+    The exit status alone -- what `execution_success_rate` measured until 2026-09-14 -- is kept as
+    `cli_exit_success_rate`. Falls back to the stored stdout for records written before
+    `execution.evaluated` existed, so an older run reads correctly even without `--recompute`.
+    """
+    execution = record.get("execution") or {}
+    if not execution.get("success"):
+        return False
+    if record.get("status") == "execution_failed" or execution.get("cli_error"):
+        return False
+    if execution.get("evaluated") is False:
+        return False
+    return _cli_reported_evaluation(record.get("query_stdout")) is not False
+
+
+def _reclassify_unevaluated(records: list) -> int:
+    """For `--recompute`: relabel runs ocpq_cli never evaluated, from the stored stdout.
+
+    The export is long gone, so only the fact is recoverable, not the message. Touches nothing but
+    records labelled `success` whose stdout proves non-evaluation, and is idempotent.
+
+    Returns:
+        How many records were relabelled.
+    """
+    changed = 0
+    for record in records:
+        if record.get("status") != "success":
+            continue
+        if _cli_reported_evaluation(record.get("query_stdout")) is not False:
+            continue
+        execution = record.get("execution")
+        if not isinstance(execution, dict):
+            execution = {}
+            record["execution"] = execution
+        execution["evaluated"] = False
+        if not execution.get("cli_error"):
+            execution["cli_error"] = ("not evaluated: the stdout has no evaluation line; the export "
+                                      "was discarded before its message was read")
+        record["status"] = "execution_failed"
+        record["status_reclassified_from"] = "success"
+        changed += 1
+    return changed
+
+
 def _classify_run_status(status, error, schema_valid, exec_stats, query_result_file,
-                         query_stdout, result_too_large=False):
+                         query_stdout, result_too_large=False, cli_error=None):
     if status != "ok":
         lowered = (error or "").lower()
         # Before the substring matches below: a timeout message mentions "execution", so
@@ -1358,6 +1465,13 @@ def _classify_run_status(status, error, schema_valid, exec_stats, query_result_f
     # unlabelled it would be counted as a correct execution that happened to score 0.
     if result_too_large:
         return "result_too_large"
+
+    # The CLI exited cleanly and wrote a file, so every check below would say success -- but the
+    # file is `{"Err": ...}`, or the stdout shows it exported without evaluating. Before
+    # 2026-09-14 these were counted as successful executions that happened to score 0.
+    if cli_error is not None or (
+            query_result_file and _cli_reported_evaluation(query_stdout) is False):
+        return "execution_failed"
 
     exec_success = bool((exec_stats or {}).get("success"))
     if exec_success and query_result_file:
@@ -1459,6 +1573,7 @@ def run_evaluation(config_path_or_config):
             config.get("generation_token_budget"),
             config.get("type_aware_filters"),
             config.get("constant_root_arity"),
+            config.get("structural_validation"),
         )
         run_id = f"{shard_tag}_{time.strftime('%Y%m%d_%H%M%S')}"
     else:
@@ -1549,6 +1664,9 @@ def run_evaluation(config_path_or_config):
     # read from the LOG schema. Unlike `force_root_arity` this uses nothing from gold, so a rung
     # carrying only this is system performance and stays out of `oracle_conditions`.
     type_aware_filters = bool(config.get("type_aware_filters", False))
+    # NON-ORACLE: before execution, check the generated tree for defects ocpq_cli cannot evaluate
+    # and spend one repair call on them. Reads only the prediction. See notes §36.
+    structural_validation = bool(config.get("structural_validation", False))
     # NON-ORACLE: pin the root arity to a fixed (0,1) rather than gold's. Justified from the
     # synthetic training corpus, whose majority class is also (0,1) -- see notes 33.4.
     constant_root_arity = bool(config.get("constant_root_arity", False))
@@ -1619,6 +1737,7 @@ def run_evaluation(config_path_or_config):
               f"  (grammar-masked generation; NOT the same as schema_enforced, which only "
               f"validates and repairs afterwards)")
         print(f"Dry run: type_aware_filters = {type_aware_filters}   (non-oracle; from the log)")
+        print(f"Dry run: structural_validation = {structural_validation}   (non-oracle; reads the generated tree)")
         print(f"Dry run: constant_root_arity = {constant_root_arity}   (non-oracle; training-corpus majority)")
         print(f"Dry run: force_root_arity = {force_root_arity}"
               f"{'   *** ORACLE CONDITION -- ceiling, never system performance ***' if force_root_arity else ''}")
@@ -1682,6 +1801,7 @@ def run_evaluation(config_path_or_config):
         "force_root_arity": force_root_arity,
         "type_aware_filters": type_aware_filters,
         "constant_root_arity": constant_root_arity,
+        "structural_validation": structural_validation,
         "repeats": repeats,
         # Stated per run, not only in the config, because a timeout rate is meaningless without
         # the budget it was measured against. Also enters `config_fingerprint`, so two shards
@@ -1849,7 +1969,7 @@ def run_evaluation(config_path_or_config):
                     # 2026-09-02 keeps its published `config_id` and nothing downstream re-slices.
                     decoding_suffix = _decoding_suffix(
                         constrained_decoding, force_root_arity, generation_token_budget,
-                        type_aware_filters, constant_root_arity)
+                        type_aware_filters, constant_root_arity, structural_validation)
                     config_id = _slug(
                         f"{resolved_model['label']}_{prompt_strategy}"
                         f"_schema-{'on' if schema_enforced else 'off'}{decoding_suffix}"
@@ -1916,6 +2036,10 @@ def run_evaluation(config_path_or_config):
                         set_forced_root_arity(case_root_arity)
                         # Read from the log, never from gold -- see `set_type_aware_filters`.
                         set_type_aware_filters(ocel_path if type_aware_filters else None)
+                        # Per case, like the switches above; also clears the previous case's
+                        # report, so a case can never carry what another case's check found.
+                        set_structural_validation(structural_validation)
+                        structural_report = None
                         normalized_fields = []
 
                         try:
@@ -1937,6 +2061,7 @@ def run_evaluation(config_path_or_config):
                             # `validate_and_normalize_ocpq_json` clears the record on every call,
                             # so a later validation elsewhere would wipe what this case needed.
                             normalized_fields = get_last_normalized_fields()
+                            structural_report = get_last_structural_report()
                         # Ordered before the general handler below, which would otherwise absorb
                         # the timeout into `pipeline_status = "error"` and lose the distinction.
                         except CaseTimeout as exc:
@@ -1970,10 +2095,15 @@ def run_evaluation(config_path_or_config):
                         # the distinction visible when reporting.
                         scoring_error = None
                         oversized_bytes = None
+                        cli_error = None
                         try:
                             pred_ids, pred_bindings_skipped, oversized_bytes = _load_result_ids(
                                 query_result_file, ocpq_json, max_gb=max_result_file_gb
                             )
+                            # An `{"Err": ...}` export parses to no ids. Read its message now,
+                            # while the file still exists -- see `_read_cli_error`.
+                            if pred_ids is None and oversized_bytes is None:
+                                cli_error = _read_cli_error(query_result_file)
                             similarity = _compute_similarity(gt_record.get("ids"), pred_ids)
                             pred_events, pred_objects = _extract_query_entities(ocpq_json)
                             gold_events, gold_objects = _extract_query_entities(gold_query)
@@ -2014,9 +2144,17 @@ def run_evaluation(config_path_or_config):
                             query_result_file,
                             query_stdout,
                             result_too_large=oversized_bytes is not None,
+                            cli_error=cli_error,
                         )
 
                         _log_phase("schema_check", f"case {case_idx:03d} | status={final_status}")
+                        # On the execution block, where a reader of one record looks for why it
+                        # failed. `evaluated` is None where the stdout cannot say either way.
+                        if isinstance(exec_stats, dict):
+                            exec_stats["cli_error"] = cli_error
+                            exec_stats["evaluated"] = (
+                                False if cli_error is not None
+                                else _cli_reported_evaluation(query_stdout))
                         _log_phase(
                             "execution",
                             f"case {case_idx:03d} | success={bool((exec_stats or {}).get('success'))} "
@@ -2119,6 +2257,9 @@ def run_evaluation(config_path_or_config):
                             "forced_root_arity": case_root_arity,
                             "type_aware_filters": type_aware_filters,
                             "constant_root_arity": constant_root_arity,
+                            # NON-ORACLE repair switch, and what its check found and did here.
+                            "structural_validation": structural_validation,
+                            "structural_report": structural_report,
                             # What the harness filled in that the model did not produce. A
                             # normalisation flatters the model; the count has to be visible.
                             "normalized_fields": normalized_fields,
@@ -2454,7 +2595,11 @@ def _build_summary(records, repeats):
             # agreement, not semantic correctness.
             "combined_f1": executed_f1,
             "schema_valid_rate": _mean([1 if r["metrics"]["schema_valid"] else 0 for r in recs]),
-            "execution_success_rate": _mean(
+            # Evaluated, not merely exited 0: a query ocpq_cli declined to evaluate writes
+            # `{"Err": ...}` and exits cleanly. See `_execution_succeeded`.
+            "execution_success_rate": _mean([1 if _execution_succeeded(r) else 0 for r in recs]),
+            # The pre-2026-09-14 meaning, kept so the figures quoted before then stay reproducible.
+            "cli_exit_success_rate": _mean(
                 [1 if (r.get("execution") or {}).get("success") else 0 for r in recs]
             ),
             "hallucinated_attribute_rate": _mean(
@@ -2538,7 +2683,9 @@ def _build_summary(records, repeats):
         invalid_relation_rate = _mean(
             [1 if r["metrics"].get("invalid_relations") else 0 for r in recs]
         )
-        exec_success_rate = _mean([1 if (r.get("execution") or {}).get("success") else 0 for r in recs])
+        exec_success_rate = _mean([1 if _execution_succeeded(r) else 0 for r in recs])
+        cli_exit_success_rate = _mean(
+            [1 if (r.get("execution") or {}).get("success") else 0 for r in recs])
 
         prompt_tokens = _mean([r["llm"].get("prompt_tokens") for r in recs])
         # Peak, not just the mean: nothing in the pipeline truncates the prompt, so an
@@ -2633,6 +2780,7 @@ def _build_summary(records, repeats):
                 "invalid_relation_rate": invalid_relation_rate,
                 "unsupported_filter_rate": unsupported_rate,
                 "execution_success_rate": exec_success_rate,
+                "cli_exit_success_rate": cli_exit_success_rate,
                 "event_jaccard": event_jaccard,
                 "event_precision": event_precision,
                 "event_recall": event_recall,
@@ -2974,6 +3122,10 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
         rec["metrics"]["skill"] = _record_skill(rec)
         rec["metrics"]["skill_variants"] = _record_skill_variants(rec)
 
+    # The CLI's own report is kept on every record, so a run recorded before 2026-09-14 -- which
+    # counted never-evaluated trees as successes -- is relabelled here without re-executing.
+    reclassified = _reclassify_unevaluated(records)
+
     truncation = _apply_truncation_policy(records, truncation_policy)
 
     repeats = 1
@@ -2991,6 +3143,7 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
     summary["recomputed_from"] = str(run_dir)
     summary["recompute_unavailable"] = unavailable
     summary["truncation"] = truncation
+    summary["status_reclassified_unevaluated"] = reclassified
     summary["result_store"] = dict(result_store.stats(store_dir), dir=str(store_dir))
     _write_json(output_dir / "summary.json", summary)
     _run_bb_analysis(output_dir)
@@ -3003,6 +3156,7 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
         f"(zeroed {truncation['zeroed_prediction_truncated']}, "
         f"excluded {truncation['excluded_gold_truncated']})\n"
         f"  similarity changed for {changed} record(s)\n"
+        f"  status: {reclassified} never-evaluated run(s) relabelled execution_failed\n"
         f"  unavailable: {total_unavailable} "
         f"(gold {unavailable['gold_missing']}, prediction {unavailable['prediction_missing']})"
     )
@@ -3145,6 +3299,13 @@ def main():
              "and Integer->String 11 times against a schema that states the type correctly.")
     parser.add_argument("--no-type-aware-filters", dest="type_aware_filters",
         action="store_false", help="Leave value filters unconstrained by declared type.")
+    parser.add_argument("--structural-validation", dest="structural_validation",
+        action="store_true", default=None,
+        help="NON-ORACLE. Before execution, check the generated tree for defects ocpq_cli cannot "
+             "evaluate (a filter reading an unbound variable, inconsistent edges, unknown child "
+             "names) and spend one repair call on them. Reads only the prediction.")
+    parser.add_argument("--no-structural-validation", dest="structural_validation",
+        action="store_false", help="Execute generated trees without the structural check.")
     parser.add_argument("--constant-root-arity", dest="constant_root_arity",
         action="store_true", default=None,
         help="NON-ORACLE. Pin the root arity to (0 event, 1 object) for every case -- the majority "
@@ -3218,6 +3379,8 @@ def main():
             cfg["force_root_arity"] = args.force_root_arity
         if args.type_aware_filters is not None:
             cfg["type_aware_filters"] = args.type_aware_filters
+        if args.structural_validation is not None:
+            cfg["structural_validation"] = args.structural_validation
         if args.constant_root_arity is not None:
             cfg["constant_root_arity"] = args.constant_root_arity
         if args.case_shard:

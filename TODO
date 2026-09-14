@@ -776,13 +776,10 @@
   CLUSTER after the sync, including "all 169 gold survive their log's type-aware grammar". Before the
   sync that assertion could not have passed there; it had only ever run on the laptop.
 
-- IN PROGRESS (2026-09-13) RE-RUN THE ARITY ABLATION ON THE CORRECTED CORPUS:
-    sbatch --array=0-2 slurm/submit_arity_ablation.sh
-  When it finishes: merge; confirm every record's ocel_path points at the synced logs; audit ON THE
-  CLUSTER (all three rungs are measurements, none has the type constraint on):
-    python src/type_contradiction_audit.py eval_runs/arity_ablation/shard_* --by-attribute --compare-logs
-  Compare N0 / N1 / N2 against notes 32.1 and the notes-35.5 sensitivity figures, write it up as a new
-  section, and add a pointer from 32.1.
+- DONE (2026-09-14) RE-RUN THE ARITY ABLATION ON THE CORRECTED CORPUS -- notes 36.1. Arity forcing
+  holds: N1->N2 21 better / 0 worse, +0.0911 (CI +0.048 .. +0.134). F1 0.2030 / 0.2354 / 0.3266.
+  N0->N1 +0.0324, interval now excludes zero (supersedes notes 35.5). One type contradiction per
+  rung, the same case (index 46). Failure budget re-derived in notes 36.3.
 
 - TODO (after the arity re-run) RE-DERIVE WHAT WAS COMPUTED FROM OLD-CORPUS RUNS, per notes 35.8:
     notes 33.1-33.4: the probe prompt carries the schema block, so 56 cases saw the old types, and
@@ -813,3 +810,58 @@
     slurm/submit_typed_ablation.sh header and tests/test_type_aware_filters.py docstring -- same claim.
     src/typed_grammar_probe.py -- says the smoke "failed the compliance gate", and synthetic() says a
       hand-written document is how a control ends up inverted. Both cluster inversions were the corpus.
+
+- FOUND + FIXED (2026-09-14) EXECUTIONS THAT NEVER HAPPENED WERE COUNTED AS SUCCESSES -- notes 36.4-36.5.
+  ocpq_cli's `run_evaluate` serialises Result<_, String> into the export and exits 0 either way, so a
+  tree it cannot evaluate gives exit 0 + `{"Err": "Could not get o1"}` + no "Evaluated in" line. The
+  harness recorded `success`; execution_success_rate (exit status) counted it.
+    discriminating  N0 68.1% -> 60.7%   N1 90.4% -> 70.4%   N2 86.7% -> 63.7% actually evaluated
+    matrix_full: 400 of its 3,100 recorded successes
+  FIX in src/eval_testset.py: status `execution_failed` + `execution.cli_error` (read live from the
+  export), `execution_success_rate` = evaluated, old figure kept as `cli_exit_success_rate`,
+  `--recompute` relabels from stored stdout. F1 is unaffected by construction. CLAUDE.md 4.4 / 6 updated.
+  Tests: tests/test_cli_evaluation_error.py.
+
+- TODO RECOMPUTE THE OLDER RUNS so their execution rates (and, for pre-2026-09-12 runs, skill against
+  the 0.7250 floor -- notes 36.2) are the corrected ones. CPU only, on the cluster:
+    python src/eval_testset.py --recompute eval_runs/matrix_full
+    python src/eval_testset.py --recompute eval_runs/decoding_ablation/<each shard>
+  Then add the corrected skill columns as pointers on notes 31.1 / 32.1. The laptop already holds
+  eval_runs/arity_ablation/*20260913*_recomputed for the three corrected-corpus rungs.
+
+- BUILT, NOT RUN (2026-09-14) STRUCTURAL ABLATION -- notes 36.6-36.7. ocpq_schema.structural_defects +
+  BLOCKING_DEFECT_KINDS; LLM._apply_structural_validation behind `structural_validation` /
+  --structural-validation (off by default; main config still plans 8112 runs with it off). One repair
+  call on a tree with a BLOCKING defect, kept only if blocking defects strictly drop. Trigger on the
+  corrected re-run: recall 94/108, false positives 5/337 (95% precision); gold 169/169 clean.
+  NEXT, in order:
+    1. sync src/, tests/, configs/, slurm/, CLAUDE.md to the cluster
+    2. run there: tests/test_structural_validation.py, tests/test_cli_evaluation_error.py, and the
+       env-dependent ones the laptop cannot: test_forced_arity, test_type_aware_filters,
+       test_constrained_decoding, test_arity_predictor, test_merged_guard
+    3. smoke:  sbatch --array=0-3 slurm/submit_structural_ablation.sh --case-shard 8/11
+    4. full:   sbatch --array=0-3 slurm/submit_structural_ablation.sh   (4 x ~2.3 GPU-hours)
+  Read it against the pre-registration in the submit script header.
+
+- TODO STRUCTURAL CHECK MISSES CEL: 7 of the 68 replayed `Err` exports are CEL expressions naming
+  undefined identifiers (`total_order_volume`, `worthiness`, a label using `e`). Needs a CEL reference
+  check before those can be repaired pre-execution.
+
+- DECIDE (2026-09-14) TWO PROMPT GAPS, both of which move the pipeline fingerprint:
+    * `throughputTime` is stored in SECONDS and rendered as `throughputTime (Float)` -- 3 of N2's 26
+      link_mismatch cases write days (notes 36.3). A unit in the schema block is real missing information.
+    * p2p attribute names carry SAP codes in parentheses, `_render_attribute` prints `name (Type)`, and
+      the model strips the code (0 of 60,018 training examples show such a name) -- 2 gold cases, at
+      most ~+0.006 F1 (notes 36.8). Quoting names would also diverge from the training format.
+
+- PARTLY DONE: the re-derivation TODO above -- notes 34.2's decomposition and the clearing oracle are
+  re-derived on the corrected run in notes 36.3. Still open: notes 33.1-33.4 (probe prompts carried the
+  old types) and notes 27 / 28.
+
+- NOTE (2026-09-14) the skill columns in notes 31.1 and 32.1 were computed against the NO-OP floor
+  (0.5148): the cluster read a stale floors file until 2026-09-12. They print 0.7250 beside them.
+  Compare F1 across those runs, not skill (notes 36.2).
+
+- CLEANUP ON THE CLUSTER, if not already done: an earlier `root_population_diagnostic.py --out
+  eval_runs/...` wrote a nested `eval_runs/` folder INSIDE two completed run directories
+  (`--out` is a filename inside --run_dir). Move root_population_N{1,2}_20260913.json out and rmdir.

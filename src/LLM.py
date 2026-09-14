@@ -148,6 +148,13 @@ forced_root_arity = None
 # NON-ORACLE per-case constraint: the log whose declared attribute types the value filters must
 # respect, or None. Unlike `forced_root_arity` this comes from the log schema, not gold.
 type_aware_filters_log = None
+# NON-ORACLE per-case switch: before execution, check the generated tree for defects ocpq_cli
+# cannot evaluate (unbound variables, inconsistent edges, unknown child names) and spend ONE
+# repair call on them. Default False, so every run recorded before 2026-09-14 is unchanged.
+# See `set_structural_validation`.
+structural_validation = False
+# What that check found and did on the most recent verified tree, or None. Per case.
+_last_structural_report = None
 # Per-call override: constrain generation to a DIFFERENT Pydantic model than the OCPQ tree. Used
 # by the arity predictor, which asks a narrow question and wants a two-integer answer, not a query.
 # None keeps the OCPQ grammar. See `set_constrained_schema`.
@@ -406,6 +413,30 @@ def set_type_aware_filters(ocel_path):
 
 def get_type_aware_filters():
     return type_aware_filters_log
+
+
+def set_structural_validation(enabled):
+    """Switch the pre-execution structural check, and its single repair call, on or off.
+
+    **Not an oracle.** The check reads only the generated tree, and the repair prompt carries only
+    that tree and the defects found in it -- nothing from gold. A rung using it is system
+    performance.
+
+    Set per case like the other switches, and it clears the per-case report, so a case can never
+    report what the previous case's check found.
+    """
+    global structural_validation, _last_structural_report
+    structural_validation = bool(enabled)
+    _last_structural_report = None
+
+
+def get_structural_validation():
+    return structural_validation
+
+
+def get_last_structural_report():
+    """What the structural check found and did on the most recent verified tree; None when off."""
+    return _last_structural_report
 
 
 def set_generation_token_budget(value):
@@ -2219,7 +2250,90 @@ def schema_fix_with_llm(model_name, messages, prompt, max_tokens=2000, schema_en
     fixed_json = validate_and_normalize_ocpq_json(fixed_json)
     return fixed_json, fixed_content
 
-# Verify the generated OCPQ JSON and ask the LLM to fix it if it's invalid or doesn't follow the schema. 
+STRUCTURAL_REPAIR_PROMPT = """The OCPQ JSON below is valid against the schema, but the query engine cannot evaluate it as written. These defects stop it from being evaluated:
+{defects}
+
+Fix exactly these defects:
+- A filter may only use an event or object variable that is declared (newEventVars / newObjectVars) in its own node or in one of that node's ancestors. Variables of sibling or child nodes are not visible. Declare the variable where it is used, or move the filter into a node where it is in scope.
+- Every child index in a node's children array must refer to an existing node, each node has exactly one parent, and the tree has exactly one root.
+- Change nothing that is not needed to fix these defects.
+
+Return ONLY the fixed JSON.
+
+JSON:
+{tree}
+"""
+
+
+def _apply_structural_validation(ocpq_json, model_name, messages, query=None,
+                                 schema_enforced=True):
+    """The pre-execution structural check, on a tree that has already passed schema validation.
+
+    Pydantic accepts trees that ocpq_cli cannot evaluate, and the CLI does not fail loudly on them:
+    it writes `{"Err": ...}` to its export and exits 0. On 2026-09-13 that was 88 of the arity
+    rungs' 507 executions; replayed, 61 of 68 distinct failing trees said "Could not get oN".
+
+    Only BLOCKING defects -- the kinds the evaluator errors on, `ocpq_schema.BLOCKING_DEFECT_KINDS`
+    -- trigger the repair, and only they are shown to the model. Advisory defects are recorded but
+    never repaired: a tree carrying only those evaluates, and repairing it could only damage it.
+    The repair is ONE call under whatever decoding constraints are active, and is kept only if it
+    leaves strictly fewer blocking defects; one that fixes nothing, does not validate, or raises
+    leaves the original tree untouched.
+
+    Inert when the switch is off: the tree is returned as given and no report is written.
+    """
+    global _last_structural_report
+    if not structural_validation or ocpq_json is None:
+        return ocpq_json
+    from ocpq_schema import blocking_defects, structural_defects
+
+    defects = structural_defects(ocpq_json)
+    blocking = blocking_defects(defects)
+    report = {
+        "defects_before": defects,
+        "blocking_before": blocking,
+        "repair_attempted": False,
+        "defects_after": None,
+        "blocking_after": None,
+        "accepted": False,
+        "repair_error": None,
+    }
+    _last_structural_report = report
+    if not blocking:
+        return ocpq_json
+
+    report["repair_attempted"] = True
+    prompt = STRUCTURAL_REPAIR_PROMPT.format(
+        defects="\n".join(f"- {defect}" for defect in blocking),
+        tree=json.dumps(ocpq_json),
+    )
+    try:
+        fixed_json, _fixed_content = schema_fix_with_llm(
+            model_name=model_name,
+            messages=messages,
+            prompt=prompt,
+            schema_enforced=schema_enforced,
+        )
+    except Exception as exc:  # noqa: BLE001 - a failed repair keeps the tree; it never fails a case
+        report["repair_error"] = f"{type(exc).__name__}: {exc}"
+        return ocpq_json
+    if fixed_json is not None:
+        # Same post-processing as the verifier's own repair, so the two repairs are comparable.
+        fixed_json = validate_and_normalize_ocpq_json(
+            _normalize_time_between_events_seconds(fixed_json, query))
+    if fixed_json is None:
+        report["repair_error"] = "repair output did not validate against the schema"
+        return ocpq_json
+
+    remaining = structural_defects(fixed_json)
+    report["defects_after"] = remaining
+    report["blocking_after"] = blocking_defects(remaining)
+    if len(report["blocking_after"]) < len(blocking):
+        report["accepted"] = True
+        return fixed_json
+    return ocpq_json
+
+# Verify the generated OCPQ JSON and ask the LLM to fix it if it's invalid or doesn't follow the schema.
 # This is a safety net to improve the quality of the output before executing the query.
 def verify_ocpq_json(ocpq_json, model_name, messages, query=None, schema_enforced=True):
     ocpq_json = _normalize_time_between_events_seconds(ocpq_json, query)
@@ -2339,9 +2453,11 @@ JSON:
                 validation_error=get_validation_error_text(ocpq_json),
                 extra={"repair_prompt": prompt},
             )
-        return fixed_json
+        return _apply_structural_validation(
+            fixed_json, model_name, messages, query=query, schema_enforced=schema_enforced)
     else:
-        return normalized
+        return _apply_structural_validation(
+            normalized, model_name, messages, query=query, schema_enforced=schema_enforced)
 
 
 def run_subproblem_1_extract_entities(query, schema_block, messages, model_name):
