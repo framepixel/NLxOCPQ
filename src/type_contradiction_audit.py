@@ -80,6 +80,15 @@ def audit(run_dir, by_attribute=False, compare_logs=False):
         return None
     records = json.loads(predictions.read_text(encoding="utf-8"))
 
+    # Whether this is a GATE or a MEASUREMENT depends on the rung. A rung with the constraint OFF
+    # is where the error rate is measured (notes 34.3); only a rung with it ON must come out zero.
+    # Reported as a failure either way, the baseline's own statistic reads as a broken experiment.
+    config_path = Path(run_dir) / "config_resolved.json"
+    constrained = False
+    if config_path.exists():
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        constrained = bool(config.get("type_aware_filters"))
+
     emitted = contradictions = unknown = 0
     cases_with_filters = set()
     detail = []
@@ -112,7 +121,9 @@ def audit(run_dir, by_attribute=False, compare_logs=False):
                 per_attribute[(name, declared, emitted_type)] += 1
                 detail.append((record.get("case_id"), name, declared, emitted_type))
 
+    role = "type-aware ON -> GATE" if constrained else "type-aware OFF -> MEASUREMENT"
     print(f"=== {Path(run_dir).name}")
+    print(f"   rung                            : {role}")
     if missing_logs:
         print(f"   REFUSING to score {len(missing_logs)} record(s): their log is not on this host.")
         for log in sorted(missing_logs)[:3]:
@@ -136,7 +147,8 @@ def audit(run_dir, by_attribute=False, compare_logs=False):
             print(f"      {Path(log).name:34s} {dict(hist)}")
     # A gate that passes while scoring nothing is worse than no gate: the 2026-09-12 smoke passed
     # 0-of-0 twice because the case slice contained no attribute filters at all.
-    return {"contradictions": contradictions, "emitted": emitted, "refused": len(missing_logs)}
+    return {"contradictions": contradictions, "emitted": emitted,
+            "refused": len(missing_logs), "constrained": constrained}
 
 
 def main():
@@ -155,10 +167,30 @@ def main():
     scored = [t for t in totals if t is not None]
     if not scored:
         return
-    print("=== GATE ===")
-    refused = sum(t["refused"] for t in scored)
-    emitted = sum(t["emitted"] for t in scored)
-    contradictions = sum(t["contradictions"] for t in scored)
+    gated = [t for t in scored if t["constrained"]]
+    measured = [t for t in scored if not t["constrained"]]
+
+    if measured:
+        emitted_m = sum(t["emitted"] for t in measured)
+        bad_m = sum(t["contradictions"] for t in measured)
+        print("=== MEASUREMENT (rungs with the constraint OFF) ===")
+        if emitted_m:
+            print(f"   {bad_m} of {emitted_m} attribute value-filters contradict the declared "
+                  f"type ({100.0 * bad_m / emitted_m:.0f}%).")
+            print("   This is the notes-34.3 statistic, not a gate. It is only comparable across")
+            print("   runs that used the SAME corpus -- see --compare-logs.")
+        else:
+            print("   no attribute value-filter emitted; nothing to measure.")
+        if not gated:
+            return
+        print()
+
+    if not gated:
+        return
+    print("=== GATE (rungs with the constraint ON) ===")
+    refused = sum(t["refused"] for t in gated)
+    emitted = sum(t["emitted"] for t in gated)
+    contradictions = sum(t["contradictions"] for t in gated)
     if contradictions:
         print("   FAIL: a type-aware rung must contradict a declared type ZERO times.")
         print("   Either the grammar is not binding, or the run and this host disagree about")

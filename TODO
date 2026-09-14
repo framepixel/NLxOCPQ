@@ -739,7 +739,7 @@
   +0.040 on 135 cases with one greedy sample is inside what a single run resolves, and no decision
   turns on the exact value. Run it if a measured non-oracle number is wanted for the write-up.
 
-- NEXT (2026-09-11) G1 / GROUNDING, reopened on evidence in notes 32.6 and still the only route
+- SUPERSEDED (2026-09-12) G1 / GROUNDING, reopened on evidence in notes 32.6 and still the only route
   that clears the floor. Recomputed on the arity-forced rung:
     no_result alone             0.6517
     no_result + link_mismatch   0.8063   CLEARS the 0.7250 floor
@@ -747,3 +747,69 @@
   what grounding targets. Note the standing lesson from notes 32.6: an oracle computed on one
   distribution stops being valid once an intervention changes it -- so re-derive the failure budget
   before designing, and re-check anything closed in notes 26.6.
+  SUPERSEDED TWICE: notes 34.2 found grounding addresses 2 of 27 link_mismatch cases, and notes 35
+  found that the N2 run every one of these figures came from ran on the wrong corpus. Do not design
+  G1 until the decomposition is re-derived from the re-run arity ablation.
+
+- FOUND (2026-09-12) THE CLUSTER EVALUATED A DIFFERENT CORPUS. Write-up: Thesis/notes/
+  11-evaluation-readiness.md 35. renting_log_high.json, ocel2-p2p.json and container_logistics.json
+  were retyped on the laptop 2026-06-30 .. 2026-08-05 (Age integer, isMarried boolean, Net Price /
+  Quantity integer, Invoice Receipt boolean, DepartureDate time -- stored values retyped with them);
+  the cluster kept its June copies. Every cluster run before 2026-09-12:
+    56 cases (44 disc.) prompted with the old declarations
+    17 cases whose gold filters a retyped attribute; gold returned NOTHING in 14 of them
+    empty gold + empty prediction scores 1.00, so 4 container cases were free points in every rung
+    all 39 gold/prediction type disagreements of the arity run sit on retyped attributes
+  Cluster synced 2026-09-12 and md5-verified on all 11 testset logs; the OLD CORPUS IS OVERWRITTEN,
+  so old-corpus runs cannot be reproduced (checksums recorded in notes 35.2). The floors
+  (testset_discriminability.json, computed 2026-09-08 on the laptop) describe the corrected corpus
+  and need no rebuild. Sensitivity check: without the 17 cases N1->N2 is still 23 better / 0 worse,
+  +0.1084; N0->N1 loses one gain to an empty-gold artefact and is unresolvable on unaffected logs.
+
+- CLOSED (2026-09-12) TYPE-AWARE VALUE FILTERS (notes 35.6). Built, gated, NOT RUN. Its premise, notes
+  34.3, was the corpus: on the corrected corpus the model is type-correct on 8 of 9 attribute filters
+  with no type constraint at all. On the old corpus the constraint would have made gold unreachable.
+  Machinery stays, off by default: LLM._type_aware_schema, --type-aware-filters,
+  configs/eval_config.typed_ablation.json, slurm/submit_typed_ablation.sh. ~4-5 GPU-hours not spent.
+
+- DONE (2026-09-12) tests/test_type_aware_filters.py and tests/test_forced_arity.py PASS ON THE
+  CLUSTER after the sync, including "all 169 gold survive their log's type-aware grammar". Before the
+  sync that assertion could not have passed there; it had only ever run on the laptop.
+
+- IN PROGRESS (2026-09-13) RE-RUN THE ARITY ABLATION ON THE CORRECTED CORPUS:
+    sbatch --array=0-2 slurm/submit_arity_ablation.sh
+  When it finishes: merge; confirm every record's ocel_path points at the synced logs; audit ON THE
+  CLUSTER (all three rungs are measurements, none has the type constraint on):
+    python src/type_contradiction_audit.py eval_runs/arity_ablation/shard_* --by-attribute --compare-logs
+  Compare N0 / N1 / N2 against notes 32.1 and the notes-35.5 sensitivity figures, write it up as a new
+  section, and add a pointer from 32.1.
+
+- TODO (after the arity re-run) RE-DERIVE WHAT WAS COMPUTED FROM OLD-CORPUS RUNS, per notes 35.8:
+    notes 33.1-33.4: the probe prompt carries the schema block, so 56 cases saw the old types, and
+      every expected value and system estimate is weighted by notes 32's per-case F1. Re-run
+      src/arity_predictor_probe.py (~10 min) if the arity conclusion is cited.
+    notes 32.5-32.6 and 34.1-34.2 failure decompositions and the clearing oracle -- run
+      src/root_population_diagnostic.py on the new N2 ON THE CLUSTER (it needs the full eval env)
+    notes 27 / 28 wrong-population budgets, wherever they are still cited
+  Notes 31's D1 (free decoding, 4000 tokens) is not covered by the re-run; decide whether it matters.
+
+- DECIDE (2026-09-12) WHETHER TO RE-RUN matrix_full. 196 of its records sit on empty-gold cases (17 of
+  169 per condition) and 56 cases per condition were prompted with the old declarations. Both
+  ablations kept their ordering under the sensitivity check (levels ~0.02 lower), which suggests the
+  cross-condition comparisons survive -- but that is an inference from one model's conditions.
+
+- TODO (between experiments, NOT while the arity re-run is going) RECORD THE CORPUS IN EVERY RUN.
+  pipeline_fingerprint hashes code, not data, which is why a corpus change stayed invisible for ten
+  weeks. Add a per-log checksum to config_resolved.json and decide whether a mismatch against a pinned
+  manifest should stop the run. Touches src/eval_testset.py.
+
+- TODO TRACK eval_runs/testset_discriminability.json. It is an evaluation input -- every run reads its
+  floors -- but untracked, so a stale copy reached the cluster twice in one week. Commit it or move it
+  under data/ (a paths.py change moves the fingerprint, so between experiments).
+
+- TODO FIX DOCSTRINGS THAT STILL ASSERT WITHDRAWN CLAIMS:
+    src/LLM.py _type_aware_schema -- "the model is told the type and ignores it" (notes 34.3). Editing
+      LLM.py moves pipeline_fingerprint, so only after the arity re-run.
+    slurm/submit_typed_ablation.sh header and tests/test_type_aware_filters.py docstring -- same claim.
+    src/typed_grammar_probe.py -- says the smoke "failed the compliance gate", and synthetic() says a
+      hand-written document is how a control ends up inverted. Both cluster inversions were the corpus.
