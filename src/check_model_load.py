@@ -6,9 +6,9 @@ at all. Verifying a loader change by re-running the whole smoke test is the wron
 exercises exactly the failing path -- config resolution, adapter injection, tokenizer type,
 context detection, one real generation -- for a single model.
 
-    python check_model_load.py                       # every model in eval_config.json
-    python check_model_load.py --model-idx 2 3       # just Ministral base + fine-tuned
-    python check_model_load.py --config eval_config.smoke.json
+    python src/check_model_load.py                    # every model in configs/eval_config.json
+    python src/check_model_load.py --model-idx 6 7    # just Gemma base + fine-tuned
+    python src/check_model_load.py --config configs/eval_config.smoke.json
 
 Exits non-zero if any requested model fails.
 """
@@ -36,7 +36,15 @@ def main():
     from expand_models import expand_models
     import LLM
 
-    cfg = json.loads((HERE / args.config).read_text(encoding="utf-8"))
+    import paths
+
+    # Resolved against the repo root, not this file's directory: since the 2026-08-29 reorg this
+    # script lives in src/, so `HERE / "configs/eval_config.json"` pointed at src/configs/ and the
+    # check died before loading anything (2026-09-15). An absolute or cwd-relative path still works.
+    cfg_path = Path(args.config)
+    if not cfg_path.is_absolute() and not cfg_path.is_file():
+        cfg_path = paths.REPO_ROOT / cfg_path
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     models = expand_models(cfg)["models"]
     wanted = args.model_idx if args.model_idx else list(range(len(models)))
 
