@@ -1,7 +1,12 @@
 #!/usr/bin/env python
 """Where does the type-aware constraint get lost -- the schema, the grammar, or the matcher?
 
-The 2026-09-12 targeted smoke (`--case-shard 2/11`) failed the compliance gate. T2 ran with
+CORRECTED 2026-09-15: the smoke described below did NOT fail because the constraint was lost. The
+cluster held old copies of the logs, which declared `Age` and `isMarried` as strings, so the typed
+grammar correctly allowed `String` there -- the gate was measuring the corpus (notes 35.1, 35.4). The
+original description is kept as the record of what this probe was written to investigate.
+
+The 2026-09-12 targeted smoke (`--case-shard 2/11`) appeared to fail the compliance gate. T2 ran with
 `type_aware_filters=True` and still emitted the exact errors the constraint exists to forbid:
 
     case 11  Age (declared integer)       -> String{is_in:["40"]}
@@ -49,8 +54,8 @@ UNTYPED_REF = '"#/$defs/FilterObjectAttributeValueFilter"'
 
 def synthetic(value_filter, attribute=ATTRIBUTE, object_type="Applicant"):
     """A hand-written document, used only when no real prediction is available. A hand-written
-    document can be invalid for reasons unrelated to the constraint under test, which is exactly
-    how a control ends up inverted."""
+    document can be invalid for reasons unrelated to the constraint under test. (This was once
+    blamed for the cluster's inverted control; the cause was the cluster's stale corpus, notes 35.)"""
     return {
         "nodes": [{"Box": [{
             "newEventVars": {}, "newObjectVars": {"0": [object_type]},

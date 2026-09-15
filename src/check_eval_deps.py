@@ -104,6 +104,14 @@ def check_data_files(config_path):
         if len(missing_logs) > 5:
             problems.append(f"... and {len(missing_logs) - 5} more missing OCEL log(s)")
 
+        # Present is not enough. For ten weeks the cluster had all eleven logs and three of them
+        # were old copies (Thesis/notes/11-evaluation-readiness.md 35). Compared by size and
+        # sha256 against the committed data/corpus_manifest.json; decided 2026-09-15 to stop.
+        if rows and not missing_logs:
+            from corpus_manifest import verify  # stdlib + paths only: still a light import
+            problems.extend(f"corpus: {line}"
+                            for line in verify(testset_path, paths.CORPUS_MANIFEST))
+
     return problems
 
 
@@ -137,15 +145,21 @@ def main():
 
     data_problems = [] if args.skip_data else check_data_files(None)
     if data_problems:
-        print("FATAL: required input data is missing.", file=sys.stderr)
+        print("FATAL: required input data is missing or is not the pinned version.",
+              file=sys.stderr)
         for line in data_problems:
             print(f"  - {line}", file=sys.stderr)
+        if any(line.startswith("corpus:") for line in data_problems):
+            print("\nThe logs differ from data/corpus_manifest.json. Sync them from the machine "
+                  "the manifest was pinned on -- or, for a DELIBERATE corpus change, run "
+                  "`python src/corpus_manifest.py --pin` and commit the manifest.",
+                  file=sys.stderr)
         print("\nCopy the current NLxOCPQ files to the cluster, including eval_runs/ "
               "(a plain rsync that excludes it drops the discriminability audit).",
               file=sys.stderr)
         return 1
 
-    suffix = "" if args.skip_data else " + input data"
+    suffix = "" if args.skip_data else " + input data + pinned corpus"
     print(f"eval dependencies OK ({len(versions)} modules{suffix})")
     return 0
 

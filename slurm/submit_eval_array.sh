@@ -26,6 +26,11 @@
 # limit, so each condition is split into two case halves (85 and 84 runs). %24 caps
 # concurrent tasks. Recombine afterwards with:
 #   python src/eval_testset.py --merge-shards eval_runs/shard_* --merge-output eval_runs/merged
+# For the 2026-09-15 re-run (--config configs/eval_config.matrix_v2.json) the shards are under its
+# output_dir instead:
+#   python src/eval_testset.py --merge-shards eval_runs/matrix_v2/shard_* \
+#       --merge-output eval_runs/matrix_v2/merged
+# and the merge must report corpus_consistent: true as well as pipeline_consistent.
 # The merge also unions each shard's result_store/, so the merged run can be rescored later
 # with --recompute without re-running anything.
 #
@@ -168,18 +173,44 @@ CASE_HALF=$(( TASK % 2 ))
 # exactly what resume exists to prevent. The env var is kept as a fallback.
 #
 #   sbatch --array=48-71%24 slurm/submit_eval_array.sh --resume
+#
+# --config selects the evaluation config, also by ARGUMENT for the same reason. The 2026-09-15
+# re-run passes configs/eval_config.matrix_v2.json, whose only difference is its output_dir, so its
+# shards cannot mix with the old top-level eval_runs/shard_* directories at merge time:
+#   sbatch slurm/submit_eval_array.sh --config configs/eval_config.matrix_v2.json
 OCPQ_RESUME_REQUESTED="${OCPQ_RESUME:-0}"
-for arg in "$@"; do
-  case "$arg" in
-    --resume) OCPQ_RESUME_REQUESTED=1 ;;
-    *) echo "Warning: ignoring unrecognised argument '$arg'" >&2 ;;
+EVAL_CONFIG="configs/eval_config.json"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --resume) OCPQ_RESUME_REQUESTED=1; shift ;;
+    --config)
+      if [ "$#" -lt 2 ]; then echo "FATAL: --config needs a path" >&2; exit 1; fi
+      EVAL_CONFIG="$2"; shift 2 ;;
+    --config=*) EVAL_CONFIG="${1#--config=}"; shift ;;
+    *) echo "Warning: ignoring unrecognised argument '$1'" >&2; shift ;;
   esac
 done
+case "$EVAL_CONFIG" in
+  /*) ;;
+  *) EVAL_CONFIG="$PROJECT_DIR/$EVAL_CONFIG" ;;
+esac
+if [ ! -f "$EVAL_CONFIG" ]; then
+  echo "FATAL: evaluation config not found: $EVAL_CONFIG" >&2
+  exit 1
+fi
+# The resume glob must look where THIS config writes, not at a hardcoded eval_runs/.
+OUTPUT_DIR="$(python -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("output_dir", "eval_runs"))' "$EVAL_CONFIG")"
+case "$OUTPUT_DIR" in
+  /*) ;;
+  *) OUTPUT_DIR="$PROJECT_DIR/$OUTPUT_DIR" ;;
+esac
+echo "Config: ${EVAL_CONFIG}"
+echo "Output dir: ${OUTPUT_DIR}"
 echo "Resume requested: ${OCPQ_RESUME_REQUESTED}"
 
 RESUME_ARGS=()
 if [ "$OCPQ_RESUME_REQUESTED" = "1" ]; then
-  SHARD_GLOB="$PROJECT_DIR/eval_runs/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}_c${CASE_HALF}of2_*"
+  SHARD_GLOB="$OUTPUT_DIR/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}_c${CASE_HALF}of2_*"
   # Newest by mtime. Ambiguity is not resolved silently: if nothing matches we stop, because
   # continuing would quietly restart a 14-hour shard from zero.
   RESUME_DIR="$(ls -1dt $SHARD_GLOB 2>/dev/null | head -n 1)"
@@ -194,10 +225,13 @@ fi
 
 echo "Starting shard task=${TASK} (model=${MODEL_IDX} strategy=${STRATEGY_IDX} schema=${SCHEMA_IDX} case-half=${CASE_HALF}/2) at: $(date)"
 echo "Python: $(which python)"; python --version
+# Recorded because greedy generation is not bit-reproducible across jobs (notes 37.5); node and GPU
+# are what make such a difference attributable.
+echo "Node: $(hostname)  GPU: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | head -1)"
 
 set -e
 python -u "$PROJECT_DIR/src/eval_testset.py" \
-    --config "$PROJECT_DIR/configs/eval_config.json" \
+    --config "$EVAL_CONFIG" \
     --model-idx "${MODEL_IDX}" \
     --strategy-idx "${STRATEGY_IDX}" \
     --schema-idx "${SCHEMA_IDX}" \

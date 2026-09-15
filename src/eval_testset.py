@@ -14,6 +14,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Optional
 
+import corpus_manifest
 import paths
 import result_store
 from LogEvents import extract_ocel_schema
@@ -455,7 +456,7 @@ def _config_fingerprint(config):
 _PIPELINE_SOURCE_FILES = (
     "eval_testset.py", "LLM.py", "QueryExecutor.py", "ocpq_schema.py",
     "LogEvents.py", "result_store.py", "expand_models.py", "tag_testset_bb.py",
-    "paths.py",
+    "paths.py", "corpus_manifest.py",
 )
 
 
@@ -475,6 +476,55 @@ def _pipeline_fingerprint():
         digest.update(name.encode("utf-8"))
         digest.update(_sha256_file(path).encode("utf-8") if path.is_file() else b"MISSING")
     return digest.hexdigest()
+
+
+CORPUS_CHECK_POLICIES = ("error", "warn", "off")
+
+
+def _corpus_gate(rows, corpus_check="error", manifest_path=None):
+    """Digest the logs these rows read and compare them with the pinned corpus manifest.
+
+    `pipeline_fingerprint` covers the code and `testset_hash` the testset; until 2026-09-15 nothing
+    covered the logs, which is how the cluster evaluated old copies of three of them for ten weeks
+    without any run recording it (Thesis/notes/11-evaluation-readiness.md 35). The digests go into
+    `config_resolved.json` under every policy except `"off"`, so each run states which corpus it read.
+
+    Args:
+        rows: Testset rows whose `ocel_path` is already resolved (`_load_testset` does that).
+        corpus_check: `"error"` raises on any difference, `"warn"` prints and continues, `"off"`
+            neither hashes nor checks.
+        manifest_path: The pinned manifest; defaults to `paths.CORPUS_MANIFEST`.
+
+    Returns:
+        `(digests, problems)`: `digests` is `{basename: {"bytes", "sha256"} | None}`, or None when
+        the check is off; `problems` names each log that differs.
+
+    Raises:
+        ValueError: On an unknown policy.
+        RuntimeError: On any difference when the policy is `"error"`.
+    """
+    if corpus_check not in CORPUS_CHECK_POLICIES:
+        raise ValueError(
+            f"corpus_check must be one of {CORPUS_CHECK_POLICIES}, got {corpus_check!r}")
+    if corpus_check == "off":
+        return None, []
+    manifest_path = Path(manifest_path) if manifest_path else paths.CORPUS_MANIFEST
+    digests = corpus_manifest.digest_logs(
+        row["ocel_path"] for row in rows if row.get("ocel_path"))
+    problems = corpus_manifest.compare(
+        digests, corpus_manifest.load_pinned(manifest_path), manifest_path)
+    if problems:
+        print("\n*** CORPUS MISMATCH: the logs on disk are not the pinned corpus ***")
+        for line in problems:
+            print(f"  - {line}")
+        if corpus_check == "error":
+            raise RuntimeError(
+                f"Refusing to evaluate on an unpinned corpus: {len(problems)} log(s) differ from "
+                f"{manifest_path}. If the change is deliberate, run "
+                "`python src/corpus_manifest.py --pin` and commit the manifest; "
+                "`corpus_check: \"warn\"` is for exploratory runs only.")
+        print("  corpus_check=warn: continuing; the problems are recorded in the run manifest.\n")
+    return digests, problems
 
 
 def _record_key(case_id, config_id, repeat, nl_query=None, ocel_path=None):
@@ -1670,6 +1720,12 @@ def run_evaluation(config_path_or_config):
     # NON-ORACLE: pin the root arity to a fixed (0,1) rather than gold's. Justified from the
     # synthetic training corpus, whose majority class is also (0,1) -- see notes 33.4.
     constant_root_arity = bool(config.get("constant_root_arity", False))
+    # Stops a run whose logs differ from data/corpus_manifest.json (notes 35). "warn" and "off"
+    # exist for exploratory runs; every thesis run keeps the default.
+    corpus_check = str(config.get("corpus_check", "error")).lower()
+    if corpus_check not in CORPUS_CHECK_POLICIES:
+        raise ValueError(
+            f"corpus_check must be one of {CORPUS_CHECK_POLICIES}, got {corpus_check!r}")
     _budget = config.get("generation_token_budget")
     generation_token_budget = None if _budget is None else int(_budget)
     repeats = int(config.get("repeats", 1))
@@ -1739,11 +1795,17 @@ def run_evaluation(config_path_or_config):
         print(f"Dry run: type_aware_filters = {type_aware_filters}   (non-oracle; from the log)")
         print(f"Dry run: structural_validation = {structural_validation}   (non-oracle; reads the generated tree)")
         print(f"Dry run: constant_root_arity = {constant_root_arity}   (non-oracle; training-corpus majority)")
+        print(f"Dry run: corpus_check = {corpus_check}   (logs are hashed against "
+              f"data/corpus_manifest.json at run start, not in a dry run)")
         print(f"Dry run: force_root_arity = {force_root_arity}"
               f"{'   *** ORACLE CONDITION -- ceiling, never system performance ***' if force_root_arity else ''}")
         print(f"Dry run: generation_token_budget = "
               f"{generation_token_budget if generation_token_budget is not None else 'per-pipeline default (1000/2000)'}")
         return None
+
+    # Before any directory is created or model loaded: a run on the wrong corpus is worthless,
+    # and the last one went unnoticed for ten weeks (notes 35).
+    corpus_digests, corpus_problems = _corpus_gate(valid_testset, corpus_check)
 
     if not resume_from:
         run_dir.mkdir(parents=True, exist_ok=False)
@@ -1802,6 +1864,11 @@ def run_evaluation(config_path_or_config):
         "type_aware_filters": type_aware_filters,
         "constant_root_arity": constant_root_arity,
         "structural_validation": structural_validation,
+        # The logs this run read, by size and sha256 (notes 35). `pipeline_fingerprint` covers
+        # only code; merges compare these per log.
+        "corpus_check": corpus_check,
+        "corpus": corpus_digests,
+        "corpus_problems": corpus_problems or None,
         "repeats": repeats,
         # Stated per run, not only in the config, because a timeout rate is meaningless without
         # the budget it was measured against. Also enters `config_fingerprint`, so two shards
@@ -3170,6 +3237,8 @@ def _merge_shards(shard_dirs, output_dir):
     all_records = []
     repeats = 1
     fingerprints = defaultdict(list)
+    corpus_seen = defaultdict(set)
+    shards_without_corpus = []
     for shard_dir in shard_dirs:
         shard_path = Path(shard_dir)
         predictions_path = shard_path / "predictions.json"
@@ -3183,6 +3252,12 @@ def _merge_shards(shard_dirs, output_dir):
             manifest = _read_json(cfg_path)
             repeats = manifest.get("config", {}).get("repeats", repeats)
             fingerprints[manifest.get("pipeline_fingerprint")].append(shard_path.name)
+            for log_name, digest in (manifest.get("corpus") or {}).items():
+                corpus_seen[log_name].add(json.dumps(digest, sort_keys=True))
+            if not manifest.get("corpus"):
+                shards_without_corpus.append(shard_path.name)
+        else:
+            shards_without_corpus.append(shard_path.name)
 
     if not all_records:
         print("No records found across shards. Nothing to merge.")
@@ -3246,6 +3321,26 @@ def _merge_shards(shard_dirs, output_dir):
     summary["evaluation_phases"] = EVALUATION_PHASES
     summary["pipeline_fingerprints"] = summary_fingerprints
     summary["pipeline_consistent"] = len(fingerprints) <= 1
+
+    # The same guard for the DATA. Case-halves read different logs, so consistency is per log:
+    # every shard that read a log must have read the same bytes (notes 35). None means it cannot
+    # be established -- some shard recorded no digests.
+    corpus_conflicts = sorted(name for name, seen in corpus_seen.items() if len(seen) > 1)
+    if corpus_conflicts:
+        print("\n*** WARNING: shards read DIFFERENT copies of the same log ***")
+        print(f"  {corpus_conflicts}")
+        print("  These results are not comparable. Re-run on the pinned corpus.\n")
+    if shards_without_corpus:
+        print(f"Note: {len(shards_without_corpus)} shard(s) recorded no corpus digests "
+              f"(run before 2026-09-15, or corpus_check off), e.g. {shards_without_corpus[:3]}")
+    if corpus_conflicts:
+        summary["corpus_consistent"] = False
+    elif shards_without_corpus or not corpus_seen:
+        summary["corpus_consistent"] = None
+    else:
+        summary["corpus_consistent"] = True
+    summary["corpus_conflicts"] = corpus_conflicts
+    summary["corpus_unrecorded_shards"] = len(shards_without_corpus)
 
     # Union every shard's result store into the merged directory, so the merged run can be
     # rescored with `--recompute` on its own. Safe without conflict resolution: the filename is

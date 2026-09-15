@@ -1347,12 +1347,12 @@ _ATTRIBUTE_FILTERS = {
 def _type_aware_schema(schema, ocel_path):
     """Constrain each attribute filter's `value_filter` to the attribute's DECLARED type.
 
-    The model's most repeated semantic error is collapsing comparisons into string membership:
-    `Age` is declared Integer and the prompt says so, yet "older than 40" comes out as
-    `String{is_in: ["40"]}` where gold has `Integer{min: 41}`. Across the 2026-09-11 run it emitted
-    `Boolean -> String` 16 times and `Integer -> String` 11 times; gold contradicts a declared type
-    0 times in 117. The information was never missing -- `build_schema_block` renders
-    `Age (Integer)` correctly -- so what this adds is the constraint, not the knowledge.
+    Built for notes 34.3's reading that the model collapses comparisons into string membership
+    (`Age` declared Integer, "older than 40" emitted as `String{is_in: ["40"]}`). **That reading
+    was withdrawn in notes 35.4**: every such disagreement sat on an attribute the cluster's stale
+    corpus declared as a string, so the prompt really did say String there. On the corrected
+    corpus the model is type-correct on 8 of 9 attribute filters without this constraint, and the
+    typed ablation was not run (notes 35.6). Off by default; kept as tested machinery.
 
     **This is not an oracle.** The types come from the log schema, which any deployment has. That is
     what separates it from the arity forcing of notes 32.

@@ -12,6 +12,11 @@
 
 # TYPE-AWARE VALUE FILTERS -- the first NON-ORACLE constraint in this project.
 #
+# WITHDRAWN PREMISE, NOT RUN (notes 35.4, 35.6). Every type disagreement quoted below sat on an
+# attribute the cluster's STALE corpus declared as a string; on the corrected corpus the model is
+# type-correct on 8 of 9 attribute filters without this constraint. The header is kept as written,
+# as the pre-registration of an experiment that was deliberately not spent.
+#
 # notes 34.3: the model collapses attribute comparisons into string membership. `Age` is declared
 # Integer and build_schema_block says so, yet "older than 40" comes out as String{is_in:["40"]}
 # where gold has Integer{min:41}. Across the 2026-09-11 run: Boolean->String 16 times,

@@ -23,6 +23,8 @@ MODELS = REPO_ROOT / "models"
 EVAL_RUNS = REPO_ROOT / "eval_runs"
 SCHEMA_CACHE = REPO_ROOT / ".schema_cache"
 UPLOADED_LOGS = REPO_ROOT / "uploaded_logs"
+# Size and sha256 of every testset log; a run on any other copy stops. See corpus_manifest.py.
+CORPUS_MANIFEST = DATA / "corpus_manifest.json"
 
 # Sibling checkouts, outside this repo.
 OCPQ_CHECKOUT = Path(os.getenv("OCPQ_REPO_DIR", REPO_ROOT.parent / "OCPQ"))

@@ -182,10 +182,15 @@ def report(rows):
     # that is the per-case gain forcing bought in notes 32.4:
     #     gold IS  (0,1)   free 0.3009 -> forced 0.3644   = +0.064
     #     gold NOT (0,1)   free 0.0766 -> forced 0.2228   = +0.146
+    # RE-DERIVED 2026-09-15 on the corrected corpus (notes 35, 36.1), from
+    # eval_runs/arity_ablation/*_20260913_*_recomputed, discriminating stratum:
+    #     gold IS  (0,1)   n=84   free 0.3358 -> forced 0.3935   = +0.0577
+    #     gold NOT (0,1)   n=51   free 0.0701 -> forced 0.2162   = +0.1462
+    # The ratio moves from ~2.3x to ~2.5x; the constants below are the corrected ones.
     # So a predictor can be LESS accurate than the constant overall and still be worth more. The
     # 2026-09-11 probe was exactly that: 52.7% against the constant's 63.3%, yet ahead of it on
     # expected F1 because it recovered 37.1% of the minority cases a constant always misses.
-    GAIN_MAJORITY, GAIN_MINORITY = 0.064, 0.146
+    GAIN_MAJORITY, GAIN_MINORITY = 0.0577, 0.1462
     majority_n = by_class.get(MAJORITY, {"n": 0})["n"]
     majority_hits = by_class.get(MAJORITY, {"hit": 0})["hit"]
     value = majority_hits * GAIN_MAJORITY + minority_hits * GAIN_MINORITY

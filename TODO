@@ -790,21 +790,32 @@
     notes 27 / 28 wrong-population budgets, wherever they are still cited
   Notes 31's D1 (free decoding, 4000 tokens) is not covered by the re-run; decide whether it matters.
 
-- DECIDE (2026-09-12) WHETHER TO RE-RUN matrix_full. 196 of its records sit on empty-gold cases (17 of
+- DECIDED (2026-09-15): RE-RUN matrix_full on the current pipeline, as eval_runs/matrix_v2
+  (configs/eval_config.matrix_v2.json differs only in output_dir; slurm/submit_eval_array.sh --config).
+  matrix_full ran on commit 675b114 (2026-08-20; 95 shards) + 93b8819 (2026-08-27; the 122 GB rerun
+  shard), identified by recomputing pipeline_fingerprint per commit. Since then the fingerprinted files
+  changed in 19 commits (reorg, status fix, filters normalisation, inert decoding flags, ...), so
+  matrix_v2 vs matrix_full is corpus + pipeline, and notes 38 must say so. Original question:
+  WHETHER TO RE-RUN matrix_full. 196 of its records sit on empty-gold cases (17 of
   169 per condition) and 56 cases per condition were prompted with the old declarations. Both
   ablations kept their ordering under the sensitivity check (levels ~0.02 lower), which suggests the
   cross-condition comparisons survive -- but that is an inference from one model's conditions.
 
-- TODO (between experiments, NOT while the arity re-run is going) RECORD THE CORPUS IN EVERY RUN.
+- DONE (2026-09-15) RECORD THE CORPUS IN EVERY RUN, and stop on a mismatch (user decision).
+  src/corpus_manifest.py + data/corpus_manifest.json (11 logs, 2.75 GB, pinned on the laptop;
+  sizes of the three retyped logs match notes 35.2's corrected copies). check_eval_deps.py fails the
+  preflight, eval_testset.py (`corpus_check`, default "error") refuses to run, every manifest records
+  `corpus`, merges report `corpus_consistent`. tests/test_corpus_manifest.py (29 checks). Original entry:
+ 
   pipeline_fingerprint hashes code, not data, which is why a corpus change stayed invisible for ten
   weeks. Add a per-log checksum to config_resolved.json and decide whether a mismatch against a pinned
   manifest should stop the run. Touches src/eval_testset.py.
 
-- TODO TRACK eval_runs/testset_discriminability.json. It is an evaluation input -- every run reads its
+- DONE (commit 6244eb1) TRACK eval_runs/testset_discriminability.json. It is an evaluation input -- every run reads its
   floors -- but untracked, so a stale copy reached the cluster twice in one week. Commit it or move it
   under data/ (a paths.py change moves the fingerprint, so between experiments).
 
-- TODO FIX DOCSTRINGS THAT STILL ASSERT WITHDRAWN CLAIMS:
+- DONE (2026-09-15) FIX DOCSTRINGS THAT STILL ASSERT WITHDRAWN CLAIMS:
     src/LLM.py _type_aware_schema -- "the model is told the type and ignores it" (notes 34.3). Editing
       LLM.py moves pipeline_fingerprint, so only after the arity re-run.
     slurm/submit_typed_ablation.sh header and tests/test_type_aware_filters.py docstring -- same claim.
@@ -822,7 +833,14 @@
   `--recompute` relabels from stored stdout. F1 is unaffected by construction. CLAUDE.md 4.4 / 6 updated.
   Tests: tests/test_cli_evaluation_error.py.
 
-- TODO RECOMPUTE THE OLDER RUNS so their execution rates (and, for pre-2026-09-12 runs, skill against
+- DONE (2026-09-15, laptop) RECOMPUTED -- notes 38.2. matrix_full: 400 relabelled, discriminating exec
+  36.8% -> 32.0% evaluated, skill -0.8934 -> -0.9151 (0.7250 floor), F1 unchanged (8 records lost <=0.0018
+  to a missing store blob). Gemma 3 4B fine-tuned now evaluates LESS than its base (25.7% vs 26.2%).
+  Decoding ablation D0/D1/D2 evaluated 60.0 / 59.3 / 68.9% (reported 67.4 / 66.7 / 90.4%). Outputs:
+  eval_runs/matrix_full_recomputed, eval_runs/decoding_ablation/*_recomputed. Still to do: point notes
+  21 / 31.1 at 38.2 (done in the notes), and establish which of the 19 pipeline commits since 675b114
+  reach the main matrix (notes 38.3) before comparing matrix_v2 with it. Original entry:
+- RECOMPUTE THE OLDER RUNS so their execution rates (and, for pre-2026-09-12 runs, skill against
   the 0.7250 floor -- notes 36.2) are the corrected ones. CPU only, on the cluster:
     python src/eval_testset.py --recompute eval_runs/matrix_full
     python src/eval_testset.py --recompute eval_runs/decoding_ablation/<each shard>
@@ -869,6 +887,120 @@
   a committed diagnostic (src/structural_ablation_report.py, in the style of structure_ablation_report.py)
   so they are reproducible from the repo rather than only re-derivable.
 
+- SCHEDULE (2026-09-15, submission ~2026-11-15, ~8.5 weeks). Reserve >= 3 weeks for writing, which
+  leaves ~5 for experiments. In priority order:
+    A  housekeeping (recompute old runs, corpus checksums, re-derivations)   ~1 week    MUST
+    B  measured non-oracle system rung                                        ~1 week    SHOULD
+    C  frontier-model upper bound with log tools                              ~3 weeks   SHOULD
+    D  agentic pipeline with OPEN models                                      ~1-2 weeks after C; gated on C
+    E  reasoning LLMs, fine-tuned, same pipeline                              ~3 weeks   COULD
+  C and E do not compete for the GPU (C runs against an API), so they can overlap if the engineering
+  is split. C, D and E cannot all be finished: pick C + (D or E) at most, and decide by week 3.
+  Anything whose expected effect is below ~0.03 F1 cannot be resolved on this testset (notes 37.7).
+
+- NEXT (B, 2026-09-15) NON-ORACLE SYSTEM RUNG: ONE MEASURED "BEST SYSTEM" NUMBER. Today the best
+  non-oracle figures are a measurement (constrained + structural check, F1 0.2500, notes 37) and an
+  ESTIMATE (constant (0,1) arity, 0.2268-0.2557, notes 33.4) that were never run together.
+    B0  constrained                                    in-job reproduction of N1 / S0 (0.2354)
+    B1  + constant root arity (0,1)                    --constant-root-arity (flag already exists)
+    B2  + constant root arity + structural check      the system number for the thesis
+  COST: no new pipeline code -- config + submit script copied from submit_structural_ablation.sh
+  (~0.5 day), 10-min smoke, 3 x 169 = 507 runs. Measured per case: ~42 s constrained, ~60-75 s with
+  arity forcing, so ~2-3.5 h per rung as parallel array tasks, ~8 GPU-h total. Analysis ~1 day.
+  FEASIBILITY: HIGH. Every component is built, tested and has run on the cluster.
+  PRE-REGISTER: the purpose is a MEASURED number, not a significance claim -- the expected B0->B1 gain
+  (+0.01..+0.04) straddles the ~0.03 resolution limit. Report B2 against the 0.7250 floor, and split
+  the 62 of 169 cases whose gold arity is NOT (0,1): forcing makes their correct query unreachable, so
+  B1 must be read as "gain on 107, loss on 62". Record node/GPU (already printed by the script).
+
+- NEXT (C, 2026-09-15) UPPER BOUND: FRONTIER MODEL WITH LOG-INSPECTION TOOLS (was G2 / AGENTIC, parked
+  above). The thesis has a floor (0.7250) and no ceiling, which is why "you cannot claim anything"
+  lands. This is the only remaining experiment that could change the headline claim.
+    C0  frontier model, one shot, today's prompt       isolates model strength
+    C1  frontier model + tools                         isolates the tools / agent loop
+  Tools, log-only: count(type), sample(type, n), attribute_values(type, attr),
+  cardinality(event_type, object_type), try_query(tree) -> binding count + execution error. The final
+  tree is scored by src/eval_testset.py like every other prediction (CLAUDE.md: no parallel eval
+  script) -- implement as a backend/strategy in LLM.py, not a separate harness.
+  KEY ENABLER, verified 2026-09-15: OCPQ's web-server (OCPQ/backend/web-server/src/main.rs) has
+  POST /ocel/load and POST /ocel/check-constraints-box, i.e. a log is imported ONCE and queries are
+  evaluated against it in ~ms. Through ocpq_cli every probe would pay the 23-35 s import
+  (memory: ocpq-cli-cost-is-log-import), making a 15-probe case cost ~8 min of import alone.
+  COST: engineering 1.5-2.5 weeks (tool layer over the web-server, agent loop, trajectory logging,
+  per-case budget of e.g. 15 tool calls, oracle-discipline tests). Runs need no GPU: ~1-3 min per case
+  -> ~3-8 h per rung for 169 cases. API spend: with ~10-20 turns re-sending ~10-20k tokens each, on the
+  order of 20-40 M input tokens per C1 rung before prompt caching; check current pricing -- expect
+  tens to low hundreds of USD for both rungs, much less with caching.
+  FEASIBILITY: MEDIUM. Risks and rules:
+    * NOT OPEN-SOURCE: report as a separately labelled upper-bound arm, never a matrix cell.
+    * reproducibility: API models are not bit-reproducible and change under a fixed name -- pin the
+      dated model ID, temperature 0, store every trajectory; one run, reported as such.
+    * data: the logs leave the machine. Check each of the 11 logs' licence / confidentiality and
+      clear it with the supervisor BEFORE the first call.
+    * oracle discipline in code (as `oracle_conditions` was): tools read the log, never gold; result
+      size must not be a reward -- an agent chasing "plausible size" drifts to the trivial query.
+    * memory: the web-server holds the whole log; the largest (bpic2017) must fit where it runs.
+  DECISION VALUE: C1 ~0.5-0.6 -> the task is solvable and "small fine-tuned models cannot yet" is a
+  bounded finding; C1 near the current ~0.25-0.33 -> the bottleneck is the formalism or the benchmark,
+  which is the more interesting result.
+
+- CONDITIONAL (D, 2026-09-15, gated on C) AGENTIC PIPELINE WITH OPEN MODELS. Same tool loop as C, driven
+  by an open tool-calling instruct model on the H100 (e.g. Qwen3 8B/14B, Ministral 3 14B, Llama 3.1 8B
+  Instruct -- verify tool-calling quality and transformers support when choosing). Keeps the thesis
+  premise ("open-source LLMs"), which C does not.
+  GATE: run only if C1 clearly beats C0. If tools do not help a frontier model, they will not help an
+  8-14B one, and D is a week spent confirming that.
+  COST: reuses C's tool layer, so ~1 week engineering (multi-turn chat template + tool-call parsing in
+  the local backend; constrained decoding only on the final JSON turn). Runs: multi-turn local
+  generation ~2-5 min per case -> ~6-14 h per rung; use --case-shard to stay inside the 14 h wall.
+  ~15-30 GPU-h for C0/C1-style rungs on one model.
+  FEASIBILITY: MEDIUM-LOW. The fine-tuned adapters were trained to emit one JSON object and cannot
+  hold a tool trajectory (see G2 note above), so this runs on BASE instruct models -- it measures
+  "agentic open model" against "fine-tuned one-shot open model", not the effect of tools on the
+  fine-tuned model. Small models are weak at multi-step tool use; report the tool-call error rate
+  (malformed calls, loops, budget exhaustion) as a first-class result, before any F1.
+
+- COULD (E, 2026-09-15) REASONING LLMs, FINE-TUNED, THROUGH THE SAME PIPELINE AS THE FOUR NON-REASONING
+  MODELS (llama31-8b, ministral3-14b, ministral3-3b, gemma3-4b). Extends the notes/TODO.md Q10
+  decision ("one reasoning LLM, best strategy, supplementary table, not a matrix cell").
+  CANDIDATES (verify current checkpoints and unsloth support): DeepSeek-R1-Distill-Llama-8B -- built on
+  Llama 3.1 8B, so against llama31-8b the reasoning distillation is close to the ONLY variable, the
+  cleanest comparison available; Qwen3-8B (hybrid thinking on/off in one checkpoint, so thinking can be
+  ablated without a second model); Phi-4-reasoning 14B; gpt-oss-20b (tried before -- that adapter
+  collapsed because of the resume bug fixed in notes 10, not because of the model).
+  THE CENTRAL PROBLEM: data/finetune_ocpq.jsonl has JSON-ONLY targets (notes/TODO.md Q7). Fine-tuning
+  a reasoning model on answer-only targets trains it to skip thinking, which yields a non-reasoning
+  model on a different base. Three options, pick one and state it:
+    E-a  fine-tune with thinking disabled, evaluate with thinking on    cheapest; train/test mismatch
+    E-b  rejection-sampled self-traces: sample the base reasoning model on a 10-20k-row subset, keep
+         traces whose final JSON equals the target, fine-tune on trace + JSON (STaR-style). The
+         training data cannot be executed (not tied to logs), so the filter is exact JSON match.
+         ~2-4 GPU-days of trace generation. Regenerating finetune_ocpq.jsonl needs instruction
+         (CLAUDE.md 2.4) -- write traces to a NEW derived file instead.
+    E-c  no fine-tuning: base reasoning model only                     answers "does reasoning help",
+                                                                        not "does fine-tuning a reasoner"
+  PIPELINE CHANGES, each behind a flag: strip <think> in parse_llm_json; generation_token_budget
+  4000 -> 8-16k for this model; constrained decoding must leave the thinking span free and apply the
+  grammar only after </think> (xgrammar structural tags, or two-phase generation); case_timeout_sec
+  must rise -- CLAUDE.md 6 requires the cap on EVERY arm of a comparison, so run the reasoning model
+  with its non-reasoning counterpart re-run at the same cap, or report it as its own table.
+  temperature 0 is fixed by CLAUDE.md 2.1 but reasoning models are tuned for sampling and can loop
+  under greedy -- keep greedy, measure and report the loop / budget-exhaustion rate; changing it
+  needs explicit approval.
+  TRAINING: traces push rows past max_seq_length 4096 -> 8192. Measured today at 4096: Llama 3.1 8B
+  4.01 h, Ministral 3 14B 8.31 h (notes 04). At 8192 expect ~2x or more: 8B ~8-10 h (inside the 14 h
+  wall), 14B ~17-20 h (needs checkpoint resume -- exactly where the notes-10 bug lived; re-test resume
+  first).
+  EVALUATION: reasoning generation is ~3-5x the tokens. The recommended scope is ONE model, base +
+  fine-tuned, on the best cell (allowed-entities-only, schema on, constrained), 169 cases: ~2 x 169 x
+  2-4 min ~= 11-23 GPU-h. The full per-model matrix equivalent would be ~30-125 GPU-h -- not in budget.
+  TOTAL: ~3 weeks with E-b (1 week integration + tests, 2-4 days traces, 1-2 days training, 1 day eval,
+  analysis). FEASIBILITY: MEDIUM for E-a/E-c, LOW-MEDIUM for E-b.
+  WHAT THE EVIDENCE PREDICTS: the failure is semantic (notes 37.2) and arity choice is worse than a
+  constant (notes 33.1), both decisions a reasoning step could plausibly improve. But prompted CoT on
+  non-reasoning models did not help in matrix_full (chain-of-thought-plus below allowed-entities-only),
+  so the prior is weak -- pre-register the effect needed (> ~0.03) before building.
+
 - DECIDE (2026-09-14) TWO PROMPT GAPS, both of which move the pipeline fingerprint:
     * `throughputTime` is stored in SECONDS and rendered as `throughputTime (Float)` -- 3 of N2's 26
       link_mismatch cases write days (notes 36.3). A unit in the schema block is real missing information.
@@ -877,7 +1009,10 @@
       most ~+0.006 F1 (notes 36.8). Quoting names would also diverge from the training format.
 
 - PARTLY DONE: the re-derivation TODO above -- notes 34.2's decomposition and the clearing oracle are
-  re-derived on the corrected run in notes 36.3. Still open: notes 33.1-33.4 (probe prompts carried the
+  re-derived on the corrected run in notes 36.3. 2026-09-15: notes 33.1 gains re-derived (+0.0577 /
+  +0.1462; constant estimate 0.2449-0.2713 vs N1 0.2354), probe constants updated; notes 28 marked
+  old-corpus with a pointer to 36.3; notes 27's floors stand (laptop corpus). STILL OPEN: re-run
+  src/arity_predictor_probe.py on the cluster for v3. Still open: notes 33.1-33.4 (probe prompts carried the
   old types) and notes 27 / 28.
 
 - NOTE (2026-09-14) the skill columns in notes 31.1 and 32.1 were computed against the NO-OP floor
@@ -887,3 +1022,22 @@
 - CLEANUP ON THE CLUSTER, if not already done: an earlier `root_population_diagnostic.py --out
   eval_runs/...` wrote a nested `eval_runs/` folder INSIDE two completed run directories
   (`--out` is a filename inside --run_dir). Move root_population_N{1,2}_20260913.json out and rmdir.
+
+- IN PROGRESS (A, 2026-09-15) HOUSEKEEPING -- plan: ~/.claude/plans/write-all-the-results-greedy-panda.md.
+  Done on the laptop: corpus pinning, docstrings, matrix_v2 config + --config in submit_eval_array.sh
+  (plus node/GPU echo), probe constants, notes 28/33 annotations, recomputes of matrix_full and the
+  decoding ablation (see notes 38).
+  REMAINING, on the cluster, in order:
+    1. sync src/, tests/, configs/, slurm/, data/corpus_manifest.json, TODO; copy CLAUDE.md by hand
+    2. python src/corpus_manifest.py --check           (must pass; note the hashing time)
+    3. every tests/test_*.py -- five need xgrammar/transformers and only pass there:
+       test_constrained_decoding, test_forced_arity, test_type_aware_filters, test_arity_predictor,
+       test_merged_guard
+    4. python src/check_shard_map.py --config configs/eval_config.matrix_v2.json
+    5. sbatch slurm/submit_eval_smoke.sh --limit 2  ->  python src/smoke_check.py <run>; confirm the
+       manifest has `corpus` and the preflight time is acceptable (add a digest cache only if > ~60 s)
+    6. python src/arity_predictor_probe.py --model-idx 1 --out eval_runs/arity_probe_20260915.json
+    7. move root_population_N{1,2}_20260913.json out of the two arity run dirs (CLEANUP entry above)
+    8. submit B first (8 GPU-h), then:
+       sbatch slurm/submit_eval_array.sh --config configs/eval_config.matrix_v2.json
+    9. merge gate: 8112 records, dropped 0, pipeline_consistent AND corpus_consistent true

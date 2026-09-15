@@ -1,14 +1,15 @@
 """Type-aware value filters: does the constraint block the model's error without blocking gold?
 
-The model's most repeated semantic error is collapsing attribute comparisons into string
-membership. `Age` is declared Integer and `build_schema_block` says so, yet "older than 40" comes
-out as `String{is_in: ["40"]}` where gold has `Integer{min: 41}`. Across the 2026-09-11 run:
-`Boolean -> String` 16 times, `Integer -> String` 11 times. Gold contradicts a declared type
-**0 times in 117**.
+Written for notes 34.3's reading that the model collapses attribute comparisons into string
+membership (`Age` declared Integer, "older than 40" emitted as `String{is_in: ["40"]}`;
+`Boolean -> String` 16 times and `Integer -> String` 11 times in the 2026-09-11 run).
+**That reading was withdrawn in notes 35.4.** Every one of those disagreements sat on an attribute
+the cluster's stale corpus declared as a string, so the prompt really did say String there. On the
+corrected corpus the model is type-correct on 8 of 9 attribute filters with no type constraint at
+all, which is why the typed ablation was built and not run (notes 35.6).
 
-The information was never missing, so this adds a constraint rather than knowledge -- and the
-types come from the LOG SCHEMA, not gold, which is what makes it the first candidate for a
-non-oracle working component. Everything in notes 32 that worked was an oracle.
+The constraint itself is still sound and still tested: the types come from the LOG SCHEMA, not
+gold, so it stays a non-oracle component, off by default.
 
 The gate is two-sided, as in notes 30 and 32:
 
