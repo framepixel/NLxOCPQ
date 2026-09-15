@@ -829,23 +829,45 @@
   Then add the corrected skill columns as pointers on notes 31.1 / 32.1. The laptop already holds
   eval_runs/arity_ablation/*20260913*_recomputed for the three corrected-corpus rungs.
 
-- BUILT, NOT RUN (2026-09-14) STRUCTURAL ABLATION -- notes 36.6-36.7. ocpq_schema.structural_defects +
-  BLOCKING_DEFECT_KINDS; LLM._apply_structural_validation behind `structural_validation` /
-  --structural-validation (off by default; main config still plans 8112 runs with it off). One repair
-  call on a tree with a BLOCKING defect, kept only if blocking defects strictly drop. Trigger on the
-  corrected re-run: recall 94/108, false positives 5/337 (95% precision); gold 169/169 clean.
-  NEXT, in order:
-    1. sync src/, tests/, configs/, slurm/, CLAUDE.md to the cluster
-    2. run there: tests/test_structural_validation.py, tests/test_cli_evaluation_error.py, and the
-       env-dependent ones the laptop cannot: test_forced_arity, test_type_aware_filters,
-       test_constrained_decoding, test_arity_predictor, test_merged_guard
-    3. smoke:  sbatch --array=0-3 slurm/submit_structural_ablation.sh --case-shard 8/11
-    4. full:   sbatch --array=0-3 slurm/submit_structural_ablation.sh   (4 x ~2.3 GPU-hours)
-  Read it against the pre-registration in the submit script header.
+- DONE (2026-09-14) STRUCTURAL ABLATION RAN, job 4100029 -- notes 37. 4 x 169, all complete, exit 0.
+  Built in notes 36.6-36.7: ocpq_schema.structural_defects + BLOCKING_DEFECT_KINDS,
+  LLM._apply_structural_validation behind `structural_validation` / --structural-validation (off by
+  default). Discriminating stratum:
+    S0 constrained 0.2354 -> S1 + check 0.2500 | S2 ORACLE arity 0.3195 -> S3 + check 0.3284
+    evaluated      94 -> 100                   | 85 -> 89
+    Could not get  30 -> 23 (all 169)          | 38 -> 34
+  Compliance and mechanism PASS. S0->S1: 7 newly evaluated / 0 lost (p=0.016), but F1 +0.0146
+  (CI 0.000..+0.037), from 2 cases (33, 120); the other 5 newly evaluated score 0. Fifth time
+  executable != correct (notes 37.2). S2->S3 within run-to-run noise.
+  Detector on new generations: Could-not-get recall 30/30 and 38/38, false positives 1/123 and 3/103.
+  The REPAIR is the bottleneck: 46 attempted -> 27 accepted -> 7 newly evaluated -> 2 correct.
+  Best measured non-oracle configuration: constrained + structural check, F1 0.2500, skill -0.5433.
+  Machinery stays; not added to the main config.
 
-- TODO STRUCTURAL CHECK MISSES CEL: 7 of the 68 replayed `Err` exports are CEL expressions naming
+- NOTE (2026-09-14) THE TESTSET CANNOT RESOLVE SMALL EFFECTS (notes 37.7). At the observed paired SD,
+  n=135 discriminating cases detects about +-0.03 F1 at 80% power. S0->S1's +0.0146 would need ~526.
+  Before building another intervention, estimate its effect: anything expected below ~0.03 cannot be
+  measured here, however many times it is re-run.
+
+- NOTE (2026-09-14) `prediction` IS THE LAST TREE EXECUTED, NOT NECESSARILY THE ONE `structural_report`
+  DESCRIBES. After a panic the after-execution repair (`_run_pipeline_*` stderr branch in src/LLM.py)
+  replaces the tree -- 7 S1 and 3 S3 records (notes 37.5). If this is ever analysed at scale, record
+  the pre-execution tree or a `post_execution_repair` flag in the record (moves pipeline_fingerprint).
+
+- LOW PRIORITY STRUCTURAL CHECK MISSES CEL: 7 of the 68 replayed `Err` exports are CEL expressions naming
   undefined identifiers (`total_order_volume`, `worthiness`, a label using `e`). Needs a CEL reference
   check before those can be repaired pre-execution.
+  DOWNGRADED 2026-09-14 (notes 37.3): the structural ablation raised CEL/label errors 2 -> 12, but ten of
+  those are angular trees the repair collapsed to one box with `e21030` for variable `21030`. They
+  cannot answer their question even if they ran, so a CEL check would move the execution rate, not F1.
+
+- LOW PRIORITY `database is locked` on ocpq_cli stderr in 4 cases of job 4100029 (notes 37.5), each
+  with an index-out-of-bounds panic on a tree that fails in every rung. Harmless there; check whether
+  concurrent CLI runs on one node share a lock file if it ever shows up on a tree that should evaluate.
+
+- OPTIONAL: if notes 37's per-record figures are cited in the thesis, turn the throwaway analysis into
+  a committed diagnostic (src/structural_ablation_report.py, in the style of structure_ablation_report.py)
+  so they are reproducible from the repo rather than only re-derivable.
 
 - DECIDE (2026-09-14) TWO PROMPT GAPS, both of which move the pipeline fingerprint:
     * `throughputTime` is stored in SECONDS and rendered as `throughputTime (Float)` -- 3 of N2's 26

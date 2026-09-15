@@ -1,0 +1,6902 @@
+{
+  "testset_path": "data/testset.json",
+  "total": 169,
+  "ok": 135,
+  "non_discriminating": 34,
+  "execution_failed": 0,
+  "by_verdict": {
+    "non_discriminating": 34,
+    "ok": 135
+  },
+  "non_discriminating_indices": [
+    129,
+    130,
+    131,
+    132,
+    133,
+    134,
+    135,
+    136,
+    137,
+    138,
+    139,
+    140,
+    141,
+    142,
+    143,
+    144,
+    145,
+    146,
+    147,
+    148,
+    149,
+    150,
+    151,
+    152,
+    153,
+    154,
+    155,
+    156,
+    157,
+    158,
+    159,
+    160,
+    161,
+    162
+  ],
+  "mean_baseline_f1": {
+    "overall": 0.6124,
+    "discriminating": 0.5148,
+    "non_discriminating": 1.0
+  },
+  "degenerate": 34,
+  "degenerate_indices": [
+    129,
+    130,
+    131,
+    132,
+    133,
+    134,
+    135,
+    136,
+    137,
+    138,
+    139,
+    140,
+    141,
+    142,
+    143,
+    144,
+    145,
+    146,
+    147,
+    148,
+    149,
+    150,
+    151,
+    152,
+    153,
+    154,
+    155,
+    156,
+    157,
+    158,
+    159,
+    160,
+    161,
+    162
+  ],
+  "proposals_available": 10,
+  "entries": [
+    {
+      "index": 0,
+      "nl_query": "What are the customers that received at least 50 payment reminders for their orders?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 1,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 15,
+      "baseline_f1": 0.125,
+      "baseline_precision": 0.066667,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.125,
+        "population": 0.125,
+        "violation": null,
+        "kind_projected": 0.125
+      },
+      "duration_sec": 3.498,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.125,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.125,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.125,
+          "flagall": 0.125
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.125,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 1,
+      "nl_query": "orders with at most 10 items should be paid within three weeks after placement",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 1987,
+      "root_violations": 447,
+      "violation_rate": 0.225,
+      "baseline_situations": 2000,
+      "baseline_f1": 0.772511,
+      "baseline_precision": 0.77,
+      "baseline_recall": 0.775038,
+      "baseline_f1_variants": {
+        "strict": 0.772511,
+        "population": 0.996739,
+        "violation": 0.365345,
+        "kind_projected": 0.772511
+      },
+      "duration_sec": 3.291,
+      "baseline_f1_flagall": 0.224229,
+      "trivial_floor": 0.772511,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.772511,
+          "flagall": 0.224229
+        },
+        "population": {
+          "noop": 0.996739,
+          "flagall": 0.996739
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.365345
+        },
+        "kind_projected": {
+          "noop": 0.772511,
+          "flagall": 0.224229
+        }
+      }
+    },
+    {
+      "index": 2,
+      "nl_query": "Which orders were fully delivered within 3.5 weeks?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 2000,
+      "root_violations": 293,
+      "violation_rate": 0.1465,
+      "baseline_situations": 2000,
+      "baseline_f1": 0.8535,
+      "baseline_precision": 0.8535,
+      "baseline_recall": 0.8535,
+      "baseline_f1_variants": {
+        "strict": 0.8535,
+        "population": 1.0,
+        "violation": 0.25556,
+        "kind_projected": 0.8535
+      },
+      "duration_sec": 2.706,
+      "baseline_f1_flagall": 0.1465,
+      "trivial_floor": 0.8535,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.8535,
+          "flagall": 0.1465
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.25556
+        },
+        "kind_projected": {
+          "noop": 0.8535,
+          "flagall": 0.1465
+        }
+      }
+    },
+    {
+      "index": 3,
+      "nl_query": "Which customers had at least 5 orders for which at least two payment reminder had to be sent out?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 15,
+      "root_violations": 8,
+      "violation_rate": 0.5333,
+      "baseline_situations": 15,
+      "baseline_f1": 0.466667,
+      "baseline_precision": 0.466667,
+      "baseline_recall": 0.466667,
+      "baseline_f1_variants": {
+        "strict": 0.533333,
+        "population": 1.0,
+        "violation": 0.695652,
+        "kind_projected": 0.533333
+      },
+      "duration_sec": 2.308,
+      "baseline_f1_flagall": 0.533333,
+      "trivial_floor": 0.533333,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.466667,
+          "flagall": 0.533333
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.695652
+        },
+        "kind_projected": {
+          "noop": 0.466667,
+          "flagall": 0.533333
+        }
+      }
+    },
+    {
+      "index": 4,
+      "nl_query": "What is the total order volume of customers, i.e. the sum of all order prices for which payment has been recorded, where all customers with a total order volume below €300,000 are shown as having violated the terms?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 15,
+      "root_violations": 6,
+      "violation_rate": 0.4,
+      "baseline_situations": 15,
+      "baseline_f1": 0.6,
+      "baseline_precision": 0.6,
+      "baseline_recall": 0.6,
+      "baseline_f1_variants": {
+        "strict": 0.6,
+        "population": 1.0,
+        "violation": 0.571429,
+        "kind_projected": 0.6
+      },
+      "duration_sec": 2.688,
+      "baseline_f1_flagall": 0.4,
+      "trivial_floor": 0.6,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.6,
+          "flagall": 0.4
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.571429
+        },
+        "kind_projected": {
+          "noop": 0.6,
+          "flagall": 0.4
+        }
+      }
+    },
+    {
+      "index": 5,
+      "nl_query": "There are at least three items per package.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 1128,
+      "root_violations": 81,
+      "violation_rate": 0.0718,
+      "baseline_situations": 1128,
+      "baseline_f1": 0.928191,
+      "baseline_precision": 0.928191,
+      "baseline_recall": 0.928191,
+      "baseline_f1_variants": {
+        "strict": 0.928191,
+        "population": 1.0,
+        "violation": 0.133995,
+        "kind_projected": 0.928191
+      },
+      "duration_sec": 2.646,
+      "baseline_f1_flagall": 0.071809,
+      "trivial_floor": 0.928191,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.928191,
+          "flagall": 0.071809
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.133995
+        },
+        "kind_projected": {
+          "noop": 0.928191,
+          "flagall": 0.071809
+        }
+      }
+    },
+    {
+      "index": 6,
+      "nl_query": "Diagnostic equipment should not be used simultaneously for more than one diagnostic test.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "verdict": "ok",
+      "root_situations": 96,
+      "root_violations": 96,
+      "violation_rate": 1.0,
+      "baseline_situations": 96,
+      "baseline_f1": 0.0,
+      "baseline_precision": 0.0,
+      "baseline_recall": 0.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": 1.0,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.485,
+      "baseline_f1_flagall": 1.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.0,
+          "flagall": 1.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 1.0
+        },
+        "kind_projected": {
+          "noop": 0.0,
+          "flagall": 1.0
+        }
+      }
+    },
+    {
+      "index": 7,
+      "nl_query": "Every assigned bed must belong to the same room in which the patient receives care.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "verdict": "ok",
+      "root_situations": 587,
+      "root_violations": 503,
+      "violation_rate": 0.8569,
+      "baseline_situations": 587,
+      "baseline_f1": 0.143101,
+      "baseline_precision": 0.143101,
+      "baseline_recall": 0.143101,
+      "baseline_f1_variants": {
+        "strict": 0.856899,
+        "population": 1.0,
+        "violation": 0.922936,
+        "kind_projected": 0.856899
+      },
+      "duration_sec": 2.151,
+      "baseline_f1_flagall": 0.856899,
+      "trivial_floor": 0.856899,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.143101,
+          "flagall": 0.856899
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.922936
+        },
+        "kind_projected": {
+          "noop": 0.143101,
+          "flagall": 0.856899
+        }
+      }
+    },
+    {
+      "index": 8,
+      "nl_query": "Every completed assessment must have been previously sent to the candidate.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "ok",
+      "root_situations": 911,
+      "root_violations": 323,
+      "violation_rate": 0.3546,
+      "baseline_situations": 911,
+      "baseline_f1": 0.645445,
+      "baseline_precision": 0.645445,
+      "baseline_recall": 0.645445,
+      "baseline_f1_variants": {
+        "strict": 0.645445,
+        "population": 1.0,
+        "violation": 0.523501,
+        "kind_projected": 0.645445
+      },
+      "duration_sec": 2.303,
+      "baseline_f1_flagall": 0.354555,
+      "trivial_floor": 0.645445,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.645445,
+          "flagall": 0.354555
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.523501
+        },
+        "kind_projected": {
+          "noop": 0.645445,
+          "flagall": 0.354555
+        }
+      }
+    },
+    {
+      "index": 9,
+      "nl_query": "Vehicles must be booked before containers are loaded onto them.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 127,
+      "root_violations": 2,
+      "violation_rate": 0.0157,
+      "baseline_situations": 127,
+      "baseline_f1": 0.984252,
+      "baseline_precision": 0.984252,
+      "baseline_recall": 0.984252,
+      "baseline_f1_variants": {
+        "strict": 0.984252,
+        "population": 1.0,
+        "violation": 0.031008,
+        "kind_projected": 0.984252
+      },
+      "duration_sec": 2.391,
+      "baseline_f1_flagall": 0.015748,
+      "trivial_floor": 0.984252,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.984252,
+          "flagall": 0.015748
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.031008
+        },
+        "kind_projected": {
+          "noop": 0.984252,
+          "flagall": 0.015748
+        }
+      }
+    },
+    {
+      "index": 10,
+      "nl_query": "Every backtracking step should eventually be followed by either new hypothesis generation or abductive reasoning.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 2606,
+      "root_violations": 2394,
+      "violation_rate": 0.9186,
+      "baseline_situations": 2606,
+      "baseline_f1": 0.081351,
+      "baseline_precision": 0.081351,
+      "baseline_recall": 0.081351,
+      "baseline_f1_variants": {
+        "strict": 0.918649,
+        "population": 1.0,
+        "violation": 0.9576,
+        "kind_projected": 0.918649
+      },
+      "duration_sec": 4.014,
+      "baseline_f1_flagall": 0.918649,
+      "trivial_floor": 0.918649,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.081351,
+          "flagall": 0.918649
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.9576
+        },
+        "kind_projected": {
+          "noop": 0.081351,
+          "flagall": 0.918649
+        }
+      }
+    },
+    {
+      "index": 11,
+      "nl_query": "Pattern recognition should precede inductive reasoning in successful reasoning paths.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 8732,
+      "root_violations": 4340,
+      "violation_rate": 0.497,
+      "baseline_situations": 8732,
+      "baseline_f1": 0.502978,
+      "baseline_precision": 0.502978,
+      "baseline_recall": 0.502978,
+      "baseline_f1_variants": {
+        "strict": 0.502978,
+        "population": 1.0,
+        "violation": 0.664015,
+        "kind_projected": 0.502978
+      },
+      "duration_sec": 53.284,
+      "baseline_f1_flagall": 0.497022,
+      "trivial_floor": 0.502978,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.502978,
+          "flagall": 0.497022
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.664015
+        },
+        "kind_projected": {
+          "noop": 0.502978,
+          "flagall": 0.497022
+        }
+      }
+    },
+    {
+      "index": 12,
+      "nl_query": "Counterfactual reasoning must be validated before producing a correct conclusion.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 498,
+      "root_violations": 489,
+      "violation_rate": 0.9819,
+      "baseline_situations": 498,
+      "baseline_f1": 0.018072,
+      "baseline_precision": 0.018072,
+      "baseline_recall": 0.018072,
+      "baseline_f1_variants": {
+        "strict": 0.981928,
+        "population": 1.0,
+        "violation": 0.990881,
+        "kind_projected": 0.981928
+      },
+      "duration_sec": 14.756,
+      "baseline_f1_flagall": 0.981928,
+      "trivial_floor": 0.981928,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.018072,
+          "flagall": 0.981928
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.990881
+        },
+        "kind_projected": {
+          "noop": 0.018072,
+          "flagall": 0.981928
+        }
+      }
+    },
+    {
+      "index": 13,
+      "nl_query": "Ethical or moral reasoning should not directly produce wrong conclusions.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 682,
+      "root_violations": 15,
+      "violation_rate": 0.022,
+      "baseline_situations": 682,
+      "baseline_f1": 0.978006,
+      "baseline_precision": 0.978006,
+      "baseline_recall": 0.978006,
+      "baseline_f1_variants": {
+        "strict": 0.978006,
+        "population": 1.0,
+        "violation": 0.043042,
+        "kind_projected": 0.978006
+      },
+      "duration_sec": 3.366,
+      "baseline_f1_flagall": 0.021994,
+      "trivial_floor": 0.978006,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.978006,
+          "flagall": 0.021994
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.043042
+        },
+        "kind_projected": {
+          "noop": 0.978006,
+          "flagall": 0.021994
+        }
+      }
+    },
+    {
+      "index": 14,
+      "nl_query": "Every reasoning sequence ending in a partially correct conclusion must contain at least one validation event.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 53399,
+      "root_violations": 26718,
+      "violation_rate": 0.5003,
+      "baseline_situations": 53399,
+      "baseline_f1": 0.499654,
+      "baseline_precision": 0.499654,
+      "baseline_recall": 0.499654,
+      "baseline_f1_variants": {
+        "strict": 0.500346,
+        "population": 1.0,
+        "violation": 0.666975,
+        "kind_projected": 0.500346
+      },
+      "duration_sec": 212.537,
+      "baseline_f1_flagall": 0.500346,
+      "trivial_floor": 0.500346,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.499654,
+          "flagall": 0.500346
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.666975
+        },
+        "kind_projected": {
+          "noop": 0.499654,
+          "flagall": 0.500346
+        }
+      }
+    },
+    {
+      "index": 15,
+      "nl_query": "Abductive reasoning followed by counterfactual reasoning should eventually lead to either validation or backtracking.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 5610,
+      "root_violations": 5562,
+      "violation_rate": 0.9914,
+      "baseline_situations": 5610,
+      "baseline_f1": 0.008556,
+      "baseline_precision": 0.008556,
+      "baseline_recall": 0.008556,
+      "baseline_f1_variants": {
+        "strict": 0.991444,
+        "population": 1.0,
+        "violation": 0.995704,
+        "kind_projected": 0.991444
+      },
+      "duration_sec": 12.795,
+      "baseline_f1_flagall": 0.991444,
+      "trivial_floor": 0.991444,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.008556,
+          "flagall": 0.991444
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.995704
+        },
+        "kind_projected": {
+          "noop": 0.008556,
+          "flagall": 0.991444
+        }
+      }
+    },
+    {
+      "index": 16,
+      "nl_query": "Every feature implementation should eventually be followed by at least one test activity on the affected files.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "verdict": "ok",
+      "root_situations": 27412,
+      "root_violations": 25009,
+      "violation_rate": 0.9123,
+      "baseline_situations": 27412,
+      "baseline_f1": 0.087662,
+      "baseline_precision": 0.087662,
+      "baseline_recall": 0.087662,
+      "baseline_f1_variants": {
+        "strict": 0.912338,
+        "population": 1.0,
+        "violation": 0.95416,
+        "kind_projected": 0.912338
+      },
+      "duration_sec": 7.044,
+      "baseline_f1_flagall": 0.912338,
+      "trivial_floor": 0.912338,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.087662,
+          "flagall": 0.912338
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.95416
+        },
+        "kind_projected": {
+          "noop": 0.087662,
+          "flagall": 0.912338
+        }
+      }
+    },
+    {
+      "index": 17,
+      "nl_query": "Performance optimization activities should not directly introduce subsequent bug-fix events on the same files within 48 hours.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "verdict": "ok",
+      "root_situations": 2658,
+      "root_violations": 105,
+      "violation_rate": 0.0395,
+      "baseline_situations": 2658,
+      "baseline_f1": 0.960497,
+      "baseline_precision": 0.960497,
+      "baseline_recall": 0.960497,
+      "baseline_f1_variants": {
+        "strict": 0.960497,
+        "population": 1.0,
+        "violation": 0.076004,
+        "kind_projected": 0.960497
+      },
+      "duration_sec": 5.496,
+      "baseline_f1_flagall": 0.039503,
+      "trivial_floor": 0.960497,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.960497,
+          "flagall": 0.039503
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.076004
+        },
+        "kind_projected": {
+          "noop": 0.960497,
+          "flagall": 0.039503
+        }
+      }
+    },
+    {
+      "index": 18,
+      "nl_query": "Containers that were at some point empty must not depart",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 1999,
+      "root_violations": 1956,
+      "violation_rate": 0.9785,
+      "baseline_situations": 1999,
+      "baseline_f1": 0.021511,
+      "baseline_precision": 0.021511,
+      "baseline_recall": 0.021511,
+      "baseline_f1_variants": {
+        "strict": 0.978489,
+        "population": 1.0,
+        "violation": 0.989128,
+        "kind_projected": 0.978489
+      },
+      "duration_sec": 2.589,
+      "baseline_f1_flagall": 0.978489,
+      "trivial_floor": 0.978489,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.021511,
+          "flagall": 0.978489
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.989128
+        },
+        "kind_projected": {
+          "noop": 0.021511,
+          "flagall": 0.978489
+        }
+      }
+    },
+    {
+      "index": 19,
+      "nl_query": "Persons marked as non-citizens (isCitizen='0') must submit their file to the underwriter before signing the loan agreement.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "ok",
+      "root_situations": 4154,
+      "root_violations": 3409,
+      "violation_rate": 0.8207,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.105271,
+      "baseline_precision": 0.0745,
+      "baseline_recall": 0.179345,
+      "baseline_f1_variants": {
+        "strict": 0.481701,
+        "population": 0.586972,
+        "violation": 0.508464,
+        "kind_projected": 0.481701
+      },
+      "duration_sec": 3.736,
+      "baseline_f1_flagall": 0.481701,
+      "trivial_floor": 0.481701,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.105271,
+          "flagall": 0.481701
+        },
+        "population": {
+          "noop": 0.586972,
+          "flagall": 0.586972
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.508464
+        },
+        "kind_projected": {
+          "noop": 0.105271,
+          "flagall": 0.481701
+        }
+      }
+    },
+    {
+      "index": 20,
+      "nl_query": "An order must have at least one item that was delivered within 3 weeks of placement",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 2000,
+      "root_violations": 10,
+      "violation_rate": 0.005,
+      "baseline_situations": 2000,
+      "baseline_f1": 0.995,
+      "baseline_precision": 0.995,
+      "baseline_recall": 0.995,
+      "baseline_f1_variants": {
+        "strict": 0.995,
+        "population": 1.0,
+        "violation": 0.00995,
+        "kind_projected": 0.995
+      },
+      "duration_sec": 3.07,
+      "baseline_f1_flagall": 0.005,
+      "trivial_floor": 0.995,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.995,
+          "flagall": 0.005
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.00995
+        },
+        "kind_projected": {
+          "noop": 0.995,
+          "flagall": 0.005
+        }
+      }
+    },
+    {
+      "index": 21,
+      "nl_query": "At the time of shipping, the order price must be at least €100",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 2000,
+      "root_violations": 21,
+      "violation_rate": 0.0105,
+      "baseline_situations": 2000,
+      "baseline_f1": 0.9895,
+      "baseline_precision": 0.9895,
+      "baseline_recall": 0.9895,
+      "baseline_f1_variants": {
+        "strict": 0.9895,
+        "population": 1.0,
+        "violation": 0.020782,
+        "kind_projected": 0.9895
+      },
+      "duration_sec": 2.632,
+      "baseline_f1_flagall": 0.0105,
+      "trivial_floor": 0.9895,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.9895,
+          "flagall": 0.0105
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.020782
+        },
+        "kind_projected": {
+          "noop": 0.9895,
+          "flagall": 0.0105
+        }
+      }
+    },
+    {
+      "index": 22,
+      "nl_query": "A patient may only be discharged if both the diagnostic test is complete AND the treatment is successful.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 995,
+      "violation_rate": 0.0995,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.9005,
+      "baseline_precision": 0.9005,
+      "baseline_recall": 0.9005,
+      "baseline_f1_variants": {
+        "strict": 0.9005,
+        "population": 1.0,
+        "violation": 0.180991,
+        "kind_projected": 0.9005
+      },
+      "duration_sec": 3.845,
+      "baseline_f1_flagall": 0.0995,
+      "trivial_floor": 0.9005,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.9005,
+          "flagall": 0.0995
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.180991
+        },
+        "kind_projected": {
+          "noop": 0.9005,
+          "flagall": 0.0995
+        }
+      }
+    },
+    {
+      "index": 23,
+      "nl_query": "For any loan approval, there must exist at least one prior submission to the underwriter by the applicant.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 332,
+      "violation_rate": 0.0332,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.9668,
+      "baseline_precision": 0.9668,
+      "baseline_recall": 0.9668,
+      "baseline_f1_variants": {
+        "strict": 0.9668,
+        "population": 1.0,
+        "violation": 0.064266,
+        "kind_projected": 0.9668
+      },
+      "duration_sec": 3.687,
+      "baseline_f1_flagall": 0.0332,
+      "trivial_floor": 0.9668,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.9668,
+          "flagall": 0.0332
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.064266
+        },
+        "kind_projected": {
+          "noop": 0.9668,
+          "flagall": 0.0332
+        }
+      }
+    },
+    {
+      "index": 24,
+      "nl_query": "After an abductive reasoning step, the next event must be either validation or counterfactual reasoning.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 1645,
+      "root_violations": 59,
+      "violation_rate": 0.0359,
+      "baseline_situations": 1645,
+      "baseline_f1": 0.964134,
+      "baseline_precision": 0.964134,
+      "baseline_recall": 0.964134,
+      "baseline_f1_variants": {
+        "strict": 0.964134,
+        "population": 1.0,
+        "violation": 0.069249,
+        "kind_projected": 0.964134
+      },
+      "duration_sec": 3.555,
+      "baseline_f1_flagall": 0.035866,
+      "trivial_floor": 0.964134,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.964134,
+          "flagall": 0.035866
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.069249
+        },
+        "kind_projected": {
+          "noop": 0.964134,
+          "flagall": 0.035866
+        }
+      }
+    },
+    {
+      "index": 25,
+      "nl_query": "Retrieve the payment events for all orders that received at least one reminder.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 2000,
+      "root_violations": 1557,
+      "violation_rate": 0.7785,
+      "baseline_situations": 2000,
+      "baseline_f1": 0.2215,
+      "baseline_precision": 0.2215,
+      "baseline_recall": 0.2215,
+      "baseline_f1_variants": {
+        "strict": 0.7785,
+        "population": 1.0,
+        "violation": 0.875457,
+        "kind_projected": 0.7785
+      },
+      "duration_sec": 2.647,
+      "baseline_f1_flagall": 0.7785,
+      "trivial_floor": 0.7785,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.2215,
+          "flagall": 0.7785
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.875457
+        },
+        "kind_projected": {
+          "noop": 0.2215,
+          "flagall": 0.7785
+        }
+      }
+    },
+    {
+      "index": 26,
+      "nl_query": "Retrieve all containers that were rescheduled and subsequently reloaded.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 1999,
+      "root_violations": 1963,
+      "violation_rate": 0.982,
+      "baseline_situations": 1999,
+      "baseline_f1": 0.018009,
+      "baseline_precision": 0.018009,
+      "baseline_recall": 0.018009,
+      "baseline_f1_variants": {
+        "strict": 0.981991,
+        "population": 1.0,
+        "violation": 0.990914,
+        "kind_projected": 0.981991
+      },
+      "duration_sec": 3.725,
+      "baseline_f1_flagall": 0.981991,
+      "trivial_floor": 0.981991,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.018009,
+          "flagall": 0.981991
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.990914
+        },
+        "kind_projected": {
+          "noop": 0.018009,
+          "flagall": 0.981991
+        }
+      }
+    },
+    {
+      "index": 27,
+      "nl_query": "List all candidates who accepted an offer and completed onboarding.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "ok",
+      "root_situations": 3000,
+      "root_violations": 2909,
+      "violation_rate": 0.9697,
+      "baseline_situations": 3000,
+      "baseline_f1": 0.030333,
+      "baseline_precision": 0.030333,
+      "baseline_recall": 0.030333,
+      "baseline_f1_variants": {
+        "strict": 0.969667,
+        "population": 1.0,
+        "violation": 0.9846,
+        "kind_projected": 0.969667
+      },
+      "duration_sec": 3.498,
+      "baseline_f1_flagall": 0.969667,
+      "trivial_floor": 0.969667,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.030333,
+          "flagall": 0.969667
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.9846
+        },
+        "kind_projected": {
+          "noop": 0.030333,
+          "flagall": 0.969667
+        }
+      }
+    },
+    {
+      "index": 28,
+      "nl_query": "A backtracking event whose text contains 'failed' must not be followed by a conclusion event within one hour.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 1645,
+      "root_violations": 2,
+      "violation_rate": 0.0012,
+      "baseline_situations": 1645,
+      "baseline_f1": 0.998784,
+      "baseline_precision": 0.998784,
+      "baseline_recall": 0.998784,
+      "baseline_f1_variants": {
+        "strict": 0.998784,
+        "population": 1.0,
+        "violation": 0.002429,
+        "kind_projected": 0.998784
+      },
+      "duration_sec": 4.31,
+      "baseline_f1_flagall": 0.001216,
+      "trivial_floor": 0.998784,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.998784,
+          "flagall": 0.001216
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.002429
+        },
+        "kind_projected": {
+          "noop": 0.998784,
+          "flagall": 0.001216
+        }
+      }
+    },
+    {
+      "index": 29,
+      "nl_query": "A reasoning module must not produce a wrong conclusion whose text is identical to a preceding correct conclusion's text.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 1645,
+      "root_violations": 13,
+      "violation_rate": 0.0079,
+      "baseline_situations": 1645,
+      "baseline_f1": 0.992097,
+      "baseline_precision": 0.992097,
+      "baseline_recall": 0.992097,
+      "baseline_f1_variants": {
+        "strict": 0.992097,
+        "population": 1.0,
+        "violation": 0.015682,
+        "kind_projected": 0.992097
+      },
+      "duration_sec": 3.206,
+      "baseline_f1_flagall": 0.007903,
+      "trivial_floor": 0.992097,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.992097,
+          "flagall": 0.007903
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.015682
+        },
+        "kind_projected": {
+          "noop": 0.992097,
+          "flagall": 0.007903
+        }
+      }
+    },
+    {
+      "index": 30,
+      "nl_query": "Show each candidate's total number of panel interviews, flagging those with fewer than 1.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "ok",
+      "root_situations": 3000,
+      "root_violations": 2538,
+      "violation_rate": 0.846,
+      "baseline_situations": 3000,
+      "baseline_f1": 0.154,
+      "baseline_precision": 0.154,
+      "baseline_recall": 0.154,
+      "baseline_f1_variants": {
+        "strict": 0.846,
+        "population": 1.0,
+        "violation": 0.916576,
+        "kind_projected": 0.846
+      },
+      "duration_sec": 2.619,
+      "baseline_f1_flagall": 0.846,
+      "trivial_floor": 0.846,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.154,
+          "flagall": 0.846
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.916576
+        },
+        "kind_projected": {
+          "noop": 0.154,
+          "flagall": 0.846
+        }
+      }
+    },
+    {
+      "index": 31,
+      "nl_query": "Show vehicles with total handling units across all containers, marking those exceeding 100.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 127,
+      "root_violations": 89,
+      "violation_rate": 0.7008,
+      "baseline_situations": 127,
+      "baseline_f1": 0.299213,
+      "baseline_precision": 0.299213,
+      "baseline_recall": 0.299213,
+      "baseline_f1_variants": {
+        "strict": 0.700787,
+        "population": 1.0,
+        "violation": 0.824074,
+        "kind_projected": 0.700787
+      },
+      "duration_sec": 2.631,
+      "baseline_f1_flagall": 0.700787,
+      "trivial_floor": 0.700787,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.299213,
+          "flagall": 0.700787
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.824074
+        },
+        "kind_projected": {
+          "noop": 0.299213,
+          "flagall": 0.700787
+        }
+      }
+    },
+    {
+      "index": 32,
+      "nl_query": "A rescheduled container must be reloaded within 48 hours.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 36,
+      "root_violations": 12,
+      "violation_rate": 0.3333,
+      "baseline_situations": 36,
+      "baseline_f1": 0.666667,
+      "baseline_precision": 0.666667,
+      "baseline_recall": 0.666667,
+      "baseline_f1_variants": {
+        "strict": 0.666667,
+        "population": 1.0,
+        "violation": 0.5,
+        "kind_projected": 0.666667
+      },
+      "duration_sec": 2.506,
+      "baseline_f1_flagall": 0.333333,
+      "trivial_floor": 0.666667,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.666667,
+          "flagall": 0.333333
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.5
+        },
+        "kind_projected": {
+          "noop": 0.666667,
+          "flagall": 0.333333
+        }
+      }
+    },
+    {
+      "index": 33,
+      "nl_query": "At the time of loading, a container must not have more than 5 handling units.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 1999,
+      "root_violations": 1505,
+      "violation_rate": 0.7529,
+      "baseline_situations": 1999,
+      "baseline_f1": 0.247124,
+      "baseline_precision": 0.247124,
+      "baseline_recall": 0.247124,
+      "baseline_f1_variants": {
+        "strict": 0.752876,
+        "population": 1.0,
+        "violation": 0.859018,
+        "kind_projected": 0.752876
+      },
+      "duration_sec": 2.932,
+      "baseline_f1_flagall": 0.752876,
+      "trivial_floor": 0.752876,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.247124,
+          "flagall": 0.752876
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.859018
+        },
+        "kind_projected": {
+          "noop": 0.247124,
+          "flagall": 0.752876
+        }
+      }
+    },
+    {
+      "index": 34,
+      "nl_query": "Containers with more than 5 handling units must not depart.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 1999,
+      "root_violations": 1498,
+      "violation_rate": 0.7494,
+      "baseline_situations": 1999,
+      "baseline_f1": 0.250625,
+      "baseline_precision": 0.250625,
+      "baseline_recall": 0.250625,
+      "baseline_f1_variants": {
+        "strict": 0.749375,
+        "population": 1.0,
+        "violation": 0.856734,
+        "kind_projected": 0.749375
+      },
+      "duration_sec": 2.873,
+      "baseline_f1_flagall": 0.749375,
+      "trivial_floor": 0.749375,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.250625,
+          "flagall": 0.749375
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.856734
+        },
+        "kind_projected": {
+          "noop": 0.250625,
+          "flagall": 0.749375
+        }
+      }
+    },
+    {
+      "index": 35,
+      "nl_query": "A documentation commit must follow any feature commit on the same file within 7 days.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "verdict": "ok",
+      "root_situations": 2882,
+      "root_violations": 2879,
+      "violation_rate": 0.999,
+      "baseline_situations": 2882,
+      "baseline_f1": 0.001041,
+      "baseline_precision": 0.001041,
+      "baseline_recall": 0.001041,
+      "baseline_f1_variants": {
+        "strict": 0.998959,
+        "population": 1.0,
+        "violation": 0.999479,
+        "kind_projected": 0.998959
+      },
+      "duration_sec": 6.213,
+      "baseline_f1_flagall": 0.998959,
+      "trivial_floor": 0.998959,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.001041,
+          "flagall": 0.998959
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.999479
+        },
+        "kind_projected": {
+          "noop": 0.001041,
+          "flagall": 0.998959
+        }
+      }
+    },
+    {
+      "index": 36,
+      "nl_query": "No refactoring commit should introduce a new bug fix on the same file within 24 hours.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "verdict": "ok",
+      "root_situations": 4122,
+      "root_violations": 618,
+      "violation_rate": 0.1499,
+      "baseline_situations": 4122,
+      "baseline_f1": 0.850073,
+      "baseline_precision": 0.850073,
+      "baseline_recall": 0.850073,
+      "baseline_f1_variants": {
+        "strict": 0.850073,
+        "population": 1.0,
+        "violation": 0.260759,
+        "kind_projected": 0.850073
+      },
+      "duration_sec": 7.105,
+      "baseline_f1_flagall": 0.149927,
+      "trivial_floor": 0.850073,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.850073,
+          "flagall": 0.149927
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.260759
+        },
+        "kind_projected": {
+          "noop": 0.850073,
+          "flagall": 0.149927
+        }
+      }
+    },
+    {
+      "index": 37,
+      "nl_query": "Any file touched by a feature commit must have at least 3 test commits on the same file.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "verdict": "ok",
+      "root_situations": 2882,
+      "root_violations": 2847,
+      "violation_rate": 0.9879,
+      "baseline_situations": 2882,
+      "baseline_f1": 0.012144,
+      "baseline_precision": 0.012144,
+      "baseline_recall": 0.012144,
+      "baseline_f1_variants": {
+        "strict": 0.987856,
+        "population": 1.0,
+        "violation": 0.993891,
+        "kind_projected": 0.987856
+      },
+      "duration_sec": 5.868,
+      "baseline_f1_flagall": 0.987856,
+      "trivial_floor": 0.987856,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.012144,
+          "flagall": 0.987856
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.993891
+        },
+        "kind_projected": {
+          "noop": 0.012144,
+          "flagall": 0.987856
+        }
+      }
+    },
+    {
+      "index": 38,
+      "nl_query": "A build-breaking commit must be immediately followed by a fix commit on the same file.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "verdict": "ok",
+      "root_situations": 5,
+      "root_violations": 3,
+      "violation_rate": 0.6,
+      "baseline_situations": 5,
+      "baseline_f1": 0.4,
+      "baseline_precision": 0.4,
+      "baseline_recall": 0.4,
+      "baseline_f1_variants": {
+        "strict": 0.6,
+        "population": 1.0,
+        "violation": 0.75,
+        "kind_projected": 0.6
+      },
+      "duration_sec": 5.184,
+      "baseline_f1_flagall": 0.6,
+      "trivial_floor": 0.6,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.4,
+          "flagall": 0.6
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.75
+        },
+        "kind_projected": {
+          "noop": 0.4,
+          "flagall": 0.6
+        }
+      }
+    },
+    {
+      "index": 39,
+      "nl_query": "A container that is placed in stock must then be brought to the loading bay and subsequently loaded to a vehicle.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 1814,
+      "root_violations": 22,
+      "violation_rate": 0.0121,
+      "baseline_situations": 1814,
+      "baseline_f1": 0.987872,
+      "baseline_precision": 0.987872,
+      "baseline_recall": 0.987872,
+      "baseline_f1_variants": {
+        "strict": 0.987872,
+        "population": 1.0,
+        "violation": 0.023965,
+        "kind_projected": 0.987872
+      },
+      "duration_sec": 2.82,
+      "baseline_f1_flagall": 0.012128,
+      "trivial_floor": 0.987872,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.987872,
+          "flagall": 0.012128
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.023965
+        },
+        "kind_projected": {
+          "noop": 0.987872,
+          "flagall": 0.012128
+        }
+      }
+    },
+    {
+      "index": 40,
+      "nl_query": "A container must remain in stock for at least 6 hours before being brought to the loading bay.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 1969,
+      "root_violations": 185,
+      "violation_rate": 0.094,
+      "baseline_situations": 1969,
+      "baseline_f1": 0.906044,
+      "baseline_precision": 0.906044,
+      "baseline_recall": 0.906044,
+      "baseline_f1_variants": {
+        "strict": 0.906044,
+        "population": 1.0,
+        "violation": 0.171773,
+        "kind_projected": 0.906044
+      },
+      "duration_sec": 2.857,
+      "baseline_f1_flagall": 0.093956,
+      "trivial_floor": 0.906044,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.906044,
+          "flagall": 0.093956
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.171773
+        },
+        "kind_projected": {
+          "noop": 0.906044,
+          "flagall": 0.093956
+        }
+      }
+    },
+    {
+      "index": 41,
+      "nl_query": "List all panel interview events for candidates who subsequently received an offer letter.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "ok",
+      "root_situations": 462,
+      "root_violations": 339,
+      "violation_rate": 0.7338,
+      "baseline_situations": 462,
+      "baseline_f1": 0.266234,
+      "baseline_precision": 0.266234,
+      "baseline_recall": 0.266234,
+      "baseline_f1_variants": {
+        "strict": 0.733766,
+        "population": 1.0,
+        "violation": 0.846442,
+        "kind_projected": 0.733766
+      },
+      "duration_sec": 2.618,
+      "baseline_f1_flagall": 0.733766,
+      "trivial_floor": 0.733766,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.266234,
+          "flagall": 0.733766
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.846442
+        },
+        "kind_projected": {
+          "noop": 0.266234,
+          "flagall": 0.733766
+        }
+      }
+    },
+    {
+      "index": 42,
+      "nl_query": "Which applicants older than 40 were rejected as prospective tenants?",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 8350,
+      "root_violations": 2343,
+      "violation_rate": 0.2806,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.654714,
+      "baseline_precision": 0.6007,
+      "baseline_recall": 0.719401,
+      "baseline_f1_variants": {
+        "strict": 0.654714,
+        "population": 0.910082,
+        "violation": 0.379648,
+        "kind_projected": 0.654714
+      },
+      "duration_sec": 4.204,
+      "baseline_f1_flagall": 0.255368,
+      "trivial_floor": 0.654714,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.654714,
+          "flagall": 0.255368
+        },
+        "population": {
+          "noop": 0.910082,
+          "flagall": 0.910082
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.379648
+        },
+        "kind_projected": {
+          "noop": 0.654714,
+          "flagall": 0.255368
+        }
+      }
+    },
+    {
+      "index": 43,
+      "nl_query": "Which married applicants signed a contract before moving in?",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 5036,
+      "root_violations": 3657,
+      "violation_rate": 0.7262,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.183426,
+      "baseline_precision": 0.1379,
+      "baseline_recall": 0.273828,
+      "baseline_f1_variants": {
+        "strict": 0.486433,
+        "population": 0.669859,
+        "violation": 0.53555,
+        "kind_projected": 0.486433
+      },
+      "duration_sec": 4.149,
+      "baseline_f1_flagall": 0.486433,
+      "trivial_floor": 0.486433,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.183426,
+          "flagall": 0.486433
+        },
+        "population": {
+          "noop": 0.669859,
+          "flagall": 0.669859
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.53555
+        },
+        "kind_projected": {
+          "noop": 0.183426,
+          "flagall": 0.486433
+        }
+      }
+    },
+    {
+      "index": 44,
+      "nl_query": "Persons aged 25 or younger who missed a rent payment at least twice.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 57,
+      "root_violations": 54,
+      "violation_rate": 0.9474,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.000597,
+      "baseline_precision": 0.0003,
+      "baseline_recall": 0.052632,
+      "baseline_f1_variants": {
+        "strict": 0.010739,
+        "population": 0.011335,
+        "violation": 0.010742,
+        "kind_projected": 0.010739
+      },
+      "duration_sec": 3.963,
+      "baseline_f1_flagall": 0.010739,
+      "trivial_floor": 0.010739,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.000597,
+          "flagall": 0.010739
+        },
+        "population": {
+          "noop": 0.011335,
+          "flagall": 0.011335
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.010742
+        },
+        "kind_projected": {
+          "noop": 0.000597,
+          "flagall": 0.010739
+        }
+      }
+    },
+    {
+      "index": 45,
+      "nl_query": "List every married person who was eventually evicted.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 5036,
+      "root_violations": 4986,
+      "violation_rate": 0.9901,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.006651,
+      "baseline_precision": 0.005,
+      "baseline_recall": 0.009929,
+      "baseline_f1_variants": {
+        "strict": 0.663208,
+        "population": 0.669859,
+        "violation": 0.665421,
+        "kind_projected": 0.663208
+      },
+      "duration_sec": 4.246,
+      "baseline_f1_flagall": 0.663208,
+      "trivial_floor": 0.663208,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.006651,
+          "flagall": 0.663208
+        },
+        "population": {
+          "noop": 0.669859,
+          "flagall": 0.669859
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.665421
+        },
+        "kind_projected": {
+          "noop": 0.006651,
+          "flagall": 0.663208
+        }
+      }
+    },
+    {
+      "index": 46,
+      "nl_query": "Unmarried persons who missed a rent payment more than once.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 4964,
+      "root_violations": 4870,
+      "violation_rate": 0.9811,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.012563,
+      "baseline_precision": 0.0094,
+      "baseline_recall": 0.018936,
+      "baseline_f1_variants": {
+        "strict": 0.650895,
+        "population": 0.663459,
+        "violation": 0.65501,
+        "kind_projected": 0.650895
+      },
+      "duration_sec": 4.783,
+      "baseline_f1_flagall": 0.650895,
+      "trivial_floor": 0.650895,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.012563,
+          "flagall": 0.650895
+        },
+        "population": {
+          "noop": 0.663459,
+          "flagall": 0.663459
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.65501
+        },
+        "kind_projected": {
+          "noop": 0.012563,
+          "flagall": 0.650895
+        }
+      }
+    },
+    {
+      "index": 47,
+      "nl_query": "Show all persons older than 60 who paid rent at least once.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 1221,
+      "root_violations": 884,
+      "violation_rate": 0.724,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.060066,
+      "baseline_precision": 0.0337,
+      "baseline_recall": 0.276003,
+      "baseline_f1_variants": {
+        "strict": 0.157562,
+        "population": 0.217628,
+        "violation": 0.16244,
+        "kind_projected": 0.157562
+      },
+      "duration_sec": 4.446,
+      "baseline_f1_flagall": 0.157562,
+      "trivial_floor": 0.157562,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.060066,
+          "flagall": 0.157562
+        },
+        "population": {
+          "noop": 0.217628,
+          "flagall": 0.217628
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.16244
+        },
+        "kind_projected": {
+          "noop": 0.060066,
+          "flagall": 0.157562
+        }
+      }
+    },
+    {
+      "index": 48,
+      "nl_query": "A person who cancelled the apartment must not have moved in afterwards.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 7320,
+      "violation_rate": 0.732,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.268,
+      "baseline_precision": 0.268,
+      "baseline_recall": 0.268,
+      "baseline_f1_variants": {
+        "strict": 0.732,
+        "population": 1.0,
+        "violation": 0.845266,
+        "kind_projected": 0.732
+      },
+      "duration_sec": 4.304,
+      "baseline_f1_flagall": 0.732,
+      "trivial_floor": 0.732,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.268,
+          "flagall": 0.732
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.845266
+        },
+        "kind_projected": {
+          "noop": 0.268,
+          "flagall": 0.732
+        }
+      }
+    },
+    {
+      "index": 49,
+      "nl_query": "Married applicants older than 35 must have had their paperwork checked before signing the contract.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 4703,
+      "root_violations": 3404,
+      "violation_rate": 0.7238,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.176699,
+      "baseline_precision": 0.1299,
+      "baseline_recall": 0.276207,
+      "baseline_f1_variants": {
+        "strict": 0.463035,
+        "population": 0.639733,
+        "violation": 0.507908,
+        "kind_projected": 0.463035
+      },
+      "duration_sec": 4.16,
+      "baseline_f1_flagall": 0.463035,
+      "trivial_floor": 0.463035,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.176699,
+          "flagall": 0.463035
+        },
+        "population": {
+          "noop": 0.639733,
+          "flagall": 0.639733
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.507908
+        },
+        "kind_projected": {
+          "noop": 0.176699,
+          "flagall": 0.463035
+        }
+      }
+    },
+    {
+      "index": 50,
+      "nl_query": "Materials with a net price above 500 must have their purchase requisition submitted before it is approved",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "verdict": "ok",
+      "root_situations": 1527,
+      "root_violations": 334,
+      "violation_rate": 0.2187,
+      "baseline_situations": 2296,
+      "baseline_f1": 0.624117,
+      "baseline_precision": 0.519599,
+      "baseline_recall": 0.78127,
+      "baseline_f1_variants": {
+        "strict": 0.624117,
+        "population": 0.798849,
+        "violation": 0.253992,
+        "kind_projected": 0.624117
+      },
+      "duration_sec": 4.428,
+      "baseline_f1_flagall": 0.174732,
+      "trivial_floor": 0.624117,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.624117,
+          "flagall": 0.174732
+        },
+        "population": {
+          "noop": 0.798849,
+          "flagall": 0.798849
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.253992
+        },
+        "kind_projected": {
+          "noop": 0.624117,
+          "flagall": 0.174732
+        }
+      }
+    },
+    {
+      "index": 51,
+      "nl_query": "Purchase requisitions must be approved before a request for quotation is created.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "verdict": "ok",
+      "root_situations": 927,
+      "root_violations": 320,
+      "violation_rate": 0.3452,
+      "baseline_situations": 927,
+      "baseline_f1": 0.6548,
+      "baseline_precision": 0.6548,
+      "baseline_recall": 0.6548,
+      "baseline_f1_variants": {
+        "strict": 0.6548,
+        "population": 1.0,
+        "violation": 0.513232,
+        "kind_projected": 0.6548
+      },
+      "duration_sec": 3.507,
+      "baseline_f1_flagall": 0.3452,
+      "trivial_floor": 0.6548,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.6548,
+          "flagall": 0.3452
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.513232
+        },
+        "kind_projected": {
+          "noop": 0.6548,
+          "flagall": 0.3452
+        }
+      }
+    },
+    {
+      "index": 52,
+      "nl_query": "Materials with a quantity of at least 50 should be linked to at least one goods receipt.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "verdict": "ok",
+      "root_situations": 1159,
+      "root_violations": 792,
+      "violation_rate": 0.6833,
+      "baseline_situations": 2296,
+      "baseline_f1": 0.212446,
+      "baseline_precision": 0.159843,
+      "baseline_recall": 0.316652,
+      "baseline_f1_variants": {
+        "strict": 0.458466,
+        "population": 0.670912,
+        "violation": 0.512953,
+        "kind_projected": 0.458466
+      },
+      "duration_sec": 3.161,
+      "baseline_f1_flagall": 0.458466,
+      "trivial_floor": 0.458466,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.212446,
+          "flagall": 0.458466
+        },
+        "population": {
+          "noop": 0.670912,
+          "flagall": 0.670912
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.512953
+        },
+        "kind_projected": {
+          "noop": 0.212446,
+          "flagall": 0.458466
+        }
+      }
+    },
+    {
+      "index": 53,
+      "nl_query": "Every purchase order must be linked to at least one invoice receipt",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "verdict": "ok",
+      "root_situations": 1598,
+      "root_violations": 671,
+      "violation_rate": 0.4199,
+      "baseline_situations": 1598,
+      "baseline_f1": 0.5801,
+      "baseline_precision": 0.5801,
+      "baseline_recall": 0.5801,
+      "baseline_f1_variants": {
+        "strict": 0.5801,
+        "population": 1.0,
+        "violation": 0.59145,
+        "kind_projected": 0.5801
+      },
+      "duration_sec": 3.311,
+      "baseline_f1_flagall": 0.4199,
+      "trivial_floor": 0.5801,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.5801,
+          "flagall": 0.4199
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.59145
+        },
+        "kind_projected": {
+          "noop": 0.5801,
+          "flagall": 0.4199
+        }
+      }
+    },
+    {
+      "index": 54,
+      "nl_query": "Every purchase requisition must have its approval delegated and must subsequently lead to a request for quotation.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "verdict": "ok",
+      "root_situations": 927,
+      "root_violations": 805,
+      "violation_rate": 0.8684,
+      "baseline_situations": 927,
+      "baseline_f1": 0.131607,
+      "baseline_precision": 0.131607,
+      "baseline_recall": 0.131607,
+      "baseline_f1_variants": {
+        "strict": 0.868393,
+        "population": 1.0,
+        "violation": 0.929561,
+        "kind_projected": 0.868393
+      },
+      "duration_sec": 3.347,
+      "baseline_f1_flagall": 0.868393,
+      "trivial_floor": 0.868393,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.131607,
+          "flagall": 0.868393
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.929561
+        },
+        "kind_projected": {
+          "noop": 0.131607,
+          "flagall": 0.868393
+        }
+      }
+    },
+    {
+      "index": 55,
+      "nl_query": "Every accepted application must subsequently go through a validation step.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "verdict": "ok",
+      "root_situations": 31509,
+      "root_violations": 9639,
+      "violation_rate": 0.3059,
+      "baseline_situations": 31509,
+      "baseline_f1": 0.694087,
+      "baseline_precision": 0.694087,
+      "baseline_recall": 0.694087,
+      "baseline_f1_variants": {
+        "strict": 0.694087,
+        "population": 1.0,
+        "violation": 0.468504,
+        "kind_projected": 0.694087
+      },
+      "duration_sec": 77.84,
+      "baseline_f1_flagall": 0.305913,
+      "trivial_floor": 0.694087,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.694087,
+          "flagall": 0.305913
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.468504
+        },
+        "kind_projected": {
+          "noop": 0.694087,
+          "flagall": 0.305913
+        }
+      }
+    },
+    {
+      "index": 56,
+      "nl_query": "An offer that was created must eventually be either accepted or refused.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "verdict": "ok",
+      "root_situations": 42995,
+      "root_violations": 21072,
+      "violation_rate": 0.4901,
+      "baseline_situations": 42995,
+      "baseline_f1": 0.509896,
+      "baseline_precision": 0.509896,
+      "baseline_recall": 0.509896,
+      "baseline_f1_variants": {
+        "strict": 0.509896,
+        "population": 1.0,
+        "violation": 0.657811,
+        "kind_projected": 0.509896
+      },
+      "duration_sec": 81.028,
+      "baseline_f1_flagall": 0.490104,
+      "trivial_floor": 0.509896,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.509896,
+          "flagall": 0.490104
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.657811
+        },
+        "kind_projected": {
+          "noop": 0.509896,
+          "flagall": 0.490104
+        }
+      }
+    },
+    {
+      "index": 57,
+      "nl_query": "An application must not be accepted before it has been validated.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "verdict": "ok",
+      "root_situations": 31509,
+      "root_violations": 21870,
+      "violation_rate": 0.6941,
+      "baseline_situations": 31509,
+      "baseline_f1": 0.305913,
+      "baseline_precision": 0.305913,
+      "baseline_recall": 0.305913,
+      "baseline_f1_variants": {
+        "strict": 0.694087,
+        "population": 1.0,
+        "violation": 0.819423,
+        "kind_projected": 0.694087
+      },
+      "duration_sec": 76.483,
+      "baseline_f1_flagall": 0.694087,
+      "trivial_floor": 0.694087,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.305913,
+          "flagall": 0.694087
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.819423
+        },
+        "kind_projected": {
+          "noop": 0.305913,
+          "flagall": 0.694087
+        }
+      }
+    },
+    {
+      "index": 58,
+      "nl_query": "Which applications were denied without ever being validated?",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "verdict": "ok",
+      "root_situations": 31509,
+      "root_violations": 31340,
+      "violation_rate": 0.9946,
+      "baseline_situations": 31509,
+      "baseline_f1": 0.005364,
+      "baseline_precision": 0.005364,
+      "baseline_recall": 0.005364,
+      "baseline_f1_variants": {
+        "strict": 0.994636,
+        "population": 1.0,
+        "violation": 0.997311,
+        "kind_projected": 0.994636
+      },
+      "duration_sec": 79.698,
+      "baseline_f1_flagall": 0.994636,
+      "trivial_floor": 0.994636,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.005364,
+          "flagall": 0.994636
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.997311
+        },
+        "kind_projected": {
+          "noop": 0.005364,
+          "flagall": 0.994636
+        }
+      }
+    },
+    {
+      "index": 59,
+      "nl_query": "Every offer must have been sent and must be linked to exactly one application.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "verdict": "ok",
+      "root_situations": 42995,
+      "root_violations": 1262,
+      "violation_rate": 0.0294,
+      "baseline_situations": 42995,
+      "baseline_f1": 0.970648,
+      "baseline_precision": 0.970648,
+      "baseline_recall": 0.970648,
+      "baseline_f1_variants": {
+        "strict": 0.970648,
+        "population": 1.0,
+        "violation": 0.057031,
+        "kind_projected": 0.970648
+      },
+      "duration_sec": 75.911,
+      "baseline_f1_flagall": 0.029352,
+      "trivial_floor": 0.970648,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.970648,
+          "flagall": 0.029352
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.057031
+        },
+        "kind_projected": {
+          "noop": 0.970648,
+          "flagall": 0.029352
+        }
+      }
+    },
+    {
+      "index": 60,
+      "nl_query": "An application must not be both accepted and denied.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "verdict": "ok",
+      "root_situations": 31509,
+      "root_violations": 3752,
+      "violation_rate": 0.1191,
+      "baseline_situations": 31509,
+      "baseline_f1": 0.880923,
+      "baseline_precision": 0.880923,
+      "baseline_recall": 0.880923,
+      "baseline_f1_variants": {
+        "strict": 0.880923,
+        "population": 1.0,
+        "violation": 0.212813,
+        "kind_projected": 0.880923
+      },
+      "duration_sec": 76.184,
+      "baseline_f1_flagall": 0.119077,
+      "trivial_floor": 0.880923,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.880923,
+          "flagall": 0.119077
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.212813
+        },
+        "kind_projected": {
+          "noop": 0.880923,
+          "flagall": 0.119077
+        }
+      }
+    },
+    {
+      "index": 61,
+      "nl_query": "Which applications with more than two linked offers were eventually cancelled or denied?",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "verdict": "ok",
+      "root_situations": 31509,
+      "root_violations": 30822,
+      "violation_rate": 0.9782,
+      "baseline_situations": 31509,
+      "baseline_f1": 0.021803,
+      "baseline_precision": 0.021803,
+      "baseline_recall": 0.021803,
+      "baseline_f1_variants": {
+        "strict": 0.978197,
+        "population": 1.0,
+        "violation": 0.988978,
+        "kind_projected": 0.978197
+      },
+      "duration_sec": 75.171,
+      "baseline_f1_flagall": 0.978197,
+      "trivial_floor": 0.978197,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.021803,
+          "flagall": 0.978197
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.988978
+        },
+        "kind_projected": {
+          "noop": 0.021803,
+          "flagall": 0.978197
+        }
+      }
+    },
+    {
+      "index": 62,
+      "nl_query": "Every application must be submitted, then accepted, and then validated in that order.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "verdict": "ok",
+      "root_situations": 31509,
+      "root_violations": 18176,
+      "violation_rate": 0.5769,
+      "baseline_situations": 31509,
+      "baseline_f1": 0.423149,
+      "baseline_precision": 0.423149,
+      "baseline_recall": 0.423149,
+      "baseline_f1_variants": {
+        "strict": 0.576851,
+        "population": 1.0,
+        "violation": 0.731649,
+        "kind_projected": 0.576851
+      },
+      "duration_sec": 75.545,
+      "baseline_f1_flagall": 0.576851,
+      "trivial_floor": 0.576851,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.423149,
+          "flagall": 0.576851
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.731649
+        },
+        "kind_projected": {
+          "noop": 0.423149,
+          "flagall": 0.576851
+        }
+      }
+    },
+    {
+      "index": 63,
+      "nl_query": "List all offers that were returned and later refused.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "verdict": "ok",
+      "root_situations": 42995,
+      "root_violations": 39422,
+      "violation_rate": 0.9169,
+      "baseline_situations": 42995,
+      "baseline_f1": 0.083103,
+      "baseline_precision": 0.083103,
+      "baseline_recall": 0.083103,
+      "baseline_f1_variants": {
+        "strict": 0.916897,
+        "population": 1.0,
+        "violation": 0.956647,
+        "kind_projected": 0.916897
+      },
+      "duration_sec": 76.629,
+      "baseline_f1_flagall": 0.916897,
+      "trivial_floor": 0.916897,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.083103,
+          "flagall": 0.916897
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.956647
+        },
+        "kind_projected": {
+          "noop": 0.083103,
+          "flagall": 0.916897
+        }
+      }
+    },
+    {
+      "index": 64,
+      "nl_query": "Every treatment must eventually result in either a 'Treatment successful' or 'Treatment unsuccessful' event.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 995,
+      "violation_rate": 0.0995,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.9005,
+      "baseline_precision": 0.9005,
+      "baseline_recall": 0.9005,
+      "baseline_f1_variants": {
+        "strict": 0.9005,
+        "population": 1.0,
+        "violation": 0.180991,
+        "kind_projected": 0.9005
+      },
+      "duration_sec": 4.756,
+      "baseline_f1_flagall": 0.0995,
+      "trivial_floor": 0.9005,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.9005,
+          "flagall": 0.0995
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.180991
+        },
+        "kind_projected": {
+          "noop": 0.9005,
+          "flagall": 0.0995
+        }
+      }
+    },
+    {
+      "index": 65,
+      "nl_query": "A diagnosis must always be preceded by an examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 320,
+      "violation_rate": 0.032,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.968,
+      "baseline_precision": 0.968,
+      "baseline_recall": 0.968,
+      "baseline_f1_variants": {
+        "strict": 0.968,
+        "population": 1.0,
+        "violation": 0.062016,
+        "kind_projected": 0.968
+      },
+      "duration_sec": 5.286,
+      "baseline_f1_flagall": 0.032,
+      "trivial_floor": 0.968,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.968,
+          "flagall": 0.032
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.062016
+        },
+        "kind_projected": {
+          "noop": 0.968,
+          "flagall": 0.032
+        }
+      }
+    },
+    {
+      "index": 66,
+      "nl_query": "A patient must not be discharged without a prior treatment outcome.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 863,
+      "violation_rate": 0.0863,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.9137,
+      "baseline_precision": 0.9137,
+      "baseline_recall": 0.9137,
+      "baseline_f1_variants": {
+        "strict": 0.9137,
+        "population": 1.0,
+        "violation": 0.158888,
+        "kind_projected": 0.9137
+      },
+      "duration_sec": 4.579,
+      "baseline_f1_flagall": 0.0863,
+      "trivial_floor": 0.9137,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.9137,
+          "flagall": 0.0863
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.158888
+        },
+        "kind_projected": {
+          "noop": 0.9137,
+          "flagall": 0.0863
+        }
+      }
+    },
+    {
+      "index": 67,
+      "nl_query": "Every expert examination must eventually be followed by a thorough examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 2117,
+      "violation_rate": 0.2117,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.7883,
+      "baseline_precision": 0.7883,
+      "baseline_recall": 0.7883,
+      "baseline_f1_variants": {
+        "strict": 0.7883,
+        "population": 1.0,
+        "violation": 0.349426,
+        "kind_projected": 0.7883
+      },
+      "duration_sec": 3.983,
+      "baseline_f1_flagall": 0.2117,
+      "trivial_floor": 0.7883,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.7883,
+          "flagall": 0.2117
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.349426
+        },
+        "kind_projected": {
+          "noop": 0.7883,
+          "flagall": 0.2117
+        }
+      }
+    },
+    {
+      "index": 68,
+      "nl_query": "Patients with private insurance must receive an expert examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 4974,
+      "root_violations": 2111,
+      "violation_rate": 0.4244,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.382396,
+      "baseline_precision": 0.2863,
+      "baseline_recall": 0.575593,
+      "baseline_f1_variants": {
+        "strict": 0.382396,
+        "population": 0.664352,
+        "violation": 0.348609,
+        "kind_projected": 0.382396
+      },
+      "duration_sec": 4.168,
+      "baseline_f1_flagall": 0.281955,
+      "trivial_floor": 0.382396,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.382396,
+          "flagall": 0.281955
+        },
+        "population": {
+          "noop": 0.664352,
+          "flagall": 0.664352
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.348609
+        },
+        "kind_projected": {
+          "noop": 0.382396,
+          "flagall": 0.281955
+        }
+      }
+    },
+    {
+      "index": 69,
+      "nl_query": "A patient must not be diagnosed more than once.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 1468,
+      "violation_rate": 0.1468,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.8532,
+      "baseline_precision": 0.8532,
+      "baseline_recall": 0.8532,
+      "baseline_f1_variants": {
+        "strict": 0.8532,
+        "population": 1.0,
+        "violation": 0.256017,
+        "kind_projected": 0.8532
+      },
+      "duration_sec": 4.074,
+      "baseline_f1_flagall": 0.1468,
+      "trivial_floor": 0.8532,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.8532,
+          "flagall": 0.1468
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.256017
+        },
+        "kind_projected": {
+          "noop": 0.8532,
+          "flagall": 0.1468
+        }
+      }
+    },
+    {
+      "index": 70,
+      "nl_query": "Patients with an underlying condition must receive a thorough examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 5072,
+      "root_violations": 2026,
+      "violation_rate": 0.3994,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.404193,
+      "baseline_precision": 0.3046,
+      "baseline_recall": 0.600552,
+      "baseline_f1_variants": {
+        "strict": 0.404193,
+        "population": 0.673036,
+        "violation": 0.336937,
+        "kind_projected": 0.404193
+      },
+      "duration_sec": 5.304,
+      "baseline_f1_flagall": 0.268843,
+      "trivial_floor": 0.404193,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.404193,
+          "flagall": 0.268843
+        },
+        "population": {
+          "noop": 0.673036,
+          "flagall": 0.673036
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.336937
+        },
+        "kind_projected": {
+          "noop": 0.404193,
+          "flagall": 0.268843
+        }
+      }
+    },
+    {
+      "index": 71,
+      "nl_query": "List all patients who received a successful treatment.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 995,
+      "violation_rate": 0.0995,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.9005,
+      "baseline_precision": 0.9005,
+      "baseline_recall": 0.9005,
+      "baseline_f1_variants": {
+        "strict": 0.9005,
+        "population": 1.0,
+        "violation": 0.180991,
+        "kind_projected": 0.9005
+      },
+      "duration_sec": 3.939,
+      "baseline_f1_flagall": 0.0995,
+      "trivial_floor": 0.9005,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.9005,
+          "flagall": 0.0995
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.180991
+        },
+        "kind_projected": {
+          "noop": 0.9005,
+          "flagall": 0.0995
+        }
+      }
+    },
+    {
+      "index": 72,
+      "nl_query": "A patient must receive treatment within 2 days of their examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 5925,
+      "violation_rate": 0.5925,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.4075,
+      "baseline_precision": 0.4075,
+      "baseline_recall": 0.4075,
+      "baseline_f1_variants": {
+        "strict": 0.5925,
+        "population": 1.0,
+        "violation": 0.744113,
+        "kind_projected": 0.5925
+      },
+      "duration_sec": 4.64,
+      "baseline_f1_flagall": 0.5925,
+      "trivial_floor": 0.5925,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.4075,
+          "flagall": 0.5925
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.744113
+        },
+        "kind_projected": {
+          "noop": 0.4075,
+          "flagall": 0.5925
+        }
+      }
+    },
+    {
+      "index": 73,
+      "nl_query": "Patients registered at the ER must receive a thorough examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 2017,
+      "violation_rate": 0.2017,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.7983,
+      "baseline_precision": 0.7983,
+      "baseline_recall": 0.7983,
+      "baseline_f1_variants": {
+        "strict": 0.7983,
+        "population": 1.0,
+        "violation": 0.335691,
+        "kind_projected": 0.7983
+      },
+      "duration_sec": 3.755,
+      "baseline_f1_flagall": 0.2017,
+      "trivial_floor": 0.7983,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.7983,
+          "flagall": 0.2017
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.335691
+        },
+        "kind_projected": {
+          "noop": 0.7983,
+          "flagall": 0.2017
+        }
+      }
+    },
+    {
+      "index": 74,
+      "nl_query": "Every bug-fix commit must be associated with at least one file.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "verdict": "ok",
+      "root_situations": 6093,
+      "root_violations": 1,
+      "violation_rate": 0.0002,
+      "baseline_situations": 6093,
+      "baseline_f1": 0.999836,
+      "baseline_precision": 0.999836,
+      "baseline_recall": 0.999836,
+      "baseline_f1_variants": {
+        "strict": 0.999836,
+        "population": 1.0,
+        "violation": 0.000328,
+        "kind_projected": 0.999836
+      },
+      "duration_sec": 6.929,
+      "baseline_f1_flagall": 0.000164,
+      "trivial_floor": 0.999836,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.999836,
+          "flagall": 0.000164
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.000328
+        },
+        "kind_projected": {
+          "noop": 0.999836,
+          "flagall": 0.000164
+        }
+      }
+    },
+    {
+      "index": 75,
+      "nl_query": "Which feature commits touched more than five files?",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "verdict": "ok",
+      "root_situations": 2882,
+      "root_violations": 1531,
+      "violation_rate": 0.5312,
+      "baseline_situations": 2882,
+      "baseline_f1": 0.468772,
+      "baseline_precision": 0.468772,
+      "baseline_recall": 0.468772,
+      "baseline_f1_variants": {
+        "strict": 0.531228,
+        "population": 1.0,
+        "violation": 0.693859,
+        "kind_projected": 0.531228
+      },
+      "duration_sec": 5.914,
+      "baseline_f1_flagall": 0.531228,
+      "trivial_floor": 0.531228,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.468772,
+          "flagall": 0.531228
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.693859
+        },
+        "kind_projected": {
+          "noop": 0.468772,
+          "flagall": 0.531228
+        }
+      }
+    },
+    {
+      "index": 76,
+      "nl_query": "Documentation commits should not modify build-configuration files in the same commit.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "verdict": "ok",
+      "root_situations": 5626,
+      "root_violations": 3598,
+      "violation_rate": 0.6395,
+      "baseline_situations": 5626,
+      "baseline_f1": 0.360469,
+      "baseline_precision": 0.360469,
+      "baseline_recall": 0.360469,
+      "baseline_f1_variants": {
+        "strict": 0.639531,
+        "population": 1.0,
+        "violation": 0.780139,
+        "kind_projected": 0.639531
+      },
+      "duration_sec": 6.872,
+      "baseline_f1_flagall": 0.639531,
+      "trivial_floor": 0.639531,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.360469,
+          "flagall": 0.639531
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.780139
+        },
+        "kind_projected": {
+          "noop": 0.360469,
+          "flagall": 0.639531
+        }
+      }
+    },
+    {
+      "index": 77,
+      "nl_query": "List all commits that were applied to more than one branch.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "verdict": "ok",
+      "root_situations": 27847,
+      "root_violations": 33,
+      "violation_rate": 0.0012,
+      "baseline_situations": 27847,
+      "baseline_f1": 0.998815,
+      "baseline_precision": 0.998815,
+      "baseline_recall": 0.998815,
+      "baseline_f1_variants": {
+        "strict": 0.998815,
+        "population": 1.0,
+        "violation": 0.002367,
+        "kind_projected": 0.998815
+      },
+      "duration_sec": 26.56,
+      "baseline_f1_flagall": 0.001185,
+      "trivial_floor": 0.998815,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.998815,
+          "flagall": 0.001185
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.002367
+        },
+        "kind_projected": {
+          "noop": 0.998815,
+          "flagall": 0.001185
+        }
+      }
+    },
+    {
+      "index": 78,
+      "nl_query": "Persons whose throughput time was at some point above 5 days.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 4951,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.662297,
+      "baseline_precision": 0.4951,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.662297,
+        "population": 0.662297,
+        "violation": null,
+        "kind_projected": 0.662297
+      },
+      "duration_sec": 4.222,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.662297,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.662297,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.662297,
+          "flagall": 0.662297
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.662297,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 79,
+      "nl_query": "Every item must have been picked when its price was above 100.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 7659,
+      "root_violations": 1694,
+      "violation_rate": 0.2212,
+      "baseline_situations": 7659,
+      "baseline_f1": 0.778822,
+      "baseline_precision": 0.778822,
+      "baseline_recall": 0.778822,
+      "baseline_f1_variants": {
+        "strict": 0.778822,
+        "population": 1.0,
+        "violation": 0.362237,
+        "kind_projected": 0.778822
+      },
+      "duration_sec": 3.242,
+      "baseline_f1_flagall": 0.221178,
+      "trivial_floor": 0.778822,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.778822,
+          "flagall": 0.221178
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.362237
+        },
+        "kind_projected": {
+          "noop": 0.778822,
+          "flagall": 0.221178
+        }
+      }
+    },
+    {
+      "index": 80,
+      "nl_query": "Every container must have been loaded to a vehicle when it had more than three handling units.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 1999,
+      "root_violations": 316,
+      "violation_rate": 0.1581,
+      "baseline_situations": 1999,
+      "baseline_f1": 0.841921,
+      "baseline_precision": 0.841921,
+      "baseline_recall": 0.841921,
+      "baseline_f1_variants": {
+        "strict": 0.841921,
+        "population": 1.0,
+        "violation": 0.273002,
+        "kind_projected": 0.841921
+      },
+      "duration_sec": 2.614,
+      "baseline_f1_flagall": 0.158079,
+      "trivial_floor": 0.841921,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.841921,
+          "flagall": 0.158079
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.273002
+        },
+        "kind_projected": {
+          "noop": 0.841921,
+          "flagall": 0.158079
+        }
+      }
+    },
+    {
+      "index": 81,
+      "nl_query": "A patient must not register at the ER without private insurance.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 2487,
+      "violation_rate": 0.2487,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.7513,
+      "baseline_precision": 0.7513,
+      "baseline_recall": 0.7513,
+      "baseline_f1_variants": {
+        "strict": 0.7513,
+        "population": 1.0,
+        "violation": 0.398334,
+        "kind_projected": 0.7513
+      },
+      "duration_sec": 4.425,
+      "baseline_f1_flagall": 0.2487,
+      "trivial_floor": 0.7513,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.7513,
+          "flagall": 0.2487
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.398334
+        },
+        "kind_projected": {
+          "noop": 0.7513,
+          "flagall": 0.2487
+        }
+      }
+    },
+    {
+      "index": 82,
+      "nl_query": "Patients who underwent two distinct examination events must eventually be discharged.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 4395,
+      "violation_rate": 0.4395,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.5605,
+      "baseline_precision": 0.5605,
+      "baseline_recall": 0.5605,
+      "baseline_f1_variants": {
+        "strict": 0.5605,
+        "population": 1.0,
+        "violation": 0.610629,
+        "kind_projected": 0.5605
+      },
+      "duration_sec": 3.802,
+      "baseline_f1_flagall": 0.4395,
+      "trivial_floor": 0.5605,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.5605,
+          "flagall": 0.4395
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.610629
+        },
+        "kind_projected": {
+          "noop": 0.5605,
+          "flagall": 0.4395
+        }
+      }
+    },
+    {
+      "index": 83,
+      "nl_query": "Patients who were diagnosed on two distinct occasions must eventually receive treatment.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 8532,
+      "violation_rate": 0.8532,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.1468,
+      "baseline_precision": 0.1468,
+      "baseline_recall": 0.1468,
+      "baseline_f1_variants": {
+        "strict": 0.8532,
+        "population": 1.0,
+        "violation": 0.920786,
+        "kind_projected": 0.8532
+      },
+      "duration_sec": 3.507,
+      "baseline_f1_flagall": 0.8532,
+      "trivial_floor": 0.8532,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.1468,
+          "flagall": 0.8532
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.920786
+        },
+        "kind_projected": {
+          "noop": 0.1468,
+          "flagall": 0.8532
+        }
+      }
+    },
+    {
+      "index": 84,
+      "nl_query": "Persons who paid rent on two separate occasions must not be evicted.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 7755,
+      "violation_rate": 0.7755,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.2245,
+      "baseline_precision": 0.2245,
+      "baseline_recall": 0.2245,
+      "baseline_f1_variants": {
+        "strict": 0.7755,
+        "population": 1.0,
+        "violation": 0.873557,
+        "kind_projected": 0.7755
+      },
+      "duration_sec": 4.591,
+      "baseline_f1_flagall": 0.7755,
+      "trivial_floor": 0.7755,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.2245,
+          "flagall": 0.7755
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.873557
+        },
+        "kind_projected": {
+          "noop": 0.2245,
+          "flagall": 0.7755
+        }
+      }
+    },
+    {
+      "index": 85,
+      "nl_query": "Packages with two distinct failed delivery attempts must eventually be delivered.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 1128,
+      "root_violations": 1063,
+      "violation_rate": 0.9424,
+      "baseline_situations": 1128,
+      "baseline_f1": 0.057624,
+      "baseline_precision": 0.057624,
+      "baseline_recall": 0.057624,
+      "baseline_f1_variants": {
+        "strict": 0.942376,
+        "population": 1.0,
+        "violation": 0.970333,
+        "kind_projected": 0.942376
+      },
+      "duration_sec": 2.292,
+      "baseline_f1_flagall": 0.942376,
+      "trivial_floor": 0.942376,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.057624,
+          "flagall": 0.942376
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.970333
+        },
+        "kind_projected": {
+          "noop": 0.057624,
+          "flagall": 0.942376
+        }
+      }
+    },
+    {
+      "index": 86,
+      "nl_query": "Which persons are married?",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 5036,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.669859,
+      "baseline_precision": 0.5036,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.669859,
+        "population": 0.669859,
+        "violation": null,
+        "kind_projected": 0.669859
+      },
+      "duration_sec": 4.085,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.669859,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.669859,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.669859,
+          "flagall": 0.669859
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.669859,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 87,
+      "nl_query": "Which items are priced above 100?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 5965,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 7659,
+      "baseline_f1": 0.875661,
+      "baseline_precision": 0.778822,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.875661,
+        "population": 0.875661,
+        "violation": null,
+        "kind_projected": 0.875661
+      },
+      "duration_sec": 2.811,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.875661,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.875661,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.875661,
+          "flagall": 0.875661
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.875661,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 88,
+      "nl_query": "Which patients have an underlying condition?",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 5072,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.673036,
+      "baseline_precision": 0.5072,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.673036,
+        "population": 0.673036,
+        "violation": null,
+        "kind_projected": 0.673036
+      },
+      "duration_sec": 3.436,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.673036,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.673036,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.673036,
+          "flagall": 0.673036
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.673036,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 89,
+      "nl_query": "Containers loaded on a truck via the 'TR loads CR' relationship must eventually depart.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 1999,
+      "root_violations": 43,
+      "violation_rate": 0.0215,
+      "baseline_situations": 1999,
+      "baseline_f1": 0.978489,
+      "baseline_precision": 0.978489,
+      "baseline_recall": 0.978489,
+      "baseline_f1_variants": {
+        "strict": 0.978489,
+        "population": 1.0,
+        "violation": 0.042116,
+        "kind_projected": 0.978489
+      },
+      "duration_sec": 2.924,
+      "baseline_f1_flagall": 0.021511,
+      "trivial_floor": 0.978489,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.978489,
+          "flagall": 0.021511
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.042116
+        },
+        "kind_projected": {
+          "noop": 0.978489,
+          "flagall": 0.021511
+        }
+      }
+    },
+    {
+      "index": 90,
+      "nl_query": "Which vehicles have a departure date before July 2023?",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 10,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 127,
+      "baseline_f1": 0.145985,
+      "baseline_precision": 0.07874,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.145985,
+        "population": 0.145985,
+        "violation": null,
+        "kind_projected": 0.145985
+      },
+      "duration_sec": 2.575,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.145985,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.145985,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.145985,
+          "flagall": 0.145985
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.145985,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 91,
+      "nl_query": "Which vehicles have a scheduled departure date after June 2024?",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 15,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 127,
+      "baseline_f1": 0.211268,
+      "baseline_precision": 0.11811,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.211268,
+        "population": 0.211268,
+        "violation": null,
+        "kind_projected": 0.211268
+      },
+      "duration_sec": 3.019,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.211268,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.211268,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.211268,
+          "flagall": 0.211268
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.211268,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 92,
+      "nl_query": "Patients must register at the ER, then undergo an examination, then receive a diagnosis, then be discharged.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 5149,
+      "violation_rate": 0.5149,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.4851,
+      "baseline_precision": 0.4851,
+      "baseline_recall": 0.4851,
+      "baseline_f1_variants": {
+        "strict": 0.5149,
+        "population": 1.0,
+        "violation": 0.679781,
+        "kind_projected": 0.5149
+      },
+      "duration_sec": 4.133,
+      "baseline_f1_flagall": 0.5149,
+      "trivial_floor": 0.5149,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.4851,
+          "flagall": 0.5149
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.679781
+        },
+        "kind_projected": {
+          "noop": 0.4851,
+          "flagall": 0.5149
+        }
+      }
+    },
+    {
+      "index": 93,
+      "nl_query": "A package must not be delivered less than one hour (3,600 s) after it was sent.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 1128,
+      "root_violations": 59,
+      "violation_rate": 0.0523,
+      "baseline_situations": 1128,
+      "baseline_f1": 0.947695,
+      "baseline_precision": 0.947695,
+      "baseline_recall": 0.947695,
+      "baseline_f1_variants": {
+        "strict": 0.947695,
+        "population": 1.0,
+        "violation": 0.09941,
+        "kind_projected": 0.947695
+      },
+      "duration_sec": 2.731,
+      "baseline_f1_flagall": 0.052305,
+      "trivial_floor": 0.947695,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.947695,
+          "flagall": 0.052305
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.09941
+        },
+        "kind_projected": {
+          "noop": 0.947695,
+          "flagall": 0.052305
+        }
+      }
+    },
+    {
+      "index": 94,
+      "nl_query": "A viewing appointment must be set at least one day (86,400 s) after the application for it was filed.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 6653,
+      "violation_rate": 0.6653,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.3347,
+      "baseline_precision": 0.3347,
+      "baseline_recall": 0.3347,
+      "baseline_f1_variants": {
+        "strict": 0.6653,
+        "population": 1.0,
+        "violation": 0.799015,
+        "kind_projected": 0.6653
+      },
+      "duration_sec": 5.3,
+      "baseline_f1_flagall": 0.6653,
+      "trivial_floor": 0.6653,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.3347,
+          "flagall": 0.6653
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.799015
+        },
+        "kind_projected": {
+          "noop": 0.3347,
+          "flagall": 0.6653
+        }
+      }
+    },
+    {
+      "index": 95,
+      "nl_query": "A physician must not conduct two different pre-admission consultations at the same time.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "verdict": "ok",
+      "root_situations": 100,
+      "root_violations": 7,
+      "violation_rate": 0.07,
+      "baseline_situations": 100,
+      "baseline_f1": 0.93,
+      "baseline_precision": 0.93,
+      "baseline_recall": 0.93,
+      "baseline_f1_variants": {
+        "strict": 0.93,
+        "population": 1.0,
+        "violation": 0.130841,
+        "kind_projected": 0.93
+      },
+      "duration_sec": 2.663,
+      "baseline_f1_flagall": 0.07,
+      "trivial_floor": 0.93,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.93,
+          "flagall": 0.07
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.130841
+        },
+        "kind_projected": {
+          "noop": 0.93,
+          "flagall": 0.07
+        }
+      }
+    },
+    {
+      "index": 96,
+      "nl_query": "An insurance company must not verify insurance for two different patients at the same moment.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "verdict": "ok",
+      "root_situations": 10,
+      "root_violations": 9,
+      "violation_rate": 0.9,
+      "baseline_situations": 10,
+      "baseline_f1": 0.1,
+      "baseline_precision": 0.1,
+      "baseline_recall": 0.1,
+      "baseline_f1_variants": {
+        "strict": 0.9,
+        "population": 1.0,
+        "violation": 0.947368,
+        "kind_projected": 0.9
+      },
+      "duration_sec": 2.661,
+      "baseline_f1_flagall": 0.9,
+      "trivial_floor": 0.9,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.1,
+          "flagall": 0.9
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.947368
+        },
+        "kind_projected": {
+          "noop": 0.1,
+          "flagall": 0.9
+        }
+      }
+    },
+    {
+      "index": 97,
+      "nl_query": "An employee must not send two different packages at the same time.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 18,
+      "root_violations": 1,
+      "violation_rate": 0.0556,
+      "baseline_situations": 18,
+      "baseline_f1": 0.944444,
+      "baseline_precision": 0.944444,
+      "baseline_recall": 0.944444,
+      "baseline_f1_variants": {
+        "strict": 0.944444,
+        "population": 1.0,
+        "violation": 0.105263,
+        "kind_projected": 0.944444
+      },
+      "duration_sec": 2.83,
+      "baseline_f1_flagall": 0.055556,
+      "trivial_floor": 0.944444,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.944444,
+          "flagall": 0.055556
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.105263
+        },
+        "kind_projected": {
+          "noop": 0.944444,
+          "flagall": 0.055556
+        }
+      }
+    },
+    {
+      "index": 98,
+      "nl_query": "Candidates whose initial interview outcome was 'Pass' must eventually be scheduled for a panel interview.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "ok",
+      "root_situations": 911,
+      "root_violations": 449,
+      "violation_rate": 0.4929,
+      "baseline_situations": 1811,
+      "baseline_f1": 0.339456,
+      "baseline_precision": 0.255108,
+      "baseline_recall": 0.507135,
+      "baseline_f1_variants": {
+        "strict": 0.339456,
+        "population": 0.669361,
+        "violation": 0.397345,
+        "kind_projected": 0.339456
+      },
+      "duration_sec": 2.402,
+      "baseline_f1_flagall": 0.329904,
+      "trivial_floor": 0.339456,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.339456,
+          "flagall": 0.329904
+        },
+        "population": {
+          "noop": 0.669361,
+          "flagall": 0.669361
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.397345
+        },
+        "kind_projected": {
+          "noop": 0.339456,
+          "flagall": 0.329904
+        }
+      }
+    },
+    {
+      "index": 99,
+      "nl_query": "Which candidates had their background check come back flagged?",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "ok",
+      "root_situations": 111,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 234,
+      "baseline_f1": 0.643478,
+      "baseline_precision": 0.474359,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.643478,
+        "population": 0.643478,
+        "violation": null,
+        "kind_projected": 0.643478
+      },
+      "duration_sec": 2.43,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.643478,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.643478,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.643478,
+          "flagall": 0.643478
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.643478,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 100,
+      "nl_query": "Candidates whose interview evaluation decision was 'Proceed' must eventually have an offer letter prepared.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "ok",
+      "root_situations": 234,
+      "root_violations": 111,
+      "violation_rate": 0.4744,
+      "baseline_situations": 462,
+      "baseline_f1": 0.353448,
+      "baseline_precision": 0.266234,
+      "baseline_recall": 0.525641,
+      "baseline_f1_variants": {
+        "strict": 0.353448,
+        "population": 0.672414,
+        "violation": 0.387435,
+        "kind_projected": 0.353448
+      },
+      "duration_sec": 2.27,
+      "baseline_f1_flagall": 0.318966,
+      "trivial_floor": 0.353448,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.353448,
+          "flagall": 0.318966
+        },
+        "population": {
+          "noop": 0.672414,
+          "flagall": 0.672414
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.387435
+        },
+        "kind_projected": {
+          "noop": 0.353448,
+          "flagall": 0.318966
+        }
+      }
+    },
+    {
+      "index": 101,
+      "nl_query": "Show persons together with their number of rent payments, flagging those with fewer than five.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 10000,
+      "root_violations": 8579,
+      "violation_rate": 0.8579,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.1421,
+      "baseline_precision": 0.1421,
+      "baseline_recall": 0.1421,
+      "baseline_f1_variants": {
+        "strict": 0.8579,
+        "population": 1.0,
+        "violation": 0.923516,
+        "kind_projected": 0.8579
+      },
+      "duration_sec": 4.665,
+      "baseline_f1_flagall": 0.8579,
+      "trivial_floor": 0.8579,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.1421,
+          "flagall": 0.8579
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.923516
+        },
+        "kind_projected": {
+          "noop": 0.1421,
+          "flagall": 0.8579
+        }
+      }
+    },
+    {
+      "index": 102,
+      "nl_query": "Show packages together with the total weight of the items they contain, flagging those below 4 kg.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 1128,
+      "root_violations": 604,
+      "violation_rate": 0.5355,
+      "baseline_situations": 1128,
+      "baseline_f1": 0.464539,
+      "baseline_precision": 0.464539,
+      "baseline_recall": 0.464539,
+      "baseline_f1_variants": {
+        "strict": 0.535461,
+        "population": 1.0,
+        "violation": 0.69746,
+        "kind_projected": 0.535461
+      },
+      "duration_sec": 2.719,
+      "baseline_f1_flagall": 0.535461,
+      "trivial_floor": 0.535461,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.464539,
+          "flagall": 0.535461
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.69746
+        },
+        "kind_projected": {
+          "noop": 0.464539,
+          "flagall": 0.535461
+        }
+      }
+    },
+    {
+      "index": 103,
+      "nl_query": "Every patient who receives a treatment must have that treatment recorded as either successful or unsuccessful.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 11746,
+      "root_violations": 863,
+      "violation_rate": 0.0735,
+      "baseline_situations": 11746,
+      "baseline_f1": 0.926528,
+      "baseline_precision": 0.926528,
+      "baseline_recall": 0.926528,
+      "baseline_f1_variants": {
+        "strict": 0.926528,
+        "population": 1.0,
+        "violation": 0.136886,
+        "kind_projected": 0.926528
+      },
+      "duration_sec": 4.79,
+      "baseline_f1_flagall": 0.073472,
+      "trivial_floor": 0.926528,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.926528,
+          "flagall": 0.073472
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.136886
+        },
+        "kind_projected": {
+          "noop": 0.926528,
+          "flagall": 0.073472
+        }
+      }
+    },
+    {
+      "index": 104,
+      "nl_query": "Every credit application handed in must end with either the loan agreement being signed or the loan being denied.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "ok",
+      "root_situations": 9038,
+      "root_violations": 1624,
+      "violation_rate": 0.1797,
+      "baseline_situations": 9038,
+      "baseline_f1": 0.820314,
+      "baseline_precision": 0.820314,
+      "baseline_recall": 0.820314,
+      "baseline_f1_variants": {
+        "strict": 0.820314,
+        "population": 1.0,
+        "violation": 0.304633,
+        "kind_projected": 0.820314
+      },
+      "duration_sec": 4.559,
+      "baseline_f1_flagall": 0.179686,
+      "trivial_floor": 0.820314,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.820314,
+          "flagall": 0.179686
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.304633
+        },
+        "kind_projected": {
+          "noop": 0.820314,
+          "flagall": 0.179686
+        }
+      }
+    },
+    {
+      "index": 105,
+      "nl_query": "Which transport documents are assigned to a vehicle scheduled to depart after June 2024?",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 82,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 767,
+      "baseline_f1": 0.193168,
+      "baseline_precision": 0.10691,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.193168,
+        "population": 0.193168,
+        "violation": null,
+        "kind_projected": 0.193168
+      },
+      "duration_sec": 2.453,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.193168,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.193168,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.193168,
+          "flagall": 0.193168
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.193168,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 106,
+      "nl_query": "No vehicle whose departure date was at some point set before 1 September 2023 may have had one of its containers rescheduled.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 27,
+      "root_violations": 6,
+      "violation_rate": 0.2222,
+      "baseline_situations": 127,
+      "baseline_f1": 0.272727,
+      "baseline_precision": 0.165354,
+      "baseline_recall": 0.777778,
+      "baseline_f1_variants": {
+        "strict": 0.272727,
+        "population": 0.350649,
+        "violation": 0.090226,
+        "kind_projected": 0.272727
+      },
+      "duration_sec": 2.456,
+      "baseline_f1_flagall": 0.077922,
+      "trivial_floor": 0.272727,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.272727,
+          "flagall": 0.077922
+        },
+        "population": {
+          "noop": 0.350649,
+          "flagall": 0.350649
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.090226
+        },
+        "kind_projected": {
+          "noop": 0.272727,
+          "flagall": 0.077922
+        }
+      }
+    },
+    {
+      "index": 107,
+      "nl_query": "No vehicle whose departure date was at some point set on or after 1 September 2023 may have had one of its containers rescheduled.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 100,
+      "root_violations": 11,
+      "violation_rate": 0.11,
+      "baseline_situations": 127,
+      "baseline_f1": 0.784141,
+      "baseline_precision": 0.700787,
+      "baseline_recall": 0.89,
+      "baseline_f1_variants": {
+        "strict": 0.784141,
+        "population": 0.881057,
+        "violation": 0.15942,
+        "kind_projected": 0.784141
+      },
+      "duration_sec": 2.4,
+      "baseline_f1_flagall": 0.096916,
+      "trivial_floor": 0.784141,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.784141,
+          "flagall": 0.096916
+        },
+        "population": {
+          "noop": 0.881057,
+          "flagall": 0.881057
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.15942
+        },
+        "kind_projected": {
+          "noop": 0.784141,
+          "flagall": 0.096916
+        }
+      }
+    },
+    {
+      "index": 108,
+      "nl_query": "A package shipped by an employee through the 'shipped by' relationship must not have a failed delivery.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 1128,
+      "root_violations": 214,
+      "violation_rate": 0.1897,
+      "baseline_situations": 1128,
+      "baseline_f1": 0.810284,
+      "baseline_precision": 0.810284,
+      "baseline_recall": 0.810284,
+      "baseline_f1_variants": {
+        "strict": 0.810284,
+        "population": 1.0,
+        "violation": 0.318927,
+        "kind_projected": 0.810284
+      },
+      "duration_sec": 2.542,
+      "baseline_f1_flagall": 0.189716,
+      "trivial_floor": 0.810284,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.810284,
+          "flagall": 0.189716
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.318927
+        },
+        "kind_projected": {
+          "noop": 0.810284,
+          "flagall": 0.189716
+        }
+      }
+    },
+    {
+      "index": 109,
+      "nl_query": "A transport document assigned to a vehicle via the 'High-Prio VH for TD' relationship must depart at least three days after the document was created.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 179,
+      "root_violations": 60,
+      "violation_rate": 0.3352,
+      "baseline_situations": 179,
+      "baseline_f1": 0.664804,
+      "baseline_precision": 0.664804,
+      "baseline_recall": 0.664804,
+      "baseline_f1_variants": {
+        "strict": 0.664804,
+        "population": 1.0,
+        "violation": 0.502092,
+        "kind_projected": 0.664804
+      },
+      "duration_sec": 2.524,
+      "baseline_f1_flagall": 0.335196,
+      "trivial_floor": 0.664804,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.664804,
+          "flagall": 0.335196
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.502092
+        },
+        "kind_projected": {
+          "noop": 0.664804,
+          "flagall": 0.335196
+        }
+      }
+    },
+    {
+      "index": 110,
+      "nl_query": "Every registered customer order must lead to a transport document, which must be assigned to a vehicle, which must eventually depart.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 600,
+      "root_violations": 39,
+      "violation_rate": 0.065,
+      "baseline_situations": 600,
+      "baseline_f1": 0.935,
+      "baseline_precision": 0.935,
+      "baseline_recall": 0.935,
+      "baseline_f1_variants": {
+        "strict": 0.935,
+        "population": 1.0,
+        "violation": 0.122066,
+        "kind_projected": 0.935
+      },
+      "duration_sec": 2.645,
+      "baseline_f1_flagall": 0.065,
+      "trivial_floor": 0.935,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.935,
+          "flagall": 0.065
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.122066
+        },
+        "kind_projected": {
+          "noop": 0.935,
+          "flagall": 0.065
+        }
+      }
+    },
+    {
+      "index": 111,
+      "nl_query": "Show the persons who are older than 40 and whose throughput time exceeded 30 days.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 78,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.015479,
+      "baseline_precision": 0.0078,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.015479,
+        "population": 0.015479,
+        "violation": null,
+        "kind_projected": 0.015479
+      },
+      "duration_sec": 3.624,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.015479,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.015479,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.015479,
+          "flagall": 0.015479
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.015479,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 112,
+      "nl_query": "A warning must only be issued at least seven days after the person missed a rent payment.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 945,
+      "root_violations": 808,
+      "violation_rate": 0.855,
+      "baseline_situations": 945,
+      "baseline_f1": 0.144974,
+      "baseline_precision": 0.144974,
+      "baseline_recall": 0.144974,
+      "baseline_f1_variants": {
+        "strict": 0.855026,
+        "population": 1.0,
+        "violation": 0.921848,
+        "kind_projected": 0.855026
+      },
+      "duration_sec": 3.637,
+      "baseline_f1_flagall": 0.855026,
+      "trivial_floor": 0.855026,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.144974,
+          "flagall": 0.855026
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.921848
+        },
+        "kind_projected": {
+          "noop": 0.144974,
+          "flagall": 0.855026
+        }
+      }
+    },
+    {
+      "index": 113,
+      "nl_query": "After missing a rent payment, a person must either pay rent again or have a late payment accepted.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 945,
+      "root_violations": 90,
+      "violation_rate": 0.0952,
+      "baseline_situations": 945,
+      "baseline_f1": 0.904762,
+      "baseline_precision": 0.904762,
+      "baseline_recall": 0.904762,
+      "baseline_f1_variants": {
+        "strict": 0.904762,
+        "population": 1.0,
+        "violation": 0.173913,
+        "kind_projected": 0.904762
+      },
+      "duration_sec": 3.585,
+      "baseline_f1_flagall": 0.095238,
+      "trivial_floor": 0.904762,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.904762,
+          "flagall": 0.095238
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.173913
+        },
+        "kind_projected": {
+          "noop": 0.904762,
+          "flagall": 0.095238
+        }
+      }
+    },
+    {
+      "index": 114,
+      "nl_query": "Persons who were married at some point must have signed a contract.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "ok",
+      "root_situations": 5036,
+      "root_violations": 3657,
+      "violation_rate": 0.7262,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.183426,
+      "baseline_precision": 0.1379,
+      "baseline_recall": 0.273828,
+      "baseline_f1_variants": {
+        "strict": 0.486433,
+        "population": 0.669859,
+        "violation": 0.53555,
+        "kind_projected": 0.486433
+      },
+      "duration_sec": 3.664,
+      "baseline_f1_flagall": 0.486433,
+      "trivial_floor": 0.486433,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.183426,
+          "flagall": 0.486433
+        },
+        "population": {
+          "noop": 0.669859,
+          "flagall": 0.669859
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.53555
+        },
+        "kind_projected": {
+          "noop": 0.183426,
+          "flagall": 0.486433
+        }
+      }
+    },
+    {
+      "index": 115,
+      "nl_query": "Patients who at some point had an underlying condition recorded must have received at least one expert examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 5072,
+      "root_violations": 2179,
+      "violation_rate": 0.4296,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.383891,
+      "baseline_precision": 0.2893,
+      "baseline_recall": 0.570386,
+      "baseline_f1_variants": {
+        "strict": 0.383891,
+        "population": 0.673036,
+        "violation": 0.357829,
+        "kind_projected": 0.383891
+      },
+      "duration_sec": 4.002,
+      "baseline_f1_flagall": 0.289145,
+      "trivial_floor": 0.383891,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.383891,
+          "flagall": 0.289145
+        },
+        "population": {
+          "noop": 0.673036,
+          "flagall": 0.673036
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.357829
+        },
+        "kind_projected": {
+          "noop": 0.383891,
+          "flagall": 0.289145
+        }
+      }
+    },
+    {
+      "index": 116,
+      "nl_query": "Before treatment starts, a patient must have been both examined and diagnosed.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 11746,
+      "root_violations": 7509,
+      "violation_rate": 0.6393,
+      "baseline_situations": 11746,
+      "baseline_f1": 0.360719,
+      "baseline_precision": 0.360719,
+      "baseline_recall": 0.360719,
+      "baseline_f1_variants": {
+        "strict": 0.639281,
+        "population": 1.0,
+        "violation": 0.779953,
+        "kind_projected": 0.639281
+      },
+      "duration_sec": 4.748,
+      "baseline_f1_flagall": 0.639281,
+      "trivial_floor": 0.639281,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.360719,
+          "flagall": 0.639281
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.779953
+        },
+        "kind_projected": {
+          "noop": 0.360719,
+          "flagall": 0.639281
+        }
+      }
+    },
+    {
+      "index": 117,
+      "nl_query": "A container must not be ordered and picked up at exactly the same moment.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 1999,
+      "root_violations": 151,
+      "violation_rate": 0.0755,
+      "baseline_situations": 1999,
+      "baseline_f1": 0.924462,
+      "baseline_precision": 0.924462,
+      "baseline_recall": 0.924462,
+      "baseline_f1_variants": {
+        "strict": 0.924462,
+        "population": 1.0,
+        "violation": 0.140465,
+        "kind_projected": 0.924462
+      },
+      "duration_sec": 2.493,
+      "baseline_f1_flagall": 0.075538,
+      "trivial_floor": 0.924462,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.924462,
+          "flagall": 0.075538
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.140465
+        },
+        "kind_projected": {
+          "noop": 0.924462,
+          "flagall": 0.075538
+        }
+      }
+    },
+    {
+      "index": 118,
+      "nl_query": "List only the treatment events, not the registration events, for patients whose treatment was unsuccessful.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 11746,
+      "root_violations": 8532,
+      "violation_rate": 0.7264,
+      "baseline_situations": 11746,
+      "baseline_f1": 0.273625,
+      "baseline_precision": 0.273625,
+      "baseline_recall": 0.273625,
+      "baseline_f1_variants": {
+        "strict": 0.726375,
+        "population": 1.0,
+        "violation": 0.841503,
+        "kind_projected": 0.726375
+      },
+      "duration_sec": 4.631,
+      "baseline_f1_flagall": 0.726375,
+      "trivial_floor": 0.726375,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.273625,
+          "flagall": 0.726375
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.841503
+        },
+        "kind_projected": {
+          "noop": 0.273625,
+          "flagall": 0.726375
+        }
+      }
+    },
+    {
+      "index": 119,
+      "nl_query": "For every patient registered at the emergency room, at least one of their examinations must have been followed by a diagnosis.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 5008,
+      "root_violations": 157,
+      "violation_rate": 0.0313,
+      "baseline_situations": 5008,
+      "baseline_f1": 0.96865,
+      "baseline_precision": 0.96865,
+      "baseline_recall": 0.96865,
+      "baseline_f1_variants": {
+        "strict": 0.96865,
+        "population": 1.0,
+        "violation": 0.060794,
+        "kind_projected": 0.96865
+      },
+      "duration_sec": 5.187,
+      "baseline_f1_flagall": 0.03135,
+      "trivial_floor": 0.96865,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.96865,
+          "flagall": 0.03135
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.060794
+        },
+        "kind_projected": {
+          "noop": 0.96865,
+          "flagall": 0.03135
+        }
+      }
+    },
+    {
+      "index": 120,
+      "nl_query": "A candidate whose interview decision was 'Proceed' must have a background check with result 'Clear'.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "ok",
+      "root_situations": 234,
+      "root_violations": 111,
+      "violation_rate": 0.4744,
+      "baseline_situations": 462,
+      "baseline_f1": 0.353448,
+      "baseline_precision": 0.266234,
+      "baseline_recall": 0.525641,
+      "baseline_f1_variants": {
+        "strict": 0.353448,
+        "population": 0.672414,
+        "violation": 0.387435,
+        "kind_projected": 0.353448
+      },
+      "duration_sec": 2.687,
+      "baseline_f1_flagall": 0.318966,
+      "trivial_floor": 0.353448,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.353448,
+          "flagall": 0.318966
+        },
+        "population": {
+          "noop": 0.672414,
+          "flagall": 0.672414
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.387435
+        },
+        "kind_projected": {
+          "noop": 0.353448,
+          "flagall": 0.318966
+        }
+      }
+    },
+    {
+      "index": 121,
+      "nl_query": "Which candidates had their assessment reviewed after passing the initial interview?",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "ok",
+      "root_situations": 911,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 1811,
+      "baseline_f1": 0.669361,
+      "baseline_precision": 0.503037,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.669361,
+        "population": 0.669361,
+        "violation": null,
+        "kind_projected": 0.669361
+      },
+      "duration_sec": 2.755,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.669361,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.669361,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.669361,
+          "flagall": 0.669361
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.669361,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 122,
+      "nl_query": "A hypothesis generation step must be followed by at least one of deductive reasoning, inductive reasoning or abductive reasoning.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 11328,
+      "root_violations": 746,
+      "violation_rate": 0.0659,
+      "baseline_situations": 11328,
+      "baseline_f1": 0.934145,
+      "baseline_precision": 0.934145,
+      "baseline_recall": 0.934145,
+      "baseline_f1_variants": {
+        "strict": 0.934145,
+        "population": 1.0,
+        "violation": 0.123571,
+        "kind_projected": 0.934145
+      },
+      "duration_sec": 12.499,
+      "baseline_f1_flagall": 0.065855,
+      "trivial_floor": 0.934145,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.934145,
+          "flagall": 0.065855
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.123571
+        },
+        "kind_projected": {
+          "noop": 0.934145,
+          "flagall": 0.065855
+        }
+      }
+    },
+    {
+      "index": 123,
+      "nl_query": "A backtracking step must lead either to a validation step or to a new hypothesis generation, which must then reach a conclusion.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "verdict": "ok",
+      "root_situations": 2606,
+      "root_violations": 105,
+      "violation_rate": 0.0403,
+      "baseline_situations": 2606,
+      "baseline_f1": 0.959708,
+      "baseline_precision": 0.959708,
+      "baseline_recall": 0.959708,
+      "baseline_f1_variants": {
+        "strict": 0.959708,
+        "population": 1.0,
+        "violation": 0.077462,
+        "kind_projected": 0.959708
+      },
+      "duration_sec": 47.884,
+      "baseline_f1_flagall": 0.040292,
+      "trivial_floor": 0.959708,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.959708,
+          "flagall": 0.040292
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.077462
+        },
+        "kind_projected": {
+          "noop": 0.959708,
+          "flagall": 0.040292
+        }
+      }
+    },
+    {
+      "index": 124,
+      "nl_query": "Containers linked to a transport document through the 'CR for TD' relationship must have been placed in stock at least once.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "ok",
+      "root_situations": 1999,
+      "root_violations": 185,
+      "violation_rate": 0.0925,
+      "baseline_situations": 1999,
+      "baseline_f1": 0.907454,
+      "baseline_precision": 0.907454,
+      "baseline_recall": 0.907454,
+      "baseline_f1_variants": {
+        "strict": 0.907454,
+        "population": 1.0,
+        "violation": 0.169414,
+        "kind_projected": 0.907454
+      },
+      "duration_sec": 2.769,
+      "baseline_f1_flagall": 0.092546,
+      "trivial_floor": 0.907454,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.907454,
+          "flagall": 0.092546
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.169414
+        },
+        "kind_projected": {
+          "noop": 0.907454,
+          "flagall": 0.092546
+        }
+      }
+    },
+    {
+      "index": 125,
+      "nl_query": "Every patient registered at the emergency room must have both a thorough examination and an expert examination recorded.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 5008,
+      "root_violations": 3176,
+      "violation_rate": 0.6342,
+      "baseline_situations": 5008,
+      "baseline_f1": 0.365815,
+      "baseline_precision": 0.365815,
+      "baseline_recall": 0.365815,
+      "baseline_f1_variants": {
+        "strict": 0.634185,
+        "population": 1.0,
+        "violation": 0.776149,
+        "kind_projected": 0.634185
+      },
+      "duration_sec": 3.839,
+      "baseline_f1_flagall": 0.634185,
+      "trivial_floor": 0.634185,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.365815,
+          "flagall": 0.634185
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.776149
+        },
+        "kind_projected": {
+          "noop": 0.365815,
+          "flagall": 0.634185
+        }
+      }
+    },
+    {
+      "index": 126,
+      "nl_query": "Patients whose total throughput time exceeded seven days must have received at least one thorough examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "verdict": "ok",
+      "root_situations": 158,
+      "root_violations": 18,
+      "violation_rate": 0.1139,
+      "baseline_situations": 10000,
+      "baseline_f1": 0.027564,
+      "baseline_precision": 0.014,
+      "baseline_recall": 0.886076,
+      "baseline_f1_variants": {
+        "strict": 0.027564,
+        "population": 0.031108,
+        "violation": 0.003594,
+        "kind_projected": 0.027564
+      },
+      "duration_sec": 3.551,
+      "baseline_f1_flagall": 0.003544,
+      "trivial_floor": 0.027564,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.027564,
+          "flagall": 0.003544
+        },
+        "population": {
+          "noop": 0.031108,
+          "flagall": 0.031108
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.003594
+        },
+        "kind_projected": {
+          "noop": 0.027564,
+          "flagall": 0.003544
+        }
+      }
+    },
+    {
+      "index": 127,
+      "nl_query": "Every order must have at least one item that was delivered within five days of the order being placed.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 2000,
+      "root_violations": 1059,
+      "violation_rate": 0.5295,
+      "baseline_situations": 2000,
+      "baseline_f1": 0.4705,
+      "baseline_precision": 0.4705,
+      "baseline_recall": 0.4705,
+      "baseline_f1_variants": {
+        "strict": 0.5295,
+        "population": 1.0,
+        "violation": 0.692383,
+        "kind_projected": 0.5295
+      },
+      "duration_sec": 2.752,
+      "baseline_f1_flagall": 0.5295,
+      "trivial_floor": 0.5295,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.4705,
+          "flagall": 0.5295
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.692383
+        },
+        "kind_projected": {
+          "noop": 0.4705,
+          "flagall": 0.5295
+        }
+      }
+    },
+    {
+      "index": 128,
+      "nl_query": "Which orders worth more than 3000 euros contain an item heavier than one kilogram?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "ok",
+      "root_situations": 902,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 7659,
+      "baseline_f1": 0.210723,
+      "baseline_precision": 0.11777,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 0.210723,
+        "population": 0.210723,
+        "violation": null,
+        "kind_projected": 0.210723
+      },
+      "duration_sec": 2.859,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 0.210723,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.210723,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 0.210723,
+          "flagall": 0.210723
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 0.210723,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 129,
+      "nl_query": "no payment reminder should be sent out after payment has been made",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "non_discriminating",
+      "root_situations": 566,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 566,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.605,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 130,
+      "nl_query": "Every item that is picked must be either sent in a package or marked as out of stock afterwards.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "non_discriminating",
+      "root_situations": 7659,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 7659,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.949,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 131,
+      "nl_query": "Customers who place an order must have at least one payment event associated with one of their orders.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "non_discriminating",
+      "root_situations": 15,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 15,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 5.059,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 132,
+      "nl_query": "Orders must not remain unpaid for more than 21 days after placement.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "non_discriminating",
+      "root_situations": 2000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 2000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.642,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 133,
+      "nl_query": "Borrower information must be verified before the file is submitted to the underwriter.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.967,
+      "proposal_verified": {
+        "root_situations": 10000,
+        "root_violations": 962,
+        "violation_rate": 0.0962
+      },
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 134,
+      "nl_query": "A person whose loan was denied must not sign a loan agreement afterwards.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.845,
+      "proposal_verified": {
+        "root_situations": 10000,
+        "root_violations": 5213,
+        "violation_rate": 0.5213
+      },
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 135,
+      "nl_query": "Every signed loan agreement must be preceded by a submitted underwriting file.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.84,
+      "proposal_verified": {
+        "root_situations": 10000,
+        "root_violations": 7373,
+        "violation_rate": 0.7373
+      },
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 136,
+      "nl_query": "Appointment denial must only occur after a request appointment event.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.716,
+      "proposal_verified": {
+        "root_situations": 10000,
+        "root_violations": 9038,
+        "violation_rate": 0.9038
+      },
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 137,
+      "nl_query": "Every handed-in credit application must eventually lead to either a signed loan agreement, a rejected application, or a denied loan.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.854,
+      "proposal_verified": {
+        "root_situations": 10000,
+        "root_violations": 962,
+        "violation_rate": 0.0962
+      },
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 138,
+      "nl_query": "Loan agreements should be signed within 30 days after handing in the credit application.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.779,
+      "proposal_verified": {
+        "root_situations": 10000,
+        "root_violations": 962,
+        "violation_rate": 0.0962
+      },
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 139,
+      "nl_query": "Persons marked with skipped examination must not have their loan approved directly afterwards.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.724,
+      "proposal_verified": {
+        "root_situations": 10000,
+        "root_violations": 9668,
+        "violation_rate": 0.9668
+      },
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 140,
+      "nl_query": "Every patient arrival must be preceded by a completed registration.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "verdict": "non_discriminating",
+      "root_situations": 2000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 2000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.453,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 141,
+      "nl_query": "Initial evaluation must not occur before insurance verification has been completed.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "verdict": "non_discriminating",
+      "root_situations": 2000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 2000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.455,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 142,
+      "nl_query": "Candidates who rejected an offer must not start onboarding afterwards.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "non_discriminating",
+      "root_situations": 32,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 32,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.348,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 143,
+      "nl_query": "Rescheduled containers must not depart before being reassigned to a vehicle.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "non_discriminating",
+      "root_situations": 36,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 36,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.587,
+      "proposal_verified": {
+        "root_situations": 36,
+        "root_violations": 1,
+        "violation_rate": 0.0278
+      },
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 144,
+      "nl_query": "Only items that are linked to an order via the 'comprises' qualifier must be counted as part of that order",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "non_discriminating",
+      "root_situations": 2000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 2000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.027,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 145,
+      "nl_query": "A 'pay order' event must be related to the order object via the 'order' qualifier",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "non_discriminating",
+      "root_situations": 2000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 2000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.956,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 146,
+      "nl_query": "A container must only be counted as belonging to a transport document via the 'CR for TD' relationship.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "non_discriminating",
+      "root_situations": 1999,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 1999,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.836,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 147,
+      "nl_query": "An offer letter must be sent at least 3 days (259,200 s) after the background check completes.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "non_discriminating",
+      "root_situations": 3000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 3000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.732,
+      "proposal_verified": {
+        "root_situations": 3000,
+        "root_violations": 2766,
+        "violation_rate": 0.922
+      },
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 148,
+      "nl_query": "A co-signer request must be made at least 2 days (172,800 s) before the loan agreement is signed.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.765,
+      "proposal_verified": {
+        "root_situations": 10000,
+        "root_violations": 9610,
+        "violation_rate": 0.961
+      },
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 149,
+      "nl_query": "A vehicle that is booked twice must involve two distinct booking events.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "non_discriminating",
+      "root_situations": 127,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 127,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.517,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 150,
+      "nl_query": "An item must be both picked and sent in a package to be considered fulfilled",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "non_discriminating",
+      "root_situations": 7659,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 7659,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.98,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 151,
+      "nl_query": "A container load event and its departure event must share the same object relationships within a single session.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10349,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10349,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.237,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 152,
+      "nl_query": "Each handling unit must be linked to exactly one container.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10553,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10553,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.122,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 153,
+      "nl_query": "Containers marked 'empty' at departure time must be flagged.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "non_discriminating",
+      "root_situations": 1999,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 1999,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.627,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 154,
+      "nl_query": "A vehicle that departs must have been previously booked, and the booking must reference the same transport document.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "non_discriminating",
+      "root_situations": 127,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 127,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.731,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 155,
+      "nl_query": "A person may not apply for a viewing appointment more than 3 times in the same process.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "verdict": "non_discriminating",
+      "root_situations": 10000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 10000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.932,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 156,
+      "nl_query": "For any vehicle departure, at least one container must have been loaded onto the vehicle beforehand.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "verdict": "non_discriminating",
+      "root_situations": 127,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 127,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.755,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 157,
+      "nl_query": "Every purchase order must be approved before a payment is executed for it.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "verdict": "non_discriminating",
+      "root_situations": 1598,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 1598,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.493,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 158,
+      "nl_query": "Which invoice receipts were paid after a two-way match was performed?",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "verdict": "non_discriminating",
+      "root_situations": 927,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 927,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.435,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 159,
+      "nl_query": "Which approval events occurred for purchase requisitions that were later linked to a request for quotation?",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "verdict": "non_discriminating",
+      "root_situations": 607,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 607,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 3.094,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 160,
+      "nl_query": "Which patients had a diagnostic test performed on them, and by which lab technician?",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "verdict": "non_discriminating",
+      "root_situations": 321,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 321,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.505,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 161,
+      "nl_query": "Which sales employees confirmed orders for which customers?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "verdict": "non_discriminating",
+      "root_situations": 2000,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 2000,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.858,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 162,
+      "nl_query": "Which hiring managers reviewed assessments for which candidates?",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "verdict": "non_discriminating",
+      "root_situations": 911,
+      "root_violations": 0,
+      "violation_rate": 0.0,
+      "baseline_situations": 911,
+      "baseline_f1": 1.0,
+      "baseline_precision": 1.0,
+      "baseline_recall": 1.0,
+      "baseline_f1_variants": {
+        "strict": 1.0,
+        "population": 1.0,
+        "violation": null,
+        "kind_projected": 1.0
+      },
+      "duration_sec": 2.778,
+      "baseline_f1_flagall": 0.0,
+      "trivial_floor": 1.0,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 1.0,
+          "flagall": 0.0
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": null,
+          "flagall": null
+        },
+        "kind_projected": {
+          "noop": 1.0,
+          "flagall": 0.0
+        }
+      }
+    },
+    {
+      "index": 163,
+      "nl_query": "Every patient must have at least one diagnostic test ordered.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "verdict": "ok",
+      "root_situations": 2000,
+      "root_violations": 1679,
+      "violation_rate": 0.8395,
+      "baseline_situations": 2000,
+      "baseline_f1": 0.1605,
+      "baseline_precision": 0.1605,
+      "baseline_recall": 0.1605,
+      "baseline_f1_variants": {
+        "strict": 0.8395,
+        "population": 1.0,
+        "violation": 0.912748,
+        "kind_projected": 0.8395
+      },
+      "duration_sec": 2.466,
+      "baseline_f1_flagall": 0.8395,
+      "trivial_floor": 0.8395,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.1605,
+          "flagall": 0.8395
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.912748
+        },
+        "kind_projected": {
+          "noop": 0.1605,
+          "flagall": 0.8395
+        }
+      }
+    },
+    {
+      "index": 164,
+      "nl_query": "No bed may be assigned to a patient more than twice.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "verdict": "ok",
+      "root_situations": 587,
+      "root_violations": 390,
+      "violation_rate": 0.6644,
+      "baseline_situations": 587,
+      "baseline_f1": 0.335605,
+      "baseline_precision": 0.335605,
+      "baseline_recall": 0.335605,
+      "baseline_f1_variants": {
+        "strict": 0.664395,
+        "population": 1.0,
+        "violation": 0.798362,
+        "kind_projected": 0.664395
+      },
+      "duration_sec": 2.735,
+      "baseline_f1_flagall": 0.664395,
+      "trivial_floor": 0.664395,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.335605,
+          "flagall": 0.664395
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.798362
+        },
+        "kind_projected": {
+          "noop": 0.335605,
+          "flagall": 0.664395
+        }
+      }
+    },
+    {
+      "index": 165,
+      "nl_query": "A diagnostic test must be ordered within one hour of the patient's arrival.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "verdict": "ok",
+      "root_situations": 321,
+      "root_violations": 83,
+      "violation_rate": 0.2586,
+      "baseline_situations": 321,
+      "baseline_f1": 0.741433,
+      "baseline_precision": 0.741433,
+      "baseline_recall": 0.741433,
+      "baseline_f1_variants": {
+        "strict": 0.741433,
+        "population": 1.0,
+        "violation": 0.410891,
+        "kind_projected": 0.741433
+      },
+      "duration_sec": 2.422,
+      "baseline_f1_flagall": 0.258567,
+      "trivial_floor": 0.741433,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.741433,
+          "flagall": 0.258567
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.410891
+        },
+        "kind_projected": {
+          "noop": 0.741433,
+          "flagall": 0.258567
+        }
+      }
+    },
+    {
+      "index": 166,
+      "nl_query": "Every created purchase requisition must eventually be approved.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "verdict": "ok",
+      "root_situations": 729,
+      "root_violations": 122,
+      "violation_rate": 0.1674,
+      "baseline_situations": 729,
+      "baseline_f1": 0.832647,
+      "baseline_precision": 0.832647,
+      "baseline_recall": 0.832647,
+      "baseline_f1_variants": {
+        "strict": 0.832647,
+        "population": 1.0,
+        "violation": 0.286722,
+        "kind_projected": 0.832647
+      },
+      "duration_sec": 3.243,
+      "baseline_f1_flagall": 0.167353,
+      "trivial_floor": 0.832647,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.832647,
+          "flagall": 0.167353
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.286722
+        },
+        "kind_projected": {
+          "noop": 0.832647,
+          "flagall": 0.167353
+        }
+      }
+    },
+    {
+      "index": 167,
+      "nl_query": "A purchase requisition for which a request for quotation was created must eventually be approved.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "verdict": "ok",
+      "root_situations": 927,
+      "root_violations": 320,
+      "violation_rate": 0.3452,
+      "baseline_situations": 927,
+      "baseline_f1": 0.6548,
+      "baseline_precision": 0.6548,
+      "baseline_recall": 0.6548,
+      "baseline_f1_variants": {
+        "strict": 0.6548,
+        "population": 1.0,
+        "violation": 0.513232,
+        "kind_projected": 0.6548
+      },
+      "duration_sec": 3.244,
+      "baseline_f1_flagall": 0.3452,
+      "trivial_floor": 0.6548,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.6548,
+          "flagall": 0.3452
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.513232
+        },
+        "kind_projected": {
+          "noop": 0.6548,
+          "flagall": 0.3452
+        }
+      }
+    },
+    {
+      "index": 168,
+      "nl_query": "Every offer that was created must eventually be returned by the customer.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "verdict": "ok",
+      "root_situations": 42995,
+      "root_violations": 19690,
+      "violation_rate": 0.458,
+      "baseline_situations": 42995,
+      "baseline_f1": 0.54204,
+      "baseline_precision": 0.54204,
+      "baseline_recall": 0.54204,
+      "baseline_f1_variants": {
+        "strict": 0.54204,
+        "population": 1.0,
+        "violation": 0.62822,
+        "kind_projected": 0.54204
+      },
+      "duration_sec": 79.801,
+      "baseline_f1_flagall": 0.45796,
+      "trivial_floor": 0.54204,
+      "baseline_f1_variants_detail": {
+        "strict": {
+          "noop": 0.54204,
+          "flagall": 0.45796
+        },
+        "population": {
+          "noop": 1.0,
+          "flagall": 1.0
+        },
+        "violation": {
+          "noop": 0.0,
+          "flagall": 0.62822
+        },
+        "kind_projected": {
+          "noop": 0.54204,
+          "flagall": 0.45796
+        }
+      }
+    }
+  ]
+}
