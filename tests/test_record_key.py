@@ -115,6 +115,8 @@ check("both halves survive the merge", len(merged), 9)
 check("all nine entries are distinct", len({r["nl_query"] for r in merged}), 9)
 
 # And a genuine re-run still collapses.
+print("\n(The next merge feeds half 0 twice on purpose: 5 of 14 records are duplicates, above the 5% "
+      "alarm, so the 'implausible share' WARNING below is EXPECTED and must say 'differ in: nothing'.)")
 shard("shard_m0_s0_e0_c0of2_rerun", half0)
 out2 = tmp / "merged2"
 _merge_shards([str(tmp / "shard_m0_s0_e0_c0of2_t"),

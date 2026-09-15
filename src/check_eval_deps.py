@@ -114,12 +114,94 @@ def check_data_files(config_path):
 
     return problems
 
+# Mirrors `LLM.is_merged_model_dir` and LLM.py's adapter check, deliberately rather than importing
+# them: importing LLM loads the whole pipeline (~13 s plus an embedding model), and this preflight
+# must fail in milliseconds.
+_MERGED_MARKERS = (
+    "model.safetensors",
+    "pytorch_model.bin",
+    "pytorch_model-00001-of-00002.bin",
+    "model.safetensors.index.json",
+    "pytorch_model.bin.index.json",
+)
+_ADAPTER_MARKERS = ("adapter_config.json", "adapter_model.safetensors")
+_LFS_POINTER_PREFIX = b"version https://git-lfs"
+
+
+def check_model_dirs(config_path):
+    """Verify every LOCAL model directory the config names exists and holds loadable weights.
+
+    2026-09-15: the Gemma arms are merged 16-bit checkpoints that live outside git (src/merge_gemma.py,
+    Thesis/notes/11-evaluation-readiness.md 17). The 2026-08-29 reorg changed the config from
+    `adapters/...` to `models/adapters/...` but could not move untracked files, so on the cluster the
+    checkpoints stayed at the old path. `LLM.py` treats a name that is not an existing directory as a
+    Hugging Face repo id, so the first smoke run after the reorg lost all 24 Gemma runs to
+    `HFValidationError` -- discovered at the first generation, after the job had queued and loaded,
+    while every other arm ran normally. Hub ids (`org/name`) are left to the offline cache check.
+
+    Args:
+        config_path: The evaluation config, absolute or repo-root-relative.
+
+    Returns:
+        One problem per missing or unloadable local model directory, each prefixed `model:`.
+    """
+    import glob
+    import json
+
+    cfg_path = Path(config_path)
+    if not cfg_path.is_absolute():
+        cfg_path = paths.REPO_ROOT / cfg_path
+    if not cfg_path.is_file():
+        return [f"model: evaluation config not found: {cfg_path}"]
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+
+    names = set()
+    for model in cfg.get("models") or []:
+        if isinstance(model, dict) and model.get("name"):
+            names.add(str(model["name"]))
+    for base_name, finetuned in (cfg.get("fine_tune_map") or {}).items():
+        names.add(str(base_name))
+        if isinstance(finetuned, dict) and finetuned.get("name"):
+            names.add(str(finetuned["name"]))
+
+    problems = []
+    for name in sorted(names):
+        path = Path(name) if Path(name).is_absolute() else paths.REPO_ROOT / name
+        looks_local = (Path(name).is_absolute() or path.is_dir()
+                       or name.startswith(("models/", "./", "../", "/")))
+        if not looks_local:
+            continue
+        if not path.is_dir():
+            problems.append(
+                f"model: {name} -- no such directory under {paths.REPO_ROOT}. LLM.py would treat it "
+                "as a Hugging Face repo id and fail at the first generation")
+            continue
+        is_adapter = any((path / marker).exists() for marker in _ADAPTER_MARKERS)
+        is_merged = (any((path / marker).exists() for marker in _MERGED_MARKERS)
+                     or bool(glob.glob(str(path / "model-*-of-*.safetensors")))
+                     or bool(glob.glob(str(path / "pytorch_model-*-of-*.bin"))))
+        if not (is_adapter or is_merged):
+            problems.append(f"model: {name} -- the directory holds neither a LoRA adapter nor "
+                            "merged weights")
+            continue
+        # A directory checked out without `git lfs pull` has the right filenames and ~130-byte
+        # pointer files instead of weights; that fails much later and far less legibly.
+        for weights in sorted(path.glob("*.safetensors")):
+            with open(weights, "rb") as handle:
+                if handle.read(len(_LFS_POINTER_PREFIX)) == _LFS_POINTER_PREFIX:
+                    problems.append(f"model: {weights} is a Git LFS pointer, not weights -- "
+                                    "run `git lfs pull`")
+                    break
+    return problems
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--verbose", action="store_true", help="print resolved versions")
     ap.add_argument("--skip-data", action="store_true",
                     help="check imports only, without the input-data files")
+    ap.add_argument("--config", default="configs/eval_config.json",
+                    help="config whose local model directories are checked")
     args = ap.parse_args()
 
     failures = []
@@ -144,6 +226,8 @@ def main():
         return 1
 
     data_problems = [] if args.skip_data else check_data_files(None)
+    if not args.skip_data:
+        data_problems.extend(check_model_dirs(args.config))
     if data_problems:
         print("FATAL: required input data is missing or is not the pinned version.",
               file=sys.stderr)
@@ -154,12 +238,17 @@ def main():
                   "the manifest was pinned on -- or, for a DELIBERATE corpus change, run "
                   "`python src/corpus_manifest.py --pin` and commit the manifest.",
                   file=sys.stderr)
+        if any(line.startswith("model:") for line in data_problems):
+            print("\nA local model directory is missing or unloadable. The Gemma arms are merged "
+                  "checkpoints kept outside git (src/merge_gemma.py, notes 17): move them into "
+                  "models/adapters/ or regenerate them in the training environment.",
+                  file=sys.stderr)
         print("\nCopy the current NLxOCPQ files to the cluster, including eval_runs/ "
               "(a plain rsync that excludes it drops the discriminability audit).",
               file=sys.stderr)
         return 1
 
-    suffix = "" if args.skip_data else " + input data + pinned corpus"
+    suffix = "" if args.skip_data else " + input data + pinned corpus + model dirs"
     print(f"eval dependencies OK ({len(versions)} modules{suffix})")
     return 0
 

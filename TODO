@@ -1034,6 +1034,12 @@
        test_constrained_decoding, test_forced_arity, test_type_aware_filters, test_arity_predictor,
        test_merged_guard
     4. python src/check_shard_map.py --config configs/eval_config.matrix_v2.json
+    4b. FOUND BY THE SMOKE (2026-09-15): all 24 Gemma runs failed with HFValidationError. The merged
+       16-bit checkpoints (gemma3-4b-base-16bit, gemma3-4b-merged-16bit) are outside git, and the
+       2026-08-29 reorg changed the config from adapters/... to models/adapters/... without moving
+       them. Move them (`mv adapters/gemma3-4b-*-16bit models/adapters/`), or regenerate with
+       src/merge_gemma.py + --verify in the training env. check_eval_deps.py now fails the preflight
+       on a missing local model directory, so this cannot reach a GPU again.
     5. sbatch slurm/submit_eval_smoke.sh --limit 2  ->  python src/smoke_check.py <run>; confirm the
        manifest has `corpus` and the preflight time is acceptable (add a digest cache only if > ~60 s)
     6. python src/arity_predictor_probe.py --model-idx 1 --out eval_runs/arity_probe_20260915.json
