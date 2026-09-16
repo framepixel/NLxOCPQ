@@ -212,7 +212,16 @@ def main():
         except Exception as exc:  # noqa: BLE001 - any import failure is disqualifying
             failures.append(f"{name} ({why}): {type(exc).__name__}: {exc}")
             continue
-        versions.append((name, getattr(module, "__version__", "?")))
+        version = getattr(module, "__version__", None)
+        if version is None:
+            # xgrammar has no __version__, so this printed "?" -- which reads like a missing
+            # package even though the import above succeeded. The installed metadata knows.
+            try:
+                from importlib.metadata import version as _dist_version
+                version = _dist_version(name)
+            except Exception:  # noqa: BLE001 - a version is informational only
+                version = "installed (version unknown)"
+        versions.append((name, version))
 
     if args.verbose:
         for name, version in versions:
