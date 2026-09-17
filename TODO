@@ -1023,6 +1023,53 @@
   eval_runs/...` wrote a nested `eval_runs/` folder INSIDE two completed run directories
   (`--out` is a filename inside --run_dir). Move root_population_N{1,2}_20260913.json out and rmdir.
 
+- BUILT, NOT RUN (2026-09-17) B: THE NON-ORACLE SYSTEM, AS A 2x2 -- notes 41 when it runs.
+  configs/eval_config.non_oracle.json + slurm/submit_non_oracle_rungs.sh (derived from the structural
+  ablation script, so the env/resume/case-shard blocks are identical). Rungs, all NON-ORACLE:
+    B0 constrained only          _constrained_tok4000                      (== N1 / S0, 0.2354)
+    B1 + structural check        _constrained_structval_tok4000            (== S1, 0.2500, re-measured)
+    B2 + constant (0,1) arity    _constrained_arityconst_tok4000           (notes 33.4/38.4 estimate)
+    B3 + both                    _constrained_structval_arityconst_tok4000 (the system number)
+  tests/test_non_oracle_rungs.py PASSES (suffix pins, no oracle flag, 2x2 shape, isolation).
+  Dry run: 169 planned runs per rung. ~10-12 GPU-h total, wall ~4 h.
+  NEXT: sync, then
+    1. sbatch --array=0-3 slurm/submit_non_oracle_rungs.sh --case-shard 8/11   (10-min smoke)
+    2. sbatch --array=0-3 slurm/submit_non_oracle_rungs.sh
+  Read against the pre-registration in the script header: compliance (structural_report at B1/B3;
+  root arity (0,1) at B2/B3), the 107/62 majority/minority split, and the interaction
+  (B3-B2)-(B1-B0). It is a MEASUREMENT: n=135 resolves about +-0.03 (notes 37.7).
+
+- DONE (2026-09-17) SENSITIVITY PASS ON matrix_v2 -- notes 40.1. Truncation is negligible: 93 predictions
+  zeroed, 0 gold-truncated entries excluded, pooled discriminating F1 -0.0006 (worst arm -0.0038,
+  ministral3-3b-finetuned), skill -0.9159 -> -0.9169, no ordering changes. Measured against an AS-MEASURED
+  recompute, not against `merged`, because a recompute also drops 211 unstored predictions; that recompute
+  reproduces merged to four decimals, which isolates the policy. Variants (notes 26) on matrix_v2: strict
+  0.0487 vs kind_projected 0.0719 on the same floor -- the extra-variable artefact is +0.023 matrix-wide.
+  Outputs: eval_runs/matrix_v2/merged_asmeasured, merged_strict_zero.
+
+- DONE (2026-09-17) NOTES 23 IS REPRODUCIBLE AGAIN -- src/failure_anatomy.py + tests/test_failure_anatomy.py.
+  Notes 23's figures were computed ad hoc on the old-corpus self-consistency run and nothing in the repo
+  could reproduce them. The script classifies and counts only; every F1 it prints is read from the record
+  (CLAUDE.md 2.5). Reports the notes-23 condition AND the pooled arm, with n and a 95% band on every
+  percentage. Output: eval_runs/matrix_v2/failure_anatomy_20260917.json. Results in notes 40.
+
+- DONE (2026-09-17) MATRIX RE-RUN COMPLETE -- notes 39. eval_runs/matrix_v2 (job 4151340), 96/96 shards,
+  8112 records, 0 duplicates, ONE pipeline fingerprint, corpus_consistent TRUE, 94.8 GPU-hours.
+  Discriminating F1: llama-ft 0.0886, ministral14-ft 0.0980, 3b-ft 0.0557, gemma-ft 0.0322; pooled 0.0487,
+  skill -0.9159, floor 0.7250 -- the central finding is unchanged.
+  THREE CLAIMS FROM NOTES 21 CHANGED: no single best arm (ministral14-ft vs llama-ft CI spans zero);
+  Gemma's fine-tuning gain not established (+0.0143, CI -0.004..+0.032); 3b-ft no longer above
+  ministral14-base. Cause is the corpus, not the pipeline: on the 8 untouched logs every arm moves by
+  <=0.001, and 67 records that scored a perfect 1.00 on the old corpus (empty gold, notes 35.3) no longer
+  do. QUOTE matrix_v2 FROM NOW ON; matrix_full stays as provenance for notes 21-23.
+  FOLLOW-UPS:
+    a. sensitivity pass: python src/eval_testset.py --recompute eval_runs/matrix_v2/merged
+       --truncation-policy strict-zero  (the matrix_strict_zero equivalent)
+    b. re-derive the notes-23 error analysis on matrix_v2 (23.3 entity naming, 23.4 node-count
+       agreement, 23.6 training-vs-output distribution) -- they are cited and were measured on the old run
+    c. notes 22 (self-consistency) and 25 (structure ablation) stay old-corpus; mark them if cited
+    d. optional: re-run src/root_population_diagnostic.py on matrix_v2 for a matrix-wide failure budget
+
 - IN PROGRESS (A, 2026-09-15) HOUSEKEEPING -- plan: ~/.claude/plans/write-all-the-results-greedy-panda.md.
   Done on the laptop: corpus pinning, docstrings, matrix_v2 config + --config in submit_eval_array.sh
   (plus node/GPU echo), probe constants, notes 28/33 annotations, recomputes of matrix_full and the
