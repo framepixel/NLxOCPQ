@@ -889,7 +889,7 @@
 
 - SCHEDULE (2026-09-15, submission ~2026-11-15, ~8.5 weeks). Reserve >= 3 weeks for writing, which
   leaves ~5 for experiments. In priority order:
-    A  housekeeping (recompute old runs, corpus checksums, re-derivations)   ~1 week    MUST
+    A  housekeeping (recompute old runs, corpus checksums, re-derivations)   DONE 2026-09-20 (notes 38, 42)
     B  measured non-oracle system rung                                        DONE 2026-09-18 (notes 41)
     C  frontier-model upper bound with log tools                              ~3 weeks   SHOULD
     D  agentic pipeline with OPEN models                                      ~1-2 weeks after C; gated on C
@@ -1011,15 +1011,15 @@
 - PARTLY DONE: the re-derivation TODO above -- notes 34.2's decomposition and the clearing oracle are
   re-derived on the corrected run in notes 36.3. 2026-09-15: notes 33.1 gains re-derived (+0.0577 /
   +0.1462; constant estimate 0.2449-0.2713 vs N1 0.2354), probe constants updated; notes 28 marked
-  old-corpus with a pointer to 36.3; notes 27's floors stand (laptop corpus). STILL OPEN: re-run
-  src/arity_predictor_probe.py on the cluster for v3. Still open: notes 33.1-33.4 (probe prompts carried the
-  old types) and notes 27 / 28.
+  old-corpus with a pointer to 36.3; notes 27's floors stand (laptop corpus). DONE 2026-09-20: the probe re-ran on the pinned
+  corpus and notes 33.1-33.4 are re-measured in notes 42 -- the predictor is unchanged, and the GATE's own
+  arithmetic was wrong and is fixed. Still open: notes 27 / 28.
 
 - NOTE (2026-09-14) the skill columns in notes 31.1 and 32.1 were computed against the NO-OP floor
   (0.5148): the cluster read a stale floors file until 2026-09-12. They print 0.7250 beside them.
   Compare F1 across those runs, not skill (notes 36.2).
 
-- CLEANUP ON THE CLUSTER, if not already done: an earlier `root_population_diagnostic.py --out
+- DONE (2026-09-20, verified: nothing left to move) CLEANUP ON THE CLUSTER: an earlier `root_population_diagnostic.py --out
   eval_runs/...` wrote a nested `eval_runs/` folder INSIDE two completed run directories
   (`--out` is a filename inside --run_dir). Move root_population_N{1,2}_20260913.json out and rmdir.
 
@@ -1070,7 +1070,24 @@
     c. notes 22 (self-consistency) and 25 (structure ablation) stay old-corpus; mark them if cited
     d. optional: re-run src/root_population_diagnostic.py on matrix_v2 for a matrix-wide failure budget
 
-- IN PROGRESS (A, 2026-09-15) HOUSEKEEPING -- plan: ~/.claude/plans/write-all-the-results-greedy-panda.md.
+- DONE (2026-09-20) A HOUSEKEEPING IS CLOSED. Arity probe v3 re-run on the pinned corpus (job 4283714,
+  eval_runs/arity_probe/) -- notes 42. The predictor does not move with the corpus (accuracy 46.2% ->
+  47.9%, minority recall 27.4% -> 29.0%, (1,0) recall still 0% of 13), so notes 33's conclusion stands.
+  THE GATE ITSELF WAS WRONG AND IS FIXED: its expected value credited correct predictions and charged
+  NOTHING for wrong ones, so it printed PASS at 6.27 vs 6.17. Notes 41 measured the cost of a wrong
+  force (B2: all 51 minority cases 0.0000, against 0.0514 free), and with that loss term the verdict is
+  FAIL: -9.70 vs the constant's +3.58, and the constant still wins at zero loss (+6.61 vs +6.76).
+  src/arity_predictor_probe.py now carries LOSS_MAJORITY/LOSS_MINORITY, prints the zero-loss row as a
+  sensitivity, and accepts --rescore <probe json> to re-derive the verdict with no model and no GPU
+  (eval_runs/arity_probe/arity_probe_20260920_rescored.json). slurm/submit_arity_probe.sh writes a dated
+  output and a per-job log, and forwards extra arguments.
+  Cluster cleanup verified the same day: no nested eval_runs/ dirs remain inside the arity run dirs
+  (root_population_N{1,2}_20260913.json sit at eval_runs/ top level), and eval_runs holds no loose
+  shard_* directories -- the pre-corpus-fix shards are already under _archive_matrix_full_shards_20260821
+  and _archive_precap_20260819.
+  OPEN, unchanged: notes 27 / 28 old-corpus annotations.
+
+- DONE, kept for provenance (A, 2026-09-15) HOUSEKEEPING -- plan: ~/.claude/plans/write-all-the-results-greedy-panda.md.
   Done on the laptop: corpus pinning, docstrings, matrix_v2 config + --config in submit_eval_array.sh
   (plus node/GPU echo), probe constants, notes 28/33 annotations, recomputes of matrix_full and the
   decoding ablation (see notes 38).

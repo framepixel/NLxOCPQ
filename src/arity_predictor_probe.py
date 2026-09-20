@@ -186,21 +186,44 @@ def report(rows):
     # eval_runs/arity_ablation/*_20260913_*_recomputed, discriminating stratum:
     #     gold IS  (0,1)   n=84   free 0.3358 -> forced 0.3935   = +0.0577
     #     gold NOT (0,1)   n=51   free 0.0701 -> forced 0.2162   = +0.1462
-    # The ratio moves from ~2.3x to ~2.5x; the constants below are the corrected ones.
-    # So a predictor can be LESS accurate than the constant overall and still be worth more. The
-    # 2026-09-11 probe was exactly that: 52.7% against the constant's 63.3%, yet ahead of it on
-    # expected F1 because it recovered 37.1% of the minority cases a constant always misses.
-    GAIN_MAJORITY, GAIN_MINORITY = 0.0577, 0.1462
+    #
+    # AND THE MODEL WAS STILL WRONG, because it priced an ERROR AT ZERO -- as if forcing a wrong
+    # arity merely failed to help. Notes 41 measured what it actually does. B2 pinned every root to
+    # (0,1); on the 51 discriminating cases whose gold root is something else, ALL 51 scored 0.0000,
+    # against 0.0514 under free decoding. A wrongly forced arity does not forgo a gain, it destroys
+    # whatever the free model would have scored, because the correct query becomes unreachable:
+    #     gold IS  (0,1)   n=84   free 0.3358 -> forced-right 0.3990   = +0.0632   (notes 41.2)
+    #     gold NOT (0,1)   n=51   free 0.0514 -> forced-right 0.1976   = +0.1462   (S2, notes 37)
+    #     forced WRONG                          -> ~0, i.e. the free score is LOST
+    # The loss constants are those free-decoding means. The majority loss is an inference from the
+    # measured minority one (no run has forced a wrong NON-(0,1) arity), and it is the reason the
+    # verdict is printed twice: once charged, once at zero loss. A predictor that only wins under
+    # the zero-loss reading has not passed anything.
+    GAIN_MAJORITY, GAIN_MINORITY = 0.0632, 0.1462
+    LOSS_MAJORITY, LOSS_MINORITY = 0.3358, 0.0514
     majority_n = by_class.get(MAJORITY, {"n": 0})["n"]
     majority_hits = by_class.get(MAJORITY, {"hit": 0})["hit"]
-    value = majority_hits * GAIN_MAJORITY + minority_hits * GAIN_MINORITY
-    const_value = majority_n * GAIN_MAJORITY          # a constant never wins a minority case
+    # Abstentions are not forced, so they neither gain nor lose. Only PREDICTED cases are charged.
+    majority_forced = sum(1 for r in predicted if tuple(r["gold"]) == MAJORITY)
+    minority_forced = len(predicted) - majority_forced
+    majority_wrong = majority_forced - majority_hits
+    minority_wrong = minority_forced - minority_hits
 
-    print(f"\n  EXPECTED VALUE (per-class gains from notes 32.4, not accuracy):")
-    print(f"    predictor : {majority_hits} x {GAIN_MAJORITY} + {minority_hits} x "
-          f"{GAIN_MINORITY} = {value:.2f}")
-    print(f"    constant  : {majority_n} x {GAIN_MAJORITY} + 0 x {GAIN_MINORITY} = "
-          f"{const_value:.2f}")
+    gains = majority_hits * GAIN_MAJORITY + minority_hits * GAIN_MINORITY
+    losses = majority_wrong * LOSS_MAJORITY + minority_wrong * LOSS_MINORITY
+    value = gains - losses
+    # The constant forces (0,1) on EVERY case: right on every majority case, wrong on every
+    # minority one. It abstains never, so it is charged on all of them.
+    const_value = majority_n * GAIN_MAJORITY - minority_n * LOSS_MINORITY
+
+    print(f"\n  EXPECTED VALUE in summed F1 (per-class gains AND losses, notes 41.2; not accuracy):")
+    print(f"    predictor : {majority_hits} x {GAIN_MAJORITY} + {minority_hits} x {GAIN_MINORITY}"
+          f" - {majority_wrong} x {LOSS_MAJORITY} - {minority_wrong} x {LOSS_MINORITY}"
+          f" = {value:+.2f}")
+    print(f"    constant  : {majority_n} x {GAIN_MAJORITY} - {minority_n} x {LOSS_MINORITY}"
+          f" = {const_value:+.2f}")
+    print(f"    SENSITIVITY, wrong forces charged NOTHING (the pre-2026-09-20 model):"
+          f" predictor {gains:+.2f} vs constant {majority_n * GAIN_MAJORITY:+.2f}")
 
     verdict_value = value > const_value
     verdict_minority = bool(minority_n and minority_hits > 0)
@@ -224,6 +247,9 @@ def report(rows):
         "per_class": {str(k): v for k, v in by_class.items()},
         "expected_value": value,
         "constant_expected_value": const_value,
+        "expected_value_zero_loss": gains,
+        "constant_expected_value_zero_loss": majority_n * GAIN_MAJORITY,
+        "forced_wrong": {"majority": majority_wrong, "minority": minority_wrong},
         "gate_passed": bool(verdict_value and verdict_minority),
     }
 
@@ -239,7 +265,23 @@ def main():
     parser.add_argument("--out", default=None,
                         help="Where to write the per-case results "
                              "(default: eval_runs/arity_predictor_probe.json).")
+    parser.add_argument("--rescore", default=None, metavar="PROBE_JSON",
+                        help="Re-run the GATE over an existing probe's stored rows and exit. No "
+                             "model, no GPU: the predictions are already in the file, so a change "
+                             "to how a prediction is PRICED (notes 41.2) can be applied to a probe "
+                             "that already ran. Writes nothing unless --out is given.")
     args = parser.parse_args()
+
+    if args.rescore:
+        stored = _read_json(args.rescore)
+        rows = stored["rows"] if isinstance(stored, dict) else stored
+        print(f"rescoring {len(rows)} stored prediction(s) from {args.rescore}")
+        summary = report(rows)
+        if args.out:
+            _write_json(Path(args.out), {"summary": summary, "rows": rows,
+                                         "rescored_from": str(args.rescore)})
+            print(f"\nwrote {args.out}")
+        return
 
     config = _read_json(args.config)
     rows = probe(args.testset, config, args.model_idx, args.limit)
