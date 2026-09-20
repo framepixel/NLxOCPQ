@@ -890,7 +890,7 @@
 - SCHEDULE (2026-09-15, submission ~2026-11-15, ~8.5 weeks). Reserve >= 3 weeks for writing, which
   leaves ~5 for experiments. In priority order:
     A  housekeeping (recompute old runs, corpus checksums, re-derivations)   ~1 week    MUST
-    B  measured non-oracle system rung                                        ~1 week    SHOULD
+    B  measured non-oracle system rung                                        DONE 2026-09-18 (notes 41)
     C  frontier-model upper bound with log tools                              ~3 weeks   SHOULD
     D  agentic pipeline with OPEN models                                      ~1-2 weeks after C; gated on C
     E  reasoning LLMs, fine-tuned, same pipeline                              ~3 weeks   COULD
@@ -898,7 +898,7 @@
   is split. C, D and E cannot all be finished: pick C + (D or E) at most, and decide by week 3.
   Anything whose expected effect is below ~0.03 F1 cannot be resolved on this testset (notes 37.7).
 
-- NEXT (B, 2026-09-15) NON-ORACLE SYSTEM RUNG: ONE MEASURED "BEST SYSTEM" NUMBER. Today the best
+- SUPERSEDED by the DONE (2026-09-18) B entry below. (B, 2026-09-15) NON-ORACLE SYSTEM RUNG: ONE MEASURED "BEST SYSTEM" NUMBER. Today the best
   non-oracle figures are a measurement (constrained + structural check, F1 0.2500, notes 37) and an
   ESTIMATE (constant (0,1) arity, 0.2268-0.2557, notes 33.4) that were never run together.
     B0  constrained                                    in-job reproduction of N1 / S0 (0.2354)
@@ -1023,21 +1023,21 @@
   eval_runs/...` wrote a nested `eval_runs/` folder INSIDE two completed run directories
   (`--out` is a filename inside --run_dir). Move root_population_N{1,2}_20260913.json out and rmdir.
 
-- BUILT, NOT RUN (2026-09-17) B: THE NON-ORACLE SYSTEM, AS A 2x2 -- notes 41 when it runs.
-  configs/eval_config.non_oracle.json + slurm/submit_non_oracle_rungs.sh (derived from the structural
-  ablation script, so the env/resume/case-shard blocks are identical). Rungs, all NON-ORACLE:
-    B0 constrained only          _constrained_tok4000                      (== N1 / S0, 0.2354)
-    B1 + structural check        _constrained_structval_tok4000            (== S1, 0.2500, re-measured)
-    B2 + constant (0,1) arity    _constrained_arityconst_tok4000           (notes 33.4/38.4 estimate)
-    B3 + both                    _constrained_structval_arityconst_tok4000 (the system number)
-  tests/test_non_oracle_rungs.py PASSES (suffix pins, no oracle flag, 2x2 shape, isolation).
-  Dry run: 169 planned runs per rung. ~10-12 GPU-h total, wall ~4 h.
-  NEXT: sync, then
-    1. sbatch --array=0-3 slurm/submit_non_oracle_rungs.sh --case-shard 8/11   (10-min smoke)
-    2. sbatch --array=0-3 slurm/submit_non_oracle_rungs.sh
-  Read against the pre-registration in the script header: compliance (structural_report at B1/B3;
-  root arity (0,1) at B2/B3), the 107/62 majority/minority split, and the interaction
-  (B3-B2)-(B1-B0). It is a MEASUREMENT: n=135 resolves about +-0.03 (notes 37.7).
+- DONE (2026-09-18) B: THE NON-ORACLE SYSTEM, AS A 2x2 -- notes 41. eval_runs/non_oracle (job 4206133),
+  4 x 169, exit 0, all pre-registered compliance checks pass, oracle_conditions [] everywhere, corpus
+  recorded with no problems, one fingerprint (matrix_v2's). 9.0 GPU-h.
+  Discriminating F1 / skill:  B0 constrained 0.2284 / -0.5767   B1 + structural check 0.2534 / -0.5368
+                              B2 + constant arity 0.2483 / -0.5608   B3 both 0.2518 / -0.5623
+  * THE SYSTEM NUMBER IS B1 (0.2534), not B3. Constant arity adds nothing on top (-0.0017), costs 13
+    executions and +76% LLM time.
+  * Structural check B0->B1 +0.0251 (bootstrap CI +0.0034..+0.0536; exec 9 gained / 1 lost, p=0.021);
+    second measurement with the same sign as notes 37's +0.0146.
+  * Constant arity +0.0199 (CI spans 0), at the bottom of the 0.2449-0.2713 estimate: +0.063 on the 84
+    discriminating cases with gold root (0,1), and ALL 51 others score 0.
+  * Interaction -0.0216: the check's gain lives on the minority cases the pin zeroes, and under the pin
+    the repair cannot declare the event variable the root's filters read (accepted 20% vs 53%).
+  * Reproduction: B0 vs S0 and B1 vs S1 differ by one case each -> run-to-run noise ~+-0.007.
+  Analysis was throwaway (as for notes 37); see the OPTIONAL entry on a committed report script.
 
 - DONE (2026-09-17) SENSITIVITY PASS ON matrix_v2 -- notes 40.1. Truncation is negligible: 93 predictions
   zeroed, 0 gold-truncated entries excluded, pooled discriminating F1 -0.0006 (worst arm -0.0038,

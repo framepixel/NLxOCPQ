@@ -30,7 +30,12 @@
 #
 # The script prints both, plus the confusion matrix, and states the verdict itself.
 #
+# The v1/v2 probes (notes 33) ran on the corpus notes 35 later found stale, so their prompts carried
+# entity types three logs no longer have. This writes a DATED output per job and a per-job log, so a
+# re-run cannot overwrite the run it is meant to supersede.
+#
 #   sbatch slurm/submit_arity_probe.sh
+#   sbatch slurm/submit_arity_probe.sh --limit 20     # extra arguments reach the probe unchanged
 
 set -u
 # SLURM copies the batch script into its spool directory before executing it, so
@@ -121,7 +126,7 @@ echo "Starting arity predictor gate at: $(date)"
 echo "Python: $(which python)"; python --version
 
 set -e
-python -u "$PROJECT_DIR/src/arity_predictor_probe.py"     --config "$PROJECT_DIR/configs/eval_config.json"     --model-idx 1     2>&1 | tee "logs/nlxocpq-arityprobe.log"
+python -u "$PROJECT_DIR/src/arity_predictor_probe.py"     --config "$PROJECT_DIR/configs/eval_config.json"     --model-idx 1     --out "$PROJECT_DIR/eval_runs/arity_probe_$(date +%Y%m%d).json"     "$@"     2>&1 | tee "logs/nlxocpq-arityprobe-${SLURM_JOB_ID:-local}.log"
 rc=${PIPESTATUS[0]:-0}
 echo "Arity probe exit code: $rc"
 exit $rc
