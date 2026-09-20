@@ -1,0 +1,7 @@
+{
+  "seed": 3407,
+  "rows": 20000,
+  "num_samples_requested": 20000,
+  "generator_sha256": "e084f5dabc8c6d308c0e6855bae1d432bf40dac5ff84a02ad93fe80ca5d71ec6",
+  "generator": "DatasetGenerator.py"
+}

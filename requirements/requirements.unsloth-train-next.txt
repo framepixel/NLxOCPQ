@@ -1,0 +1,49 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
+
+# nlxocpq-train-next environment — Python 3.10, CUDA 12.6 wheels, H100.
+# Constraints imposed by unsloth 2026.6.1:
+#   trl <= 0.24.0  (hard cap — newer trl breaks trainer APIs unsloth patches)
+#   datasets < 4.4.0  (4.4.0-4.5.0 have recursion errors)
+#   transformers 4.57.6 chosen: highest 4.x not excluded by unsloth; avoiding
+#     the 5.x jump until unsloth's 4.x-path code is fully tested against 5.x.
+# numpy capped at 2.2.6: numpy 2.3+ requires Python >=3.11; this env is 3.10.
+# torch 2.10.0: highest version compatible with unsloth 2026.6.1 (<2.11.0 cap);
+#   cu126 wheels confirmed available; fixes Triton refcount bug in 2.7.1 that
+#   caused none_dealloc crash in the Fast LLaMA RoPE backward kernel.
+# Known acceptable pip conflicts after the torch 2.10 upgrade:
+#   xformers 0.0.31.post1 requires torch==2.7.1 — xformers is intentionally NOT
+#     pinned here; unsloth catches the ImportError and falls back to standard
+#     attention automatically (FA2 was never available on this cluster anyway).
+#   datasets 4.3.0 requires fsspec<=2025.9.0 but torch 2.10 pulls fsspec 2026.x —
+#     the local JSONL file I/O paths in fsspec are stable across these versions;
+#     no functional impact observed. Do not attempt to pin fsspec lower here as it
+#     would conflict with torch 2.10's transitive dependency on the newer fsspec.
+huggingface-hub==0.36.2
+numpy==2.2.6
+openai==2.41.0
+scikit-learn==1.7.2
+sentence-transformers==5.5.1
+tqdm==4.67.1
+transformers==4.57.6
+datasets==4.3.0
+nbconvert==7.17.0
+jupyter==1.1.1
+trl==0.24.0
+accelerate==1.13.0
+bitsandbytes==0.49.2
+streamlit==1.56.0
+pydantic==2.13.4
+peft==0.19.1
+sentencepiece==0.2.1
+safetensors==0.8.0
+protobuf==7.34.1
+requests==2.33.1
+
+# Upgraded 2026.4.6 → 2026.6.1: fixes none_dealloc refcount crash in the
+# Fast LLaMA RoPE backward Triton kernel that blocked LLaMA-3 and Phi-4 training.
+unsloth[colab-new]==2026.6.1
+
+torch==2.10.0+cu126
+torchvision==0.25.0+cu126
+torchaudio==2.10.0+cu126
+torchao==0.17.0

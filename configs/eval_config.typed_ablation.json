@@ -1,0 +1,71 @@
+{
+  "testset_path": "data/testset.json",
+  "output_dir": "eval_runs/typed_ablation",
+  "backend": "local-gpu",
+  "local_device": "cuda",
+  "local_dtype": "auto",
+  "local_quantization": "4bit",
+  "temperature": 0.0,
+  "repeats": 1,
+  "limit": 0,
+  "seed": 3407,
+  "few_shot_k": 3,
+  "keep_result_files": false,
+  "result_store": true,
+  "result_store_max_situations": 200000,
+  "shuffle": false,
+  "auto_expand_finetuned": true,
+  "case_timeout_sec": 600,
+  "case_timeout_sec_note": "Wall-clock budget per case, generation through execution. Calibrated 2026-08-19 from the 4056 pre-cap wave-1 records: p50=36.0 p90=85.9 p95=103.7 p99=157.8 max=377.0 sec. 600 is ~1.6x the observed maximum and ~3.8x p99, and sits above ocpq_cli_timeout_sec (300) so the backend's own timeout still fires first for a pure execution hang. It is therefore a bound on pathology, not a budget that trims the normal distribution: no observed case came within 220s of it. A cap tight enough to actually bind would have to sit below 300 and would make the CLI timeout unreachable.",
+  "max_result_file_gb": 4,
+  "max_result_file_gb_note": "Refuse to parse a prediction's result export larger than this. Parsing loads the whole file at once, so an over-selecting query SIGKILLs the shard -- uncatchable. MEASURED 2026-08-27 (src/diagnose_result_size.py, job 3233233) by replaying the failing query with no model: the export is 6.283 GB and could not be parsed in 122 GB, so the multiplier for this data shape is >19.4x, not the 11.7x measured on gold-shaped exports. At 19.4x a 64 GB shard could parse at most ~3.3 GB, so a 4 GB cap sits ABOVE anything the other 95 shards could have handled and is provably inert for them; a 4 GB file needs ~78 GB, which exceeds their 64 GB but fits the 122 GB rerun. Inertness would only break below 16x. Set this from measurement, not from a multiplier -- every export above 256 MB now logs its true size before the read.",
+  "fine_tune_map": {
+    "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit": {
+      "name": "models/adapters/llama31-8b-fine-tuned-quantized",
+      "label": "llama31-8b-finetuned"
+    },
+    "unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit": {
+      "name": "models/adapters/ministral3-14b-fine-tuned-quantized",
+      "label": "ministral3-14b-finetuned"
+    },
+    "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit": {
+      "name": "models/adapters/ministral3-3b-fine-tuned-quantized",
+      "label": "ministral3-3b-finetuned"
+    },
+    "models/adapters/gemma3-4b-base-16bit": {
+      "name": "models/adapters/gemma3-4b-merged-16bit",
+      "label": "gemma3-4b-finetuned"
+    }
+  },
+  "schema_enforced": [
+    true
+  ],
+  "schema_validation": true,
+  "schema_validation_when_no_schema": false,
+  "prompt_strategies": [
+    "schema-allowed-entities-only"
+  ],
+  "models": [
+    {
+      "name": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
+      "label": "llama31-8b-base"
+    },
+    {
+      "name": "unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit",
+      "label": "ministral3-14b-base"
+    },
+    {
+      "name": "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit",
+      "label": "ministral3-3b-base"
+    },
+    {
+      "name": "models/adapters/gemma3-4b-base-16bit",
+      "label": "gemma3-4b-base"
+    }
+  ],
+  "constrained_decoding": false,
+  "generation_token_budget": null,
+  "force_root_arity": false,
+  "type_aware_filters": false,
+  "constant_root_arity": false
+}

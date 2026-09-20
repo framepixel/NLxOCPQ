@@ -1,0 +1,1113 @@
+- DONE (2026-08-10) Make it so that every OCPQ generated file gets deleted after it is created during the evaluation.
+  Result files are discarded once the metric has read them (`keep_result_files: true` to retain);
+  generated query JSONs are kept deliberately as the raw-output audit trail (CLAUDE.md 2.3).
+  Investigating this found a bigger problem: results were recovered by globbing a directory shared
+  by all 24 concurrent array tasks, so a task could silently read another task's result — measured
+  at 4/12 wrong results under concurrency. Each invocation now runs in its own scratch directory.
+  See Thesis/notes/11-evaluation-readiness.md 6.3.
+- DONE Since the root node's bindings aren't the only thing required for the results, how do I compare two queries that do the same thing but have different nodes?
+  Answered as Q11 and implemented: only the root binding box is compared, located via
+  `root_node_index()` rather than assumed to be index 0, with each situation keyed as
+  (event indices, object indices, violated). Invariant to variable numbering and node count.
+  See Thesis/notes/08-metric-defect.md.
+- DONE (2026-08-10) Save the query combinations that were too different (result-wise) between the LLM and the gold query during the evaluation. Make sure it is not taking too much space. It should be mainly used to see what weaknesses/mess-ups the LLM does.
+  `src/analyze_divergence.py` writes divergence_report.json into every run dir and merged output.
+  No new data is captured - predictions.json already holds everything (~40 MB for the full
+  matrix), so the report is a view over it, capped at 3 examples per (class x condition).
+  Classes: schema_invalid / execution_failed / empty_result / wrong_population / over_selection /
+  under_selection / partial. `bb_dropped` names the building blocks the model failed to express.
+  Also fixed: failure_log.jsonl now lands in the run dir (24 array tasks shared one path before),
+  a crash in slice_results_by_bb._mean on any non-executing prediction, and the analysis steps are
+  now guarded so they cannot fail a completed run. See Thesis/notes/11-evaluation-readiness.md 6.4.
+- PARTLY DONE (2026-08-10) Give field types (e.g., string, bool, float) to the LLM during the prompting and explicitly ask it to cast variables that need to if using CEL.
+  Types were ALREADY given, in training and evaluation, and correct for all 42 attribute filters.
+  The real defect was VALUES: training rendered `Status (String: full, empty)` in 5,910 prompts,
+  evaluation rendered `Status (String)` - so the model was taught to read literals like "0",
+  "Flagged", "3" off the prompt and then denied them. Fixed: LogEvents collects distinct values
+  for string attributes (cap 10), build_schema_block renders them, and an EVENT ATTRIBUTES
+  section makes 03_hiring's Decision/Outcome/Result visible (6 filters that were previously
+  unanswerable). Numeric ranges were considered and rejected - every numeric literal in the
+  testset comes from the question text. Still open: CEL casting guidance (2 entries need the
+  prefix `int(o1.attr(...))` form, which appears 0 times in training).
+  See Thesis/notes/11-evaluation-readiness.md 6.5.
+- DONE (2026-08-10) About bullet 4: how is adding more stuff as input to the LLM going to affect the context window? Are we even capping how much info the LLM should get? Is input getting truncated?
+  Answers: nothing was capped and nothing truncates - the local backend tokenizes without
+  max_length and generation_config.max_length is None, so an oversized prompt degrades or errors
+  rather than being clipped. Now there is a single model-independent SCHEMA_BLOCK_TOKEN_BUDGET
+  (3500), whole sections dropped rather than truncated, omissions recorded. Measured peak context
+  for the accumulating strategies: 3,732 tokens with compact answers, 15,042 in the pessimistic
+  bound where every CoT stage emits a maximal query - the latter overflows both Llama 3 8B and
+  Phi-4 14B. _check_context_budget now warns, and summary.json records max_prompt_tokens.
+- SPIKE PASSED (2026-08-10) Swap base models: Llama 3 8B -> Llama 3.1 8B, Phi-4 14B ->
+  Ministral 3 14B Instruct-2512 (256k context), Gemma 3 4B unchanged.
+  Ministral loaded, tokenized and fine-tuned cleanly: 14,005,980,160 params, Mistral [INST]
+  template, LoRA on the language tower only, loss 1.879 -> 0.077. Three fixes were needed in
+  src/train_unsloth.py, all for multimodal checkpoints: tokenizer calls now pass `text=` by keyword
+  (a processor's first positional arg is `images`, so the prompt went to PIL), get_peft_model
+  gets finetune_vision_layers=False, and SFTTrainer gets the processor's inner text tokenizer.
+  See Thesis/notes/11-evaluation-readiness.md 6.6.
+
+  CORPUS IS READY (2026-08-10). Regenerated at seed 3407 and fully rebuilt:
+    data/ocpq_dataset.json (+ .meta.json: seed + generator sha256) -> data/embeddings.npy
+    (+ .meta.json, hash matches) -> data/finetune_ocpq.jsonl (60,018 rows) -> audit clean.
+    Generator is now seeded and reproducible: same seed = byte-identical, different seed
+    differs. Time attributes 1->4 and Boolean 3->6, so no BB is >10x rarer than the testset
+    needs and none is at zero. Contamination 0/0. Leaked order-management vocabulary gone.
+
+  NEXT (needs the cluster, ~8-10h each):
+    1. conda create -n nlxocpq-train-v5 python=3.10; pip install -r requirements/requirements.unsloth-train-v5.txt
+       (nlxocpq-train-v5 is the DEFAULT in scripts/prefetch_models.sh and every slurm/submit_job_v5_*.sh,
+        so no export is needed. To reuse the spike env instead - same stack - set
+        OCPQ_TRAIN_ENV=nlxocpq-spike-ministral. Do not let the names drift apart: with both
+        envs present, a forgotten export would train in one env while the pins describe another.)
+    2. bash scripts/prefetch_models.sh  &&  VERIFY=1 bash scripts/prefetch_models.sh
+       Required: the jobs run with HF_HUB_OFFLINE=1, and Llama 3.1 8B has never been
+       downloaded on this cluster. VERIFY=1 resolves every repo local-files-only, exactly as
+       the jobs will, so if it passes they will not need the network.
+    3. sbatch slurm/submit_job_v5_llama31_8b.sh / _ministral3_14b.sh / _gemma3_4b.sh
+       ALL THREE are retrained in the new env - including Gemma, whose model does not change -
+       so every adapter comes from one dependency stack instead of the set spanning two.
+    4. pip freeze the env and replace the pins in requirements/requirements.unsloth-train-v5.txt
+    5. update configs/eval_config.json (models, fine_tune_map, labels) and the fine-tuning results
+       table in Thesis/notes/04-experimental-setup.md, which goes stale for all three
+    6. re-run the smoke check before the full 36-condition matrix
+
+- TESTSET RESTORED to 169 entries (2026-08-11), after the supervisor flagged that deleting the
+  non-discriminating entries was selection bias. Restored all 34 whose gold query was sound and
+  simply did not discriminate in its log; kept out the 28 whose gold does not encode its own
+  question (22 vacuous SAT, 6 empty result) - with a vacuous gold the scoring is INVERTED, so a
+  correct query is marked wrong (old entry 39: gold flags 0 of 4989, correct encoding flags 1268).
+  Kept only the 6 later additions the >=10-per-log floor still needed; the >=5-per-BB floor was
+  already met without any of them. All 44 departing entries are preserved with reasons in
+  data/testset_excluded.json - the 15 `surplus_addition` ones are drop-in restorable.
+  169 + 44 = 213 = the exact union of both prior versions. See notes/11-evaluation-readiness.md 9.
+
+- NEXT, the supervisor's second point: metrics must not rest on result-set matching alone.
+  src/audit_testset_discriminability.py is now a STRATIFICATION label, not a filter - a non-zero
+  degenerate count is the expected, correct result. Report overall AND on the discriminating
+  stratum. Then add query-level metrics: src/analyze_divergence.py already computes bb_dropped /
+  bb_invented per prediction (did the model express the right constructs?), and the audit
+  supplies each entry's no-op baseline for a "does the prediction separate from trivial" signal.
+  Design this against the settled 169-entry testset, as its own plan.
+
+- Testset ORDER: the restored entries are appended after the carried-over ones, so the
+  non-discriminating entries cluster at the end. Harmless for a full run and for --case-shard
+  (results are merged), but `limit: N` in eval_config takes the FIRST N and would sample only
+  carried-over entries. Consider a deterministic sort by (ocel_path, nl_query) before the next
+  smoke test; it changes case_id <-> entry mapping, so do it before any run worth keeping.
+
+- AFTER the retrains: raise SCHEMA_BLOCK_TOKEN_BUDGET (src/LLM.py, currently 3500).
+  It was sized for Llama 3 8B's 8k context. With Llama 3.1 (128k), Ministral 3 (256k) and
+  Gemma 3 (128k) the smallest context becomes 131,072, so the budget can rise and bpic2017
+  (event attributes, 4,115 tokens) and angular (9,530) can keep the sections they currently
+  drop. Re-measure peak context against the models that will actually run before changing it -
+  scratchpad/measure_peak_context.py does this by intercepting the LLM call.
+
+- DONE (2026-08-28) Deleted `sitecustomize.py` (dead since the day it was added).
+  It was introduced by 0d00980 "final attempt to fix Qwen before switching models" -- and the
+  models were switched; Qwen is not in eval_config.json. CPython auto-imports `sitecustomize`
+  only from a directory on `PYTHONPATH`, never from the script's own directory (verified in
+  both the old flat layout and the new one), and every SLURM script does
+  `unset PYTHONHOME PYTHONPATH`, so it never once executed. Its contents were superseded by
+  `src/train_unsloth.py:5-10`, which sets the same six env vars unconditionally before torch
+  is imported -- broader coverage than sitecustomize's `OCPQ_STABILIZE_RUNTIME`-gated version.
+  The only thing lost is the Python-level `tqdm.tqdm.monitor_interval = 0` (tqdm does NOT read
+  TQDM_MONITOR_INTERVAL from the environment -- the class attribute stays 10). That is provably
+  not load-bearing: the monitor thread has been alive in every training run to date and all
+  four adapters trained fine. If a tqdm monitor-thread hang ever reappears, set it explicitly
+  in `src/train_unsloth.py` rather than resurrecting a magic module.
+  The dead `OCPQ_STABILIZE_RUNTIME` export in `slurm/submit_job_qwen3_5_4b.sh:99,117` is left
+  in place: that whole script is superseded, and it also exports the six vars directly anyway.
+
+- PARKED (2026-08-29) Directions considered after the full matrix came back at 2.31% exact-match
+  on the discriminating stratum and the supervisor's verdict that "with those numbers you cannot
+  claim anything with regards to it being of sufficient quality to solve the problem that you
+  motivate". Self-consistency is being done first (see the separate entry below); these four are
+  parked with their reasoning so the analysis behind them is not lost.
+
+  AGENTIC WITH LOG-INSPECTION TOOLS (3-5 weeks). The single largest untapped signal. The model
+  currently receives a type-level schema (`build_schema_block`, src/LLM.py). CORRECTED 2026-09-02,
+  this entry overstated what is withheld: at level `full` the prompt DOES carry object/event
+  attributes with bounded string-value enumerations (`(String: v1, v2)`) and the E2O/O2O graphs
+  WITH qualifiers, plus an instruction to use only those relations. What it never carries is
+  anything COUNTED or INSTANCE-level -- how many events of each type, activity frequencies,
+  relation cardinality (the graph says `orders -> items` exists, not that an order has ~3 items),
+  numeric attribute ranges, the log's timespan -- or what its own query returns before committing.
+  That is exactly where the 1354
+  `wrong_population` failures live: a plausible-looking entity/relation combination that does not
+  hold in the log. Tool surface: `count(type)`, `sample(type, n)`,
+  `relation_density(event_type, object_type)`, `attribute_values(type, attr)`, and
+  `try_query(partial)` returning size plus sample bindings without committing. Then plan -> probe
+  -> draft -> execute -> check cardinality against expectation -> revise.
+  Caveat that makes it a different study: 3B-14B open models are weak at multi-step tool use, so
+  this realistically needs a frontier API model or a strong tool-calling local model. That changes
+  the premise from "can a fine-tuned small open model do this" -- but it supplies the thing the
+  paper currently lacks, which is an UPPER BOUND. Right now there is a floor and no ceiling, which
+  is precisely why the "cannot claim anything" critique lands. If an agentic frontier model reaches
+  ~50-60%, the task is solvable and "small fine-tuned models cannot yet" becomes a bounded, honest
+  finding; if it reaches ~15%, the bottleneck is the formalism or the benchmark rather than the
+  models, which is a more interesting result and one nobody has published.
+
+  EXPLICIT SCHEMA LINKING (1-2 weeks) -- RETIRED 2026-08-30, do not build this. Two stages instead
+  of one: first ask which event and object types the question involves, then generate constrained to
+  that selection. Attacks hallucinated entities (14-26% per arm) and the `wrong_population` bucket,
+  and was the cheapest of the three build options.
+  Retired because the error analysis in Thesis/notes/11-evaluation-readiness.md 23.3 says it would
+  attack an already-solved component. Among the 690 fine-tuned queries that executed and returned a
+  COMPLETELY DISJOINT result set -- the worst cases in the run -- 80.0% already name exactly the
+  gold object types and 65.8% the gold event activities. Entity selection is not where this fails.
+  The 80.0% is bounded above by `allowed-entities-only` constraining the vocabulary by construction,
+  but the unconstrained base arm still reaches 68.4% on the same measure, so the conclusion survives
+  the confound. Also retired alongside it: constraint tuning / margin fixes, because the errors are
+  disjoint rather than approximate (over-broad 5.3% + over-narrow 2.3% = 7.6% of wrong answers).
+
+  DECOMPOSITION, DIN-SQL / MAC-SQL STYLE (2-3 weeks) -- still parked, and now BOUNDED. Break the
+  question into sub-questions and build the tree incrementally, validating each node as it is added.
+  Best structural fit of anything considered here, because a `BindingBoxTree` IS compositional --
+  nodes and child edges -- so the decomposition matches the target formalism instead of being
+  imposed on it. It also produces intermediate checkpoints to validate against, which single-shot
+  generation has none of. The 2026-08-30 analysis strengthened the motivation: the measured failure
+  IS compositional (notes 23.4 -- node-count agreement 31.4%, constraint-type agreement 18.0%, and
+  `SAT` emitted at 14% of gold's rate).
+  But it is subject to the same ceiling as the training rebalance below, because it is another way
+  of fixing structure, and notes 23.7 caps all such fixes below the trivial floor. Do not build it
+  until the structure ablation has measured that ceiling causally -- one experiment bounds both.
+
+  EXECUTION-GUIDED TRAINING (4-8 weeks, currently BLOCKED). The root-cause fix: change the training
+  signal from "imitate this gold query text" to "produce a query whose RESULT matches". Supervised
+  imitation of gold text teaches form, which is exactly what the matrix measured -- structural F1
+  roughly doubles with fine-tuning (0.24 -> 0.44) while result F1 barely moves. This is the same
+  arc text-to-SQL went through, for the same reason.
+  The blocker: rejection sampling needs to execute a training example, and ours cannot be executed.
+  The 60,018 examples in `data/finetune_ocpq.jsonl` are synthetic with the schema inline in the
+  prompt and are NOT tied to any real OCEL log -- probed the whole file for vocabulary from the five
+  real training-domain logs and got container_logistics 0, hiring 0, hospital 0, renting 0 (only
+  generic "lending" terms hit, 9.85%, almost certainly coincidental). So there is no log to run a
+  training query against and no way to obtain a gold result set for it.
+  Unblocking means inverting the generation direction: synthesise QUERIES first (programmatically,
+  valid by construction), execute them against a real log, then have an LLM back-translate each to
+  a natural-language question. The gold result then comes free from execution and correctness
+  labels become automatic. Several text-to-SQL datasets were built this way. Risk to watch: if the
+  synthesised questions are templated and easier than the test distribution, gains will not
+  transfer -- the seen/unseen problem one level up (see Thesis/notes/11-evaluation-readiness.md
+  21.6, where only 1 of 4 families transfers its gain).
+
+  NOT WORTH DOING: fixing the syntax-repair pass. The existing repair (src/LLM.py:1661
+  `schema_fix_with_llm`) fires once, only on schema-validation failure, with a static prompt that
+  does not include the actual validator error and never sees the query execute -- so it looks like
+  low-hanging fruit. It is not. Assume EVERY one of the 4780 never-runnable generations is repaired
+  AND that repaired queries are as semantically good as first-try successes; both assumptions are
+  generous, since queries failing validation are the worse generations. Correctness then ceilings
+  at 8.70% (255 -> 706 exact of 8112). It moves the denominator, not the capability -- the same
+  reason `result_set_f1_executed` must never be reported alone.
+
+- NEXT (2026-08-29) Self-consistency over execution results: sample N queries per question at
+  temperature > 0, execute all, cluster by RESULT SET, return the modal result. No training and no
+  new infrastructure -- `repeats` and `temperature` are already fully plumbed
+  (src/eval_testset.py:1170, :1113, :1404), so generating the samples is a config change and the
+  only new code is a post-hoc aggregator modelled on `_recompute_metrics`. The whole matrix ran
+  greedy at temperature 0 with one sample per case, so this has never been tested.
+  Two arms, each at a configuration it can actually perform in: llama31-8b-finetuned /
+  allowed-entities-only / schema=on (greedy F1 0.1760, 70.4% exec) and llama31-8b-base /
+  chain-of-thought-plus / schema=on (0.1023, 45.0%). Same family, each at its own best strategy, so
+  fine-tuning is the only variable. Pairing base with allowed-entities-only would be vacuous -- that
+  cell executed 0 of 1352 runs matrix-wide.
+  Reports four numbers -- single-sample at the same temperature (the fair baseline; the greedy
+  matrix number would confound temperature with voting), plain majority, majority after filtering
+  empty and truncated results, and the free oracle best-of-N that upper-bounds any selector -- plus
+  the diagnostic that decides what comes next: the AGREEMENT RATE. A top cluster of 8/10 means the
+  model is confidently and systematically wrong and voting has nothing to work with, which is direct
+  evidence for the agentic direction above; 2/10 means errors scatter and there is signal to
+  exploit. Informative either way, which is why it goes first.
+
+- DONE (2026-08-29) Every SLURM submit script was broken by the reorg and none of them had been
+  run since. `019c2f2 "re-arranged the folders"` replaced the old
+  `cd "${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set}"` with
+  `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; PROJECT_DIR="$SCRIPT_DIR/.."`.
+  That cannot work under sbatch: SLURM copies the batch script into its spool directory before
+  executing it, so BASH_SOURCE[0] points at /var/spool/slurm/... and never at the repo. All 19
+  scripts in slurm/ carried the identical two lines.
+  It went unnoticed because the last cluster job predating it was the matrix on 2026-08-21, which
+  ran the pre-reorg version. The first job to exercise the new construct was the self-consistency
+  array 3294532 on 2026-08-29, and all 8 tasks died within seconds with
+  "FATAL: /var/spool/slurm/src/check_eval_deps.py not found" -- 211 bytes of output each, byte
+  identical. The check_eval_deps guard is what turned a silent wrong-directory run into an
+  immediate, legible failure; without it the jobs would have failed later and more confusingly.
+  Fixed with `_ocpq_resolve_project_dir`, applied to all 19 scripts: try $SLURM_SUBMIT_DIR, then
+  its parent (submission from inside slurm/), then BASH_SOURCE and its parent (direct shell
+  invocation), and validate each candidate against src/eval_testset.py before accepting it. An
+  unresolvable case exits 1 printing both candidates it tried rather than guessing. Verified
+  against all six invocation paths -- sbatch from the repo root, sbatch from inside slurm/, direct
+  execution from the root, from slurm/, by absolute path from an unrelated cwd, and the orphaned
+  case that must fail.
+  Lesson worth keeping: a path construct that resolves correctly on a laptop can be structurally
+  incapable of working under the scheduler, and a repo reorganisation is exactly when that gets
+  introduced. Any submit script touched by a move should be run once on the cluster before the
+  next real job depends on it.
+
+- DONE (2026-08-29) Self-consistency smoke, job 3297883: 10 minutes, 8 tasks, all healthy.
+  Re-partitioned the array from 4 to 8 case-shards per arm as a result.
+  The path fix held: every task loaded its modules, resolved the project dir, imported the 9
+  dependency modules and reached generation. The correct arms were dispatched -- tasks 0-3
+  llama31-8b-finetuned/allowed-entities-only, tasks 4-7 llama31-8b-base/chain-of-thought-plus.
+  152 runs started, 136 completed before the 10-minute cap: 87 success, 48 schema_invalid, 1
+  execution_failed. No timeouts, no result_too_large, no OOM, no tracebacks.
+  The question that mattered -- whether the 10 samples per case actually differ, without which
+  the whole experiment is vacuous -- is answered yes, and from the logs alone. Status varies
+  WITHIN a case at fixed everything-else: shard 0 case 1 gave 8 success and 2 schema_invalid
+  across its 10 repeats, shard 3 case 1 flipped to invalid on repeats 5-7, shard 5 case 1
+  alternated. F1 varies within a case too (shard 2 case 3: 1.0 on nine samples, 0.0 on one).
+  Only sampling can produce that; temperature 0.7 is reaching generate() and the per-repeat seed
+  derivation is doing its job. This was the cluster-only verification step and it is now closed.
+  Also visible: real per-sample diversity in the base arm, which had produced almost nothing
+  under greedy decoding -- two partial matches at F1 0.673 and 0.012 that greedy never found.
+  combined_f1=None on a SUCCESSFUL execution occurs at 16.1% here against 13.0% in shard_logs_2
+  and 9.7% in shard_logs. Pre-existing pipeline behaviour, same ballpark, not introduced by the
+  temperature or seeding change. Not investigated further; noted so it is not mistaken later for
+  a self-consistency artefact.
+  WHY THE REPARTITION: measured cost ranged 12.7-96.6 s/run, varying by arm and by case far more
+  than the plan assumed. Projected over a full shard that put the slowest base-arm task at
+  10.8-14.1h against the 14h wall limit -- it would have been cancelled near the end, which is
+  the most expensive possible failure. SHARDS_PER_ARM is now a single variable (was hardcoded in
+  four places) set to 8, array 0-15, and a guard rejects a task id above 2*SHARDS_PER_ARM-1.
+  Each case still runs exactly once, so the finer split duplicates nothing but the ~2.5 min
+  startup: 169 cases over 8 shards is 22x7 + 15, 3380 runs total, unchanged. Worst task now
+  projects ~5.4h.
+  Lesson: a 10-minute smoke on the real hardware bought a per-run cost distribution that no
+  amount of local reasoning would have produced, and the plan's 55s/35s estimate was wrong by up
+  to 3x in the direction that costs a full day.
+
+- DONE (2026-08-30) Self-consistency landed and the error analysis that followed it relocated the
+  problem. Full write-ups in Thesis/notes/11-evaluation-readiness.md 22 and 23; artifact for the
+  supervisor at https://claude.ai/code/artifact/480a26cb-8e02-4de6-b641-e8f78ac17e3b
+  Voting works and is free: majority vote over 10 samples raises the fine-tuned arm from 0.1705 to
+  0.2080 F1 and doubles exact match on the discriminating stratum, 6.7% -> 13.3%. Agreement is a
+  usable confidence signal -- 0.3542 F1 above 90% consensus against 0.0058 below 60%.
+  The finding that matters is the ORACLE CEILING: best-of-10 with a perfect selector reaches only
+  0.2464 against a discriminating floor of 0.5148. Every selection rule -- voting, reranking, a
+  learned verifier, an execution-guided scorer, a repair loop that always repairs correctly -- is
+  bounded above by that number, because none of them can return an answer that was never generated.
+  The decoding-time family is closed by measurement rather than by argument.
+
+- NEXT (2026-08-30) The structure ablation. Three conditions, 507 runs, ~6h -- the cheapest
+  experiment in the backlog, and it bounds both remaining composition directions at once.
+  Hand the model the GOLD tree skeleton (node count, parent/child edges, per-node variable arity)
+  and, at a second rung, the gold constraint TYPES -- withholding every semantic detail: no entity
+  type names, no filters, no constraint parameters. These are oracle conditions and can never be
+  reported as system performance; the strategy names, the manifest flag and the recorded hint all
+  say `oracle-` for that reason.
+    S0  schema-allowed-entities-only            (today's prompt, run in-job for comparability)
+    S1  oracle-skeleton-given
+    S2  oracle-skeleton-and-constraints-given
+  Decision rule, pre-registered AGAINST THE FLOOR rather than against S0:
+    * S2 still below 0.5148 -> the whole composition programme is bounded below the floor. Drop
+      both the rebalance and decomposition; move to grounding. Most likely and most valuable.
+    * S2 clears it but S1 does not -> constraint selection is the bottleneck, not tree shape.
+    * S1 clears it -> tree shape alone is the bottleneck.
+    * S1 ~ S2 ~ S0 -> check hint compliance FIRST; that pattern is also what ignoring the hint
+      looks like, and a null result is uninterpretable without it.
+  Why it exists: notes 23.7 is observational. Conditioning on the model already getting the tree
+  shape right gives F1 0.3770 / 25.7% exact, against 0.1824 / 11.6% when it does not -- shape
+  doubles everything -- but 45.4% of shape-matched queries are STILL completely disjoint and 0.3770
+  is below the floor, and that figure is selection-biased upward because the questions where the
+  model happened to get the shape right are plausibly the easier ones. The ablation measures the
+  same quantity causally.
+
+- CONDITIONAL AND BOUNDED (2026-08-30, gated on the ablation) Rebalance the training synthesis.
+  1-2 weeks including one retrain. Regenerate data/finetune_ocpq.jsonl matched to the task
+  distribution rather than to whatever the generator happens to emit. Measured mismatch, over
+  parsed queries in every row (notes 23.6):
+                              1-box share   mean boxes   share with >=1 SAT
+    training (60,018)            34.6%         2.06            22.1%
+    model output                 37.3%         1.90            ~13%
+    test gold (the task)          8.9%         2.51            58.6%
+  The model reproduces its training distribution closely and both miss the task badly. Targets:
+  mean ~2.5 boxes, ~59% of examples carrying SAT, 1-box examples cut from 34.6% to ~9%. The
+  generator already exists -- this is a sampling change plus a fine-tune, not new infrastructure.
+  TWO LIMITS, RECORD BOTH WITH ANY RESULT:
+    1. It cannot reach the floor. Notes 23.7 caps perfectly-fixed shape at F1 0.3770 optimistically,
+       against a floor of 0.5148. At best this moves 0.21 to something under 0.38 -- a reportable
+       improvement, not a solution. Gate it on the ablation CLEARING THE FLOOR, not on the ablation
+       merely beating S0.
+    2. The synthetic data is not tied to any executable log (container_logistics 0, hiring 0,
+       hospital 0, renting 0 vocabulary hits). It teaches FORM. Rebalancing form yields
+       better-shaped but still ungrounded queries -- which is exactly the 45.4%-disjoint-despite-
+       correct-shape row.
+  Counter-evidence worth keeping in view: 15,795 training examples are already 3-box, which is not
+  a starved regime, and correctness at 2 boxes (10.1%) and 3 boxes (11.2%) is near-identical with a
+  cliff only at 4+ (3.3%) -- not the monotone decline a pure frequency story predicts.
+
+- IMPLIED NEXT DIRECTION if the ablation lands below the floor: grounding, not composition. The
+  model sees a type-level schema and nothing else -- never cardinalities, sample records, attribute
+  values, or whether a relation it filters on occurs in the data at all. Notes 23.3 says it already
+  knows WHICH types a question is about; notes 23.7 says knowing the shape too is not enough. What
+  is left is knowing what is actually in the log, which is the AGENTIC WITH LOG-INSPECTION TOOLS
+  entry parked above -- and which also supplies the upper bound the paper still lacks.
+
+- DONE (2026-08-30) Structure-ablation smoke, job 3339751: the hint format was wrong and the
+  10-minute smoke caught it. Full write-up in Thesis/notes/11-evaluation-readiness.md 24.
+  Mechanically clean -- 15/15 invocations got a hint, zero fallbacks, no errors, 34.9 s/run, so
+  ~1h45m per rung and ~5h for all three. But COMPLIANCE was 18%: the model adopted the given tree
+  shape in 2 of 11 parsed predictions, with 7 collapsing to a single box after being told 2, 3 or
+  4. Baseline node agreement on the same 14 questions with NO hint is 30%, so the hint was not
+  helping at all. Not a delivery bug -- prompt-token deltas track the hint size case by case
+  (a ~97-token hint adds 106 prompt tokens, a ~155-token one adds 185), so it was in the prompt
+  and being ignored.
+  Cause: the hint was PROSE ("node 0: declares 1 new event variable(s)..."), which is out of
+  distribution for a model fine-tuned to emit OCPQ JSON from a schema and a question. Fixed by
+  emitting gold's tree as an OCPQ JSON SCAFFOLD with <FILL> placeholders in every semantic slot --
+  in distribution, and it turns "obey this instruction" into "fill these blanks".
+  Also added src/structure_ablation_report.py, which reports compliance BEFORE any score and
+  refuses to conclude below 70%. Below that threshold "structure does not help" and "the model
+  will not take structural instruction" produce identical numbers, and only the first is a finding
+  about OCPQ. It also counts result_too_large per rung and prints a matched re-score, because
+  deeper trees select more and an uneven refusal count would penalise S1/S2 for a storage reason
+  while biasing the result toward the conclusion the analysis already predicts.
+  Lesson: the compliance gate was written into the plan as a precondition before any result
+  existed, and it is the only reason this was caught -- a flat S1 would otherwise have read as
+  "structure does not help", the expected conclusion reached for the wrong reason.
+
+- NEXT (2026-08-30) Re-smoke the structure ablation with the JSON-scaffold hint, then run it.
+    sbatch --array=1 slurm/submit_structure_ablation.sh     # 10 min, then cancel
+    <copy the shard's predictions.json>
+    python src/structure_ablation_report.py --run <that shard dir>
+  Gate: compliance (node count) must clear 70%. If the scaffold also fails, the finding becomes
+  "structural guidance cannot be imposed on this model at inference time", which is real evidence
+  against DECOMPOSITION but says nothing about the training rebalance -- do not let the two be
+  conflated, and do not spend the 5h until compliance is understood either way.
+  Once it clears:
+    sbatch --array=0-2 slurm/submit_structure_ablation.sh
+    python src/eval_testset.py --merge-shards eval_runs/structure_ablation/shard_* \
+        --merge-output eval_runs/structure_ablation/merged
+    python src/structure_ablation_report.py --run eval_runs/structure_ablation/merged
+
+- DONE (2026-09-01) Structure ablation complete, job 3369038: 3 rungs x 169 = 507 runs, all exit 0.
+  Full write-up in Thesis/notes/11-evaluation-readiness.md 25. THE COMPOSITION PROGRAMME IS CLOSED.
+  Two findings.
+  (1) STRUCTURAL GUIDANCE THROUGH THE PROMPT DOES NOT WORK. Handing the model gold's tree moves
+  shape adoption from 33% of cases to 30% (S1) and 27% (S2). Paired on the same 169 questions,
+  133 are unchanged, 16 flip to correct and 20 flip to wrong -- churn, not effect. Mean predicted
+  tree size 1.84 / 1.65 / 1.81 against gold's 2.51. Holds across two prompt formats: prose gave
+  18% compliance (notes 24), a JSON scaffold in the dialect the model was fine-tuned to emit gives
+  30% against an unhinted 33%. Not a formatting accident.
+  Report the PER-CASE denominator. The report's first table divides by parsed predictions and
+  reads 45% -> 36% -> 36%, which looks like a real decline; it is mostly an artefact of S1 parsing
+  more queries (141 vs 121, schema-invalid 48 -> 28).
+  (2) CORRECT STRUCTURE IS NECESSARY AND NOT SUFFICIENT. Conditioning on the model producing the
+  right shape: F1 0.3855 (S0), 0.3614 (S1), 0.3353 (S2) -- roughly triple the 0.06-0.13 when the
+  shape is wrong, so structure is a real lever, but ALL THREE sit below the 0.5148 trivial floor.
+  With notes 23.7's observational 0.3770 at n=471 that is four independent estimates converging on
+  ~0.35. A system that got the tree right every time would still score below a do-nothing query.
+  Also worth keeping: the hint buys SYNTAX, not semantics. S1 raises execution 71.0% -> 81.1% and
+  cuts schema-invalid 48 -> 28, while exact matches go 14 -> 13. That is the notes-21 syntax/
+  semantics split reproduced inside one model under a controlled manipulation rather than inferred
+  across arms -- the cleanest form of that claim the thesis has.
+  NOT a finding: the unconditional F1 decline (0.1799 -> 0.1422 -> 0.1246). Paired on the 135
+  discriminating questions the mean difference is -0.0377 (95% CI -0.0913..+0.0160) for S1 and
+  -0.0553 (-0.1111..+0.0005) for S2. Both cross zero. Direction worth a sentence, effect not
+  established -- reading the summary table alone would have produced an overclaim.
+
+- CLOSED (2026-09-01) Everything bounded below the trivial floor, with the measurement that closed
+  it. Do not reopen any of these without new evidence:
+    * decoding-time selection (notes 22) -- oracle best-of-10 = 0.2464 < 0.5148
+    * explicit schema linking (notes 23.3) -- already ~80% correct where it matters
+    * constraint tuning / margin fixes (notes 23.2) -- errors are disjoint, not approximate
+    * training rebalance toward compositional depth (notes 23.6, 25.5) -- bounded at ~0.35
+    * decomposition, DIN-SQL / MAC-SQL style (notes 25.2, 25.5) -- the model does not take
+      structural instruction, AND correct structure would not be enough if it did
+  The one experiment that would make 25.5 causal rather than selected: force the structure
+  programmatically -- build the tree from gold's skeleton in code and ask the model only for slot
+  contents, so adoption is 100% by construction. Roughly half a day. Not built, because four
+  agreeing estimates across two runs make it confirmatory; build it if a reviewer challenges the
+  sufficiency claim.
+
+- NEXT (2026-09-01, corrected 2026-09-02) GROUNDING is what is left. This entry originally said the
+  model "never sees actual attribute VALUES"; that is wrong. `build_schema_block` at level `full`
+  already emits attributes with bounded string-value enumerations and the E2O/O2O graphs with
+  qualifiers. What it never emits is anything counted or instance-level: type counts, activity
+  frequencies, relation cardinality, numeric ranges, the log timespan, or what its own query
+  returns. Notes 23.3 shows it already knows WHICH types a question concerns; notes 25.5 shows
+  that knowing the shape as well is still not enough. What is left is knowing what is in the log.
+  See the AGENTIC WITH LOG-INSPECTION TOOLS entry parked above for the tool surface and the
+  frontier-model caveat. It is also the only remaining direction that supplies the UPPER BOUND the
+  paper still lacks -- right now there is a floor and no ceiling, which is precisely why the
+  "cannot claim anything" critique lands.
+
+- DONE (2026-09-02) RE-SCORING PASS: is part of the measured failure the instrument?
+  ANSWER: partly, and it changes nothing. Full write-up in Thesis/notes/11-evaluation-readiness.md
+  26. Headline, fine-tuned arm, 135 discriminating entries, per-case means: strict 0.1825 ->
+  kind_projected 0.2211 against an UNCHANGED floor of 0.5148. Paired per entry: 18 improved, 0
+  worsened, 117 unchanged, mean +0.0385 (95% CI +0.0149..+0.0622), so the artefact is real and
+  significant -- and 0.2211 vs 0.5148 is the same verdict as 0.1825 vs 0.5148.
+  THE FLOORS DO NOT MOVE TOGETHER, which is the actual result. population floor 0.5148 -> 0.8881
+  (102 of 135 discriminating entries have a population floor of EXACTLY 1.0: the gold constraints
+  do not change WHICH rows are selected, only which are FLAGGED -- the testset is compliance-
+  shaped). violation floor is 0.0000 BY CONSTRUCTION, because a no-op baseline strips constraints
+  and so flags nobody; its skill is the raw F1 in disguise and must not be quoted as skill.
+  kind_projected floor is UNCHANGED, because the baseline binds gold's variables.
+  So only strict vs kind_projected is a valid comparison. `--variants` prints skill_n per row and
+  flags any row whose denominator differs from strict; that column caught a wrong reading of this
+  same table within one paragraph of producing it.
+  Knock-ons: notes 25.4 gains a mechanism (under kind_projected the S0->S1 gap almost vanishes,
+  0.2292 vs 0.2247 -- the skeleton makes the model bind MORE variables, which the strict key
+  punishes categorically), and notes 25.5's sufficiency bound rises from 0.3855/0.3614/0.3353 to
+  0.4053/0.4211/0.4099 and STILL sits below 0.5148. Quote ~0.41 as the relaxed upper estimate
+  beside ~0.35. The "necessary and not sufficient" claim survives with a narrower margin.
+  Not built, and worth one line if a reviewer asks: a real floor for the violation half would be a
+  FLAG-EVERYTHING query rather than the no-op one.
+
+  (original entry, kept for the pre-registration:)
+  `result_set_f1_strict` keys each root binding as (event_indices, object_indices, violated) and
+  intersects those tuples, so a prediction that binds ONE EXTRA VARIABLE changes every key and
+  scores exactly 0. Measured on the selfcons store, fine-tuned arm, discriminating stratum: 152
+  samples (~18% of executed discriminating samples) where gold binds objects only and the
+  prediction binds objects AND events have mean objects-only F1 0.5203 and mean `combined` F1
+  0.0000 -- and only 4 of the 152 actually select the wrong objects.
+  Implemented: `SIMILARITY_VARIANTS` in src/eval_testset.py, one projection table that both
+  `_compute_similarity` and audit_testset_discriminability.py iterate, so a variant and its floor
+  come from one definition. `strict` (unchanged, primary) / `population` (drop the violation flag)
+  / `violation` (flagged situations only, None where gold flags nothing) / `kind_projected` (blank
+  the entity kinds gold never binds; diagnostic only, never primary).
+  Prediction-side per-case means, fine-tuned discriminating: strict 0.1825, population 0.2392,
+  violation 0.1371, kind_projected 0.2211. A fifth variant -- making keys invariant to which
+  variable slot an entity landed in -- was tested and DROPPED: it scores 0.1825, identical to
+  strict, because no gold entry in that stratum binds two objects in one situation.
+  THE RELAXATIONS RAISE THE FLOOR TOO, so the decision variable is skill, not raw F1. First two
+  audited entries already show it: entry 1's strict floor is 0.7725 and its `population` floor is
+  0.9967. Expect skill to be flat and the finding to be one honest paragraph.
+  Regression gate that must keep passing: `--recompute` leaves every per-record `combined` F1 and
+  every per-record `skill` bit-identical (verified 3380 records, 0 changed), and
+  `summary.variants.strict` equals `result_set_f1_strict` in every block.
+  Note for whoever reads the denominators: until the per-variant floors are promoted, `violation`
+  undefined-counts differ between arms (128 base vs 378 fine-tuned) because a record with no
+  similarity falls back to the strict 0-substitution. With floors present, undefinedness becomes a
+  property of the ENTRY and the arms agree. That is the intended behaviour, not drift.
+
+- NEXT (2026-09-02) G1: STATIC LOG PROFILE IN THE PROMPT. Days, not weeks. Extend
+  `build_schema_block` (src/LLM.py) with the counted facts it omits: per-type instance counts,
+  activity frequencies, relation cardinality (mean/percentile items per order, not just that the
+  edge exists), numeric attribute ranges, and the log timespan. Run the same three-rung ladder as
+  the structure ablation on the same 169 cases, `--model-idx 1`, greedy. Runs on the EXISTING
+  fine-tuned model, so it is directly comparable to every published number -- unlike G2.
+  EXPECT A SMALL EFFECT, and record why so nobody re-derives it: gold's numeric constraint
+  parameters are overwhelmingly the structural idioms (min=1, max=None) and (0s, None). Of ~310
+  instances across the testset, 274 are those defaults. Only ~40 of 169 cases carry a non-default
+  numeric bound, and most of those numbers are stated in the question itself. The counted facts
+  matter for relation cardinality and for knowing whether a filter binds anything -- not for
+  picking thresholds.
+
+- PARKED (2026-09-02) G2: INTERACTIVE GROUNDING WITH LOG-INSPECTION TOOLS. The agentic version of
+  G1 and the same direction as the AGENTIC WITH LOG-INSPECTION TOOLS entry above; keep them
+  together if either is built. Tool surface: `count(type)`, `sample(type, n)`,
+  `cardinality(event, object)`, `attribute_values(type, attr)`, and the one that matters,
+  `try_query(partial)` returning binding count and execution errors. Today's repair pass
+  (src/LLM.py, `verify_ocpq_json` and the execution-error retry) repairs SCHEMA VALIDITY and never
+  semantics: the model never learns that its query bound 4237 things where gold binds 1645.
+  Three things to carry into the design:
+    * PROBING IS NEARLY FREE HERE. ~34.5 s log import against ~30 ms evaluation, so a 20-probe
+      budget costs under a second once the import is amortised across a session. Most agentic-query
+      work pays per probe. That is a defensible design argument and belongs in the paper.
+    * ORACLE DISCIPLINE MUST BE ENFORCED IN CODE, the way `oracle_conditions` was for S1/S2.
+      Legitimate feedback: result size, execution errors, whether a variable binds. Illegitimate:
+      anything derived from gold. And the reward must NOT be result size -- an agent optimising for
+      "returns a plausible number of things" drifts toward the trivial floor query itself, which is
+      the one query guaranteed to score 0.5148 while expressing nothing.
+    * IT NEEDS A DIFFERENT MODEL. The fine-tuned Llama emits one JSON object and cannot hold a
+      multi-turn trajectory, so G2 is a separate arm -- frontier model with tools vs fine-tuned
+      small model, one shot -- and must be reported as one. That changes the comparison but supplies
+      the ceiling the thesis lacks.
+
+- DONE (2026-09-02) THE TRIVIAL FLOOR WAS UNDERSTATED. Full write-up in
+  Thesis/notes/11-evaluation-readiness.md 27. The floor must be the best score obtainable WITHOUT
+  understanding the question, and we were using one arbitrarily chosen trivial strategy (the no-op
+  baseline) rather than the best of them. A FLAG-EVERYTHING query -- same population, every binding
+  flagged -- beats it on 54 of 135 discriminating entries.
+  THE FLOOR IS 0.7250 (discriminating) / 0.7803 (overall), not 0.5148 / 0.6124. Skill now divides
+  by `trivial_floor` = max over degenerate strategies; `baseline_f1` keeps meaning the no-op score
+  so older notes stay true statements about that strategy.
+  Biggest single correction: `violation` skill goes +0.1360 -> -0.7285. Its no-op floor was 0.0000
+  BY CONSTRUCTION (a baseline with the constraints stripped cannot flag anything), so the model
+  looked like it beat trivial on the flagging half. It does not. There is no half of this task
+  where it beats a trivial strategy.
+  Expressibility was VALIDATED, not assumed: the real always-violated query (`NumChilds min=10**9`
+  on an empty child) was built and executed on one entry of each of the eleven logs and matched the
+  derived situation set 11/11. Only then was the derivation used for all 169.
+  Gates that must keep passing: every similarity block bit-identical after the change (3380/3380),
+  0 records with IMPROVED skill (123 worse, 2557 unchanged), and `--floors-only` leaves verdicts,
+  situation counts and `baseline_f1` identical to eval_runs/_archive_audit_20260902_prefloor/.
+  Cheap to extend: `audit_testset_discriminability.py --floors-only` rebuilds every floor from
+  eval_runs/_discriminability_store/ in seconds, so adding a third degenerate strategy costs no
+  execution. The floor is a lower bound on ITSELF -- best of two known strategies, not best
+  possible. Do not call 0.7250 the ceiling of triviality.
+
+- DONE (2026-09-02) WHAT THE WRONG POPULATIONS ARE MADE OF. `src/root_population_diagnostic.py`,
+  write-up in notes 28. Decomposes the largest non-syntactic failure class (`wrong_population`,
+  748 records) by comparing gold's root box with the prediction's, first match wins.
+  Fine-tuned arm, 992 scoreable samples, 669 wrong populations:
+    arity_mismatch        455  (68.0%)  different NUMBER of root variables
+    link_mismatch         177  (26.5%)  same variables, different root filters
+    size_filter_mismatch   37  ( 5.5%)
+    type_mismatch           0  ( 0.0%)  <-- ZERO
+    residual                0  ( 0.0%)  <-- every wrong population is explained
+  TYPE SELECTION IS SOLVED in the constrained arm: when the model declares the same NUMBER of root
+  variables as gold, it declares the same TYPES, in all 992 samples. Notes 23.3's ~80% is real and
+  narrower than it sounds -- `schema-allowed-entities-only` constrains the vocabulary, and within
+  that constraint types are not the problem. The unconstrained base arm does show 31 (10.5%).
+  The arity errors are NOT the notes-26 metric artefact: only 82 of 455 (18.0%) are repaired by
+  kind-projection. The other 373 selected genuinely different things.
+  Giving the model the skeleton makes arity WORSE, not better: 66.7% -> 78.4% -> 75.0% across the
+  ablation rungs. That is the notes-25.2 finding arriving from a third direction.
+
+- REVISED (2026-09-02) G1's SCOPE AND EXPECTED REACH, per notes 28.4. The dominant cause of wrong
+  populations is root-variable ARITY (68%), which is a compositional decision, not a grounding one,
+  and notes 25 established this model does not take structural instruction across two prompt
+  formats. Grounding addresses `link_mismatch` = 26.5%.
+  So G1's payload is RELATION CARDINALITY AND DENSITY (how many items per order, whether a
+  qualifier path actually occurs), not type counts and not numeric ranges -- and its realistic
+  reach is about a quarter of the population failures. Scope and PRE-REGISTER it that way rather
+  than pitching it as the fix. The other two-thirds sit in a class three interventions have now
+  failed to move.
+
+- CLOSED (2026-09-02) G1 (static log profile) is DEAD, killed by the oracle in notes 27. Solving
+  `link_mismatch` -- everything grounding could address -- PERFECTLY yields F1 0.2820 against a
+  floor of 0.7250. It appears in no combination of failure buckets that clears the floor. Do not
+  reopen without new evidence; it was already re-scoped once (26.5% of population failures) before
+  the oracle showed even that was not worth a run.
+  THE ONLY PAIR THAT CLEARS THE FLOOR is `no_result` + `arity_mismatch` = 0.8307. Nothing else at
+  size 2; no single bucket at all (best single is no_result at 0.6099). So this task needs TWO
+  independent failure modes fixed near-perfectly, which is a very different strategic picture from
+  "pick the next lever".
+  ARITY REMAINS UNADDRESSED and has resisted three interventions; the skeleton hint made it worse
+  (66.7% -> 78.4%, notes 28.3). G2 is therefore load-bearing for the paper: with a floor and no
+  ceiling, a reviewer can argue the benchmark is simply unbeatable as posed.
+
+- IN PROGRESS (2026-09-02) CONSTRAINED DECODING, the tractable half of that pair. Design and the
+  feasibility gate in Thesis/notes/11-evaluation-readiness.md 29-30.
+  FIRST, notes 29: `schema_enforced` NEVER CONSTRAINED GENERATION. It switches
+  `effective_schema_validation`, i.e. whether output is validated and repaired AFTER the fact.
+  `response_format` never reaches generate() on local-gpu. Evidence: of the 350 matrix_full pairs
+  where both settings used exactly one LLM call, prompt_tokens and completion_chars are identical
+  350/350. The repair pass it gates runs on 2043 cases and fails on 1613 (79%). Every published
+  number stands; the thesis must simply not call it schema enforcement in the generation sense.
+  THE GATE REJECTED THE APPROVED LIBRARY. lm-format-enforcer does not implement `prefixItems`, and
+  `Box` is `Tuple[BindingBoxData, List[int]]`, so the one unsupported construct sits at the top of
+  the tree and leaves all 29 $defs beneath it unconstrained -- it admitted a string where an int
+  list belongs, an invalid filter type literal, and a document missing required fields. Rewriting
+  the tuple restored correctness at 57x the cost (6 char/s, could not finish a mid-sized gold query
+  in 90 s). Switched to XGRAMMAR: 169/169 gold accepted, 0/8 invalid admitted, 0.04 s compile,
+  ~107,000 char/s.
+  `any_order=True` IS REQUIRED, NOT COSMETIC. Gold writes properties out of schema order
+  (`value_filter` before `at_time`); ordered matching rejects 32/169 gold queries, a silent cap on
+  19% of the testset that would have read as a finding. Asserted in tests/test_constrained_decoding.py.
+  Implemented and INERT BY DEFAULT: `constrained_decoding` and `generation_token_budget` both
+  default to today's behaviour; configs/eval_config.json still dry-runs to 8112 planned runs with
+  the grammar off. Three rungs (D0 free/2000, D1 free/4000, D2 constrained/4000) because TRUNCATION
+  and SCHEMA VIOLATION are separate mechanisms -- failed generations run median 794 completion
+  tokens against 357 and pile up at the 2000 cap -- and without D1 they are confounded.
+  PRE-REGISTERED: the oracle caps this at 0.6099 against a floor of 0.7250, so CLEARING THE FLOOR
+  IS NOT ON THE TABLE. If schema_valid_rate at D2 is not ~1.0 the constraint is not binding and
+  nothing downstream is readable.
+  NEXT, needs the cluster:
+    1. bash scripts/make_eval_env.sh   (adds xgrammar; its guard must report nothing moved)
+    2. sbatch --array=0-2 slurm/submit_decoding_ablation.sh   with --limit 2 first, as a smoke
+    3. the smoke is a REAL GATE: confirm xgrammar works against transformers 5.5.0 (untested
+       locally -- local is 4.57.1), that schema_valid_rate at D2 is ~1.0, and that the per-token
+       overhead leaves 169 cases inside the 14 h limit. If overhead > ~3x, revisit before the run.
+
+- DONE (2026-09-10) DECODING ABLATION RAN. Results in Thesis/notes/11-evaluation-readiness.md 31.
+  507 runs, 169 per rung, all completed, 3 distinct config_ids, merge clean (0 dropped).
+  D0 free/2000 -> D1 free/4000 -> D2 constrained/4000:
+    schema-valid  121/169 -> 119/169 -> 158/169
+    F1 (disc)      0.1799 -> 0.1728 -> 0.2162      floor 0.7250
+    skill         -0.6310 -> -0.6419 -> -0.5542
+  (1) TRUNCATION IS NOT A MECHANISM. D0->D1 paired: 0 better, 1 worse, 134 unchanged, CI crosses
+  zero. Doubling the budget did nothing. The notes-30 hypothesis (failed generations run median 794
+  tokens vs 357 and pile at the cap) was WRONG -- long completions are a symptom of the model losing
+  its way, not the cap truncating a good query. D1 cost 169 runs and is the only reason we know.
+  (2) D0->D2 +0.0363 (95% CI +0.0086..+0.0640), significant, 8 better 0 worse. But 32 cases went
+  schema-invalid -> valid, and 25 OF THOSE 32 STILL SCORE EXACTLY ZERO. Constrained decoding turns
+  non-answers into answers and four in five are about the wrong thing. That is the notes-25.3
+  syntax/semantics split for the FOURTH time, from a fourth independent direction.
+  (3) THE CONSTRAINT HAS A CHARACTERISED HOLE. 158/169, not 169/169; 10 of the 11 failures are the
+  single shape "missing required field `filters`". xgrammar `any_order=True` lets a REQUIRED
+  property be skipped when an OPTIONAL one is present -- the model emitted `labels` and dropped
+  `filters`. Cannot be closed from the schema side: any_order=False rejects 32/169 gold, all-required
+  rejects 412/424 gold boxes, dropping optionals rejects 167/169. Caught by validation, never
+  silent. Pinned as an assertion in tests/test_constrained_decoding.py so the day it is fixed
+  upstream the test fails and tells us.
+  The correction to notes 30: constrained decoding is NOT "invalid output is impossible", it is
+  93.5% with a detected residue.
+  NEXT, cheap and specific: an absent list-typed `filters` is `[]` under OCPQ semantics, so a
+  normalisation in LLM.py takes D2 to ~168/169. Deliberately NOT retrofitted into this experiment --
+  it also touches D0/D1 (6 of D0's 48 failures are missing-field) and would move the baseline the
+  comparison rests on. Do it as its own change, with its own re-run.
+  (4) THE STRATEGIC PICTURE IS UNCHANGED. Recomputed on D2: no single bucket clears the floor (best
+  is no_result at 0.5643) and the only clearing pair is STILL `no_result` + `arity_mismatch` =
+  0.8162. Constrained decoding moved the first and left the second untouched -- arity_mismatch is
+  still 63.6% of wrong populations at D2, and still only 16% of that is the notes-26 extra-column
+  artefact. ARITY IS NOW THE WHOLE BALL GAME.
+
+- DONE (2026-09-11) ARITY ABLATION: FORCING STRUCTURE WORKS. Results in
+  Thesis/notes/11-evaluation-readiness.md 32. 507 runs, 169 per rung, all complete, merge clean.
+    N0 free -> N1 constrained+normalisation -> N2 ORACLE forced arity
+    schema-valid  121/169 -> 168/169 -> 156/169
+    F1 (disc)      0.1799 -> 0.2162 -> 0.3109      floor 0.7250
+    skill         -0.6310 -> -0.5542 -> -0.3857
+    root arity ok  54/169 ->  74/169 -> 169/169 (by construction)
+  N1 -> N2 paired: 23 better, 0 worse, +0.0947 (95% CI +0.0512..+0.1382), SIGNIFICANT.
+  THE FIRST INTERVENTION THAT MOVED THE PRIMARY METRIC MATERIALLY. notes 25 ASKED the model to
+  adopt gold's tree and it declined (33% -> 30% -> 27%). This does not ask: the decoding grammar is
+  tightened per case so the root box CAN ONLY declare gold's variable count. The composition
+  programme is not dead -- it was the PROMPTING that did not work, not the structure.
+  Recovers 51% of notes-27's 0.4033 oracle estimate for solving arity_mismatch perfectly. COST WAS
+  NIL: N2 lost 10 queries that were schema-valid at N1, and all 10 scored exactly 0.0000 anyway. On
+  the 124 valid in both, 0.2354 -> 0.3385.
+  N1 hit the pre-registered 168/169 exactly; the `filters` normalisation fired 9 times (and 4 at
+  N2), each recorded in `normalized_fields`.
+  Compliance is 169/169. A first reading said 167/169 -- that was the CHECK being wrong, comparing
+  arity at the PREDICTION's computed root index rather than the position the grammar pinned.
+
+- KEY FINDING (2026-09-11) THE MODEL IS WORSE THAN A CONSTANT AT CHOOSING ARITY.
+    constant "always 0 event / 1 object"  107/169 = 63.3%
+    fine-tuned model, constrained          74/169 = 43.8%
+    fine-tuned model, free                 54/169 = 32.0%
+  Gold's root arity is concentrated: (0,1) is 107/169, (1,1) is 36, (1,0) is 13, and three other
+  values share the remaining 13. A predictor that ignores the question entirely beats the model by
+  20 points. This is what makes the next step cheap.
+
+- NEXT (2026-09-11) MAKE ARITY NON-ORACLE -- turn the ceiling into a system. Predict (n_event_vars,
+  n_object_vars) for the root from the question + schema, then force it with the same per-case
+  grammar. It is a 6-class problem with a 63.3% majority class, and notes 32.4 shows anything at
+  all beats the model's own 43.8%. Rungs: constant-majority predictor (the floor of this idea),
+  then a real classifier, both against N2 = 0.3109 as the ceiling. Cheap: no retraining of the
+  generator, and the forcing machinery already exists and is tested.
+
+- REOPENED (2026-09-11) G1 (static log grounding), closed in notes 31 on an oracle that no longer
+  applies. That oracle put "solve link_mismatch perfectly" at 0.2820 and found it in no clearing
+  combination -- but it was computed BEFORE arity was forced. Recomputed on N2:
+    no_result alone                0.6517  (was 0.5643)
+    no_result + link_mismatch      0.8063  CLEARS the 0.7250 floor
+    no_result + pop_exact          0.7350  clears
+  link_mismatch is 59.6% of wrong populations at N2 (was 28.6%) and is what grounding targets.
+  GENERAL LESSON, worth applying to every closed direction in notes 26.6: AN ORACLE COMPUTED ON ONE
+  DISTRIBUTION STOPS BEING VALID ONCE AN INTERVENTION CHANGES THAT DISTRIBUTION. Re-derive the
+  failure budget after anything that moves it.
+
+- NOTE (2026-09-11) `type_mismatch` went 0% -> 26.9% of wrong populations when arity was forced.
+  notes 28.2 concluded "type selection is solved"; that held only while arity was free to absorb
+  the error. Forced to declare exactly N variables, the model sometimes fills them with the wrong
+  types. Not a regression -- a previously hidden error becoming visible.
+
+- CLOSED (2026-09-11) ARITY IS CAUSAL BUT NOT PREDICTABLE by this model. Write-up in
+  Thesis/notes/11-evaluation-readiness.md 33. The four-rung ablation was built and DELIBERATELY NOT
+  RUN: the gate showed its predictor rung would land below the no-forcing rung. ~30 min of GPU
+  across three probes instead of ~8 GPU-hours.
+    constant "always (0,1)"                       63.3% acc,  0% minority, EV 6.85
+    the model while generating (notes 32.4)       43.8% acc
+    prompt v1 (evaluation-log vocabulary)         52.7% acc, 37.1% minority, EV 7.58
+    prompt v2 (neutral + procedure + counterex.)  37.9% acc, 33.9% minority, EV 5.82
+    prompt v3 (neutral, v1's structure)           46.2% acc, 27.4% minority, EV 6.39
+  ACCURACY IS THE WRONG STATISTIC and the first gate used it. A minority-arity hit is worth ~2.3x a
+  majority one (notes 32.4: +0.146 vs +0.064), so a predictor can be LESS accurate than a constant
+  and worth more -- v1 was exactly that. The gate now scores expected value.
+  THE ONLY VERSION THAT PASSED DID SO ON CONTAMINATED VOCABULARY. v3 differs from v1 in ONLY the
+  example nouns (v1 used orders/customers/deliveries -- order-management.json is an eval log) and
+  EV fell 7.58 -> 6.39. Generation is greedy, so that difference is real, not noise. The clean
+  prompts do not beat a constant.
+  System estimates, joined against notes 32's per-case F1:
+    N1 no forcing   0.2162
+    constant (0,1)  0.2268 (wrongly-forced=0) .. 0.2557 (wrongly-forced=N1)
+    v3 predictor    0.2028 .. 0.2578        <- BELOW no-forcing under the pessimistic reading
+    N2 oracle       0.3109
+  A predictor worse than a constant does not merely fail to help, it SUBTRACTS: forcing a wrong
+  arity makes the correct query unreachable, while free decoding leaves the model its own 43.8%.
+  `(1,0)` recall was 0% in all three versions -- it never once identified a question whose answer is
+  a set of events.
+  TWO HYGIENE RULES now asserted in tests/test_arity_predictor.py, both learned the hard way:
+    * the gold arity distribution must never appear in the prompt (it is a testset label statistic;
+      an earlier draft of this work proposed putting it in);
+    * no counter-examples -- v2's explicit `wrong: n_event_vars=1, n_object_vars=1` took the error
+      it named from 28 cases to 46 and tripled abstentions. Showing a wrong answer primes it.
+  THREE ITERATIONS IS THREE ATTEMPTS AT FITTING THE TESTSET. The cap was two; the third was
+  justified by a confound the analysis itself introduced. Read the numbers as best-of-three on the
+  test data, i.e. optimistic. That they still lose to a constant is what makes the conclusion safe.
+
+- USABLE (2026-09-11) A CONSTANT ARITY PREDICTOR is a legitimate system component and the best
+  non-oracle one measured: "always (0,1)", estimated 0.2268-0.2557 against 0.2162 for no forcing.
+  NOT tuned on the testset -- (0,1) is also the majority class of the synthetic training corpus
+  (34.6%), so the choice is justified from training data alone. Not run as its own rung: +0.011 to
+  +0.040 on 135 cases with one greedy sample is inside what a single run resolves, and no decision
+  turns on the exact value. Run it if a measured non-oracle number is wanted for the write-up.
+
+- SUPERSEDED (2026-09-12) G1 / GROUNDING, reopened on evidence in notes 32.6 and still the only route
+  that clears the floor. Recomputed on the arity-forced rung:
+    no_result alone             0.6517
+    no_result + link_mismatch   0.8063   CLEARS the 0.7250 floor
+  `link_mismatch` is 59.6% of wrong populations once arity is forced (was 28.6%) and is exactly
+  what grounding targets. Note the standing lesson from notes 32.6: an oracle computed on one
+  distribution stops being valid once an intervention changes it -- so re-derive the failure budget
+  before designing, and re-check anything closed in notes 26.6.
+  SUPERSEDED TWICE: notes 34.2 found grounding addresses 2 of 27 link_mismatch cases, and notes 35
+  found that the N2 run every one of these figures came from ran on the wrong corpus. Do not design
+  G1 until the decomposition is re-derived from the re-run arity ablation.
+
+- FOUND (2026-09-12) THE CLUSTER EVALUATED A DIFFERENT CORPUS. Write-up: Thesis/notes/
+  11-evaluation-readiness.md 35. renting_log_high.json, ocel2-p2p.json and container_logistics.json
+  were retyped on the laptop 2026-06-30 .. 2026-08-05 (Age integer, isMarried boolean, Net Price /
+  Quantity integer, Invoice Receipt boolean, DepartureDate time -- stored values retyped with them);
+  the cluster kept its June copies. Every cluster run before 2026-09-12:
+    56 cases (44 disc.) prompted with the old declarations
+    17 cases whose gold filters a retyped attribute; gold returned NOTHING in 14 of them
+    empty gold + empty prediction scores 1.00, so 4 container cases were free points in every rung
+    all 39 gold/prediction type disagreements of the arity run sit on retyped attributes
+  Cluster synced 2026-09-12 and md5-verified on all 11 testset logs; the OLD CORPUS IS OVERWRITTEN,
+  so old-corpus runs cannot be reproduced (checksums recorded in notes 35.2). The floors
+  (testset_discriminability.json, computed 2026-09-08 on the laptop) describe the corrected corpus
+  and need no rebuild. Sensitivity check: without the 17 cases N1->N2 is still 23 better / 0 worse,
+  +0.1084; N0->N1 loses one gain to an empty-gold artefact and is unresolvable on unaffected logs.
+
+- CLOSED (2026-09-12) TYPE-AWARE VALUE FILTERS (notes 35.6). Built, gated, NOT RUN. Its premise, notes
+  34.3, was the corpus: on the corrected corpus the model is type-correct on 8 of 9 attribute filters
+  with no type constraint at all. On the old corpus the constraint would have made gold unreachable.
+  Machinery stays, off by default: LLM._type_aware_schema, --type-aware-filters,
+  configs/eval_config.typed_ablation.json, slurm/submit_typed_ablation.sh. ~4-5 GPU-hours not spent.
+
+- DONE (2026-09-12) tests/test_type_aware_filters.py and tests/test_forced_arity.py PASS ON THE
+  CLUSTER after the sync, including "all 169 gold survive their log's type-aware grammar". Before the
+  sync that assertion could not have passed there; it had only ever run on the laptop.
+
+- DONE (2026-09-14) RE-RUN THE ARITY ABLATION ON THE CORRECTED CORPUS -- notes 36.1. Arity forcing
+  holds: N1->N2 21 better / 0 worse, +0.0911 (CI +0.048 .. +0.134). F1 0.2030 / 0.2354 / 0.3266.
+  N0->N1 +0.0324, interval now excludes zero (supersedes notes 35.5). One type contradiction per
+  rung, the same case (index 46). Failure budget re-derived in notes 36.3.
+
+- TODO (after the arity re-run) RE-DERIVE WHAT WAS COMPUTED FROM OLD-CORPUS RUNS, per notes 35.8:
+    notes 33.1-33.4: the probe prompt carries the schema block, so 56 cases saw the old types, and
+      every expected value and system estimate is weighted by notes 32's per-case F1. Re-run
+      src/arity_predictor_probe.py (~10 min) if the arity conclusion is cited.
+    notes 32.5-32.6 and 34.1-34.2 failure decompositions and the clearing oracle -- run
+      src/root_population_diagnostic.py on the new N2 ON THE CLUSTER (it needs the full eval env)
+    notes 27 / 28 wrong-population budgets, wherever they are still cited
+  Notes 31's D1 (free decoding, 4000 tokens) is not covered by the re-run; decide whether it matters.
+
+- DECIDED (2026-09-15): RE-RUN matrix_full on the current pipeline, as eval_runs/matrix_v2
+  (configs/eval_config.matrix_v2.json differs only in output_dir; slurm/submit_eval_array.sh --config).
+  matrix_full ran on commit 675b114 (2026-08-20; 95 shards) + 93b8819 (2026-08-27; the 122 GB rerun
+  shard), identified by recomputing pipeline_fingerprint per commit. Since then the fingerprinted files
+  changed in 19 commits (reorg, status fix, filters normalisation, inert decoding flags, ...), so
+  matrix_v2 vs matrix_full is corpus + pipeline, and notes 38 must say so. Original question:
+  WHETHER TO RE-RUN matrix_full. 196 of its records sit on empty-gold cases (17 of
+  169 per condition) and 56 cases per condition were prompted with the old declarations. Both
+  ablations kept their ordering under the sensitivity check (levels ~0.02 lower), which suggests the
+  cross-condition comparisons survive -- but that is an inference from one model's conditions.
+
+- DONE (2026-09-15) RECORD THE CORPUS IN EVERY RUN, and stop on a mismatch (user decision).
+  src/corpus_manifest.py + data/corpus_manifest.json (11 logs, 2.75 GB, pinned on the laptop;
+  sizes of the three retyped logs match notes 35.2's corrected copies). check_eval_deps.py fails the
+  preflight, eval_testset.py (`corpus_check`, default "error") refuses to run, every manifest records
+  `corpus`, merges report `corpus_consistent`. tests/test_corpus_manifest.py (29 checks). Original entry:
+ 
+  pipeline_fingerprint hashes code, not data, which is why a corpus change stayed invisible for ten
+  weeks. Add a per-log checksum to config_resolved.json and decide whether a mismatch against a pinned
+  manifest should stop the run. Touches src/eval_testset.py.
+
+- DONE (commit 6244eb1) TRACK eval_runs/testset_discriminability.json. It is an evaluation input -- every run reads its
+  floors -- but untracked, so a stale copy reached the cluster twice in one week. Commit it or move it
+  under data/ (a paths.py change moves the fingerprint, so between experiments).
+
+- DONE (2026-09-15) FIX DOCSTRINGS THAT STILL ASSERT WITHDRAWN CLAIMS:
+    src/LLM.py _type_aware_schema -- "the model is told the type and ignores it" (notes 34.3). Editing
+      LLM.py moves pipeline_fingerprint, so only after the arity re-run.
+    slurm/submit_typed_ablation.sh header and tests/test_type_aware_filters.py docstring -- same claim.
+    src/typed_grammar_probe.py -- says the smoke "failed the compliance gate", and synthetic() says a
+      hand-written document is how a control ends up inverted. Both cluster inversions were the corpus.
+
+- FOUND + FIXED (2026-09-14) EXECUTIONS THAT NEVER HAPPENED WERE COUNTED AS SUCCESSES -- notes 36.4-36.5.
+  ocpq_cli's `run_evaluate` serialises Result<_, String> into the export and exits 0 either way, so a
+  tree it cannot evaluate gives exit 0 + `{"Err": "Could not get o1"}` + no "Evaluated in" line. The
+  harness recorded `success`; execution_success_rate (exit status) counted it.
+    discriminating  N0 68.1% -> 60.7%   N1 90.4% -> 70.4%   N2 86.7% -> 63.7% actually evaluated
+    matrix_full: 400 of its 3,100 recorded successes
+  FIX in src/eval_testset.py: status `execution_failed` + `execution.cli_error` (read live from the
+  export), `execution_success_rate` = evaluated, old figure kept as `cli_exit_success_rate`,
+  `--recompute` relabels from stored stdout. F1 is unaffected by construction. CLAUDE.md 4.4 / 6 updated.
+  Tests: tests/test_cli_evaluation_error.py.
+
+- DONE (2026-09-15, laptop) RECOMPUTED -- notes 38.2. matrix_full: 400 relabelled, discriminating exec
+  36.8% -> 32.0% evaluated, skill -0.8934 -> -0.9151 (0.7250 floor), F1 unchanged (8 records lost <=0.0018
+  to a missing store blob). Gemma 3 4B fine-tuned now evaluates LESS than its base (25.7% vs 26.2%).
+  Decoding ablation D0/D1/D2 evaluated 60.0 / 59.3 / 68.9% (reported 67.4 / 66.7 / 90.4%). Outputs:
+  eval_runs/matrix_full_recomputed, eval_runs/decoding_ablation/*_recomputed. Still to do: point notes
+  21 / 31.1 at 38.2 (done in the notes), and establish which of the 19 pipeline commits since 675b114
+  reach the main matrix (notes 38.3) before comparing matrix_v2 with it. Original entry:
+- RECOMPUTE THE OLDER RUNS so their execution rates (and, for pre-2026-09-12 runs, skill against
+  the 0.7250 floor -- notes 36.2) are the corrected ones. CPU only, on the cluster:
+    python src/eval_testset.py --recompute eval_runs/matrix_full
+    python src/eval_testset.py --recompute eval_runs/decoding_ablation/<each shard>
+  Then add the corrected skill columns as pointers on notes 31.1 / 32.1. The laptop already holds
+  eval_runs/arity_ablation/*20260913*_recomputed for the three corrected-corpus rungs.
+
+- DONE (2026-09-14) STRUCTURAL ABLATION RAN, job 4100029 -- notes 37. 4 x 169, all complete, exit 0.
+  Built in notes 36.6-36.7: ocpq_schema.structural_defects + BLOCKING_DEFECT_KINDS,
+  LLM._apply_structural_validation behind `structural_validation` / --structural-validation (off by
+  default). Discriminating stratum:
+    S0 constrained 0.2354 -> S1 + check 0.2500 | S2 ORACLE arity 0.3195 -> S3 + check 0.3284
+    evaluated      94 -> 100                   | 85 -> 89
+    Could not get  30 -> 23 (all 169)          | 38 -> 34
+  Compliance and mechanism PASS. S0->S1: 7 newly evaluated / 0 lost (p=0.016), but F1 +0.0146
+  (CI 0.000..+0.037), from 2 cases (33, 120); the other 5 newly evaluated score 0. Fifth time
+  executable != correct (notes 37.2). S2->S3 within run-to-run noise.
+  Detector on new generations: Could-not-get recall 30/30 and 38/38, false positives 1/123 and 3/103.
+  The REPAIR is the bottleneck: 46 attempted -> 27 accepted -> 7 newly evaluated -> 2 correct.
+  Best measured non-oracle configuration: constrained + structural check, F1 0.2500, skill -0.5433.
+  Machinery stays; not added to the main config.
+
+- NOTE (2026-09-14) THE TESTSET CANNOT RESOLVE SMALL EFFECTS (notes 37.7). At the observed paired SD,
+  n=135 discriminating cases detects about +-0.03 F1 at 80% power. S0->S1's +0.0146 would need ~526.
+  Before building another intervention, estimate its effect: anything expected below ~0.03 cannot be
+  measured here, however many times it is re-run.
+
+- NOTE (2026-09-14) `prediction` IS THE LAST TREE EXECUTED, NOT NECESSARILY THE ONE `structural_report`
+  DESCRIBES. After a panic the after-execution repair (`_run_pipeline_*` stderr branch in src/LLM.py)
+  replaces the tree -- 7 S1 and 3 S3 records (notes 37.5). If this is ever analysed at scale, record
+  the pre-execution tree or a `post_execution_repair` flag in the record (moves pipeline_fingerprint).
+
+- LOW PRIORITY STRUCTURAL CHECK MISSES CEL: 7 of the 68 replayed `Err` exports are CEL expressions naming
+  undefined identifiers (`total_order_volume`, `worthiness`, a label using `e`). Needs a CEL reference
+  check before those can be repaired pre-execution.
+  DOWNGRADED 2026-09-14 (notes 37.3): the structural ablation raised CEL/label errors 2 -> 12, but ten of
+  those are angular trees the repair collapsed to one box with `e21030` for variable `21030`. They
+  cannot answer their question even if they ran, so a CEL check would move the execution rate, not F1.
+
+- LOW PRIORITY `database is locked` on ocpq_cli stderr in 4 cases of job 4100029 (notes 37.5), each
+  with an index-out-of-bounds panic on a tree that fails in every rung. Harmless there; check whether
+  concurrent CLI runs on one node share a lock file if it ever shows up on a tree that should evaluate.
+
+- OPTIONAL: if notes 37's per-record figures are cited in the thesis, turn the throwaway analysis into
+  a committed diagnostic (src/structural_ablation_report.py, in the style of structure_ablation_report.py)
+  so they are reproducible from the repo rather than only re-derivable.
+
+- SCHEDULE (2026-09-15, submission ~2026-11-15, ~8.5 weeks). Reserve >= 3 weeks for writing, which
+  leaves ~5 for experiments. In priority order:
+    A  housekeeping (recompute old runs, corpus checksums, re-derivations)   DONE 2026-09-20 (notes 38, 42)
+    B  measured non-oracle system rung                                        DONE 2026-09-18 (notes 41)
+    C  frontier-model upper bound with log tools                              ~3 weeks   SHOULD
+    D  agentic pipeline with OPEN models                                      ~1-2 weeks after C; gated on C
+    E  reasoning LLMs, fine-tuned, same pipeline                              ~3 weeks   COULD
+  C and E do not compete for the GPU (C runs against an API), so they can overlap if the engineering
+  is split. C, D and E cannot all be finished: pick C + (D or E) at most, and decide by week 3.
+  Anything whose expected effect is below ~0.03 F1 cannot be resolved on this testset (notes 37.7).
+
+- SUPERSEDED by the DONE (2026-09-18) B entry below. (B, 2026-09-15) NON-ORACLE SYSTEM RUNG: ONE MEASURED "BEST SYSTEM" NUMBER. Today the best
+  non-oracle figures are a measurement (constrained + structural check, F1 0.2500, notes 37) and an
+  ESTIMATE (constant (0,1) arity, 0.2268-0.2557, notes 33.4) that were never run together.
+    B0  constrained                                    in-job reproduction of N1 / S0 (0.2354)
+    B1  + constant root arity (0,1)                    --constant-root-arity (flag already exists)
+    B2  + constant root arity + structural check      the system number for the thesis
+  COST: no new pipeline code -- config + submit script copied from submit_structural_ablation.sh
+  (~0.5 day), 10-min smoke, 3 x 169 = 507 runs. Measured per case: ~42 s constrained, ~60-75 s with
+  arity forcing, so ~2-3.5 h per rung as parallel array tasks, ~8 GPU-h total. Analysis ~1 day.
+  FEASIBILITY: HIGH. Every component is built, tested and has run on the cluster.
+  PRE-REGISTER: the purpose is a MEASURED number, not a significance claim -- the expected B0->B1 gain
+  (+0.01..+0.04) straddles the ~0.03 resolution limit. Report B2 against the 0.7250 floor, and split
+  the 62 of 169 cases whose gold arity is NOT (0,1): forcing makes their correct query unreachable, so
+  B1 must be read as "gain on 107, loss on 62". Record node/GPU (already printed by the script).
+
+- NEXT (C, 2026-09-15) UPPER BOUND: FRONTIER MODEL WITH LOG-INSPECTION TOOLS (was G2 / AGENTIC, parked
+  above). The thesis has a floor (0.7250) and no ceiling, which is why "you cannot claim anything"
+  lands. This is the only remaining experiment that could change the headline claim.
+    C0  frontier model, one shot, today's prompt       isolates model strength
+    C1  frontier model + tools                         isolates the tools / agent loop
+  Tools, log-only: count(type), sample(type, n), attribute_values(type, attr),
+  cardinality(event_type, object_type), try_query(tree) -> binding count + execution error. The final
+  tree is scored by src/eval_testset.py like every other prediction (CLAUDE.md: no parallel eval
+  script) -- implement as a backend/strategy in LLM.py, not a separate harness.
+  KEY ENABLER, verified 2026-09-15: OCPQ's web-server (OCPQ/backend/web-server/src/main.rs) has
+  POST /ocel/load and POST /ocel/check-constraints-box, i.e. a log is imported ONCE and queries are
+  evaluated against it in ~ms. Through ocpq_cli every probe would pay the 23-35 s import
+  (memory: ocpq-cli-cost-is-log-import), making a 15-probe case cost ~8 min of import alone.
+  COST: engineering 1.5-2.5 weeks (tool layer over the web-server, agent loop, trajectory logging,
+  per-case budget of e.g. 15 tool calls, oracle-discipline tests). Runs need no GPU: ~1-3 min per case
+  -> ~3-8 h per rung for 169 cases. API spend: with ~10-20 turns re-sending ~10-20k tokens each, on the
+  order of 20-40 M input tokens per C1 rung before prompt caching; check current pricing -- expect
+  tens to low hundreds of USD for both rungs, much less with caching.
+  FEASIBILITY: MEDIUM. Risks and rules:
+    * NOT OPEN-SOURCE: report as a separately labelled upper-bound arm, never a matrix cell.
+    * reproducibility: API models are not bit-reproducible and change under a fixed name -- pin the
+      dated model ID, temperature 0, store every trajectory; one run, reported as such.
+    * data: the logs leave the machine. Check each of the 11 logs' licence / confidentiality and
+      clear it with the supervisor BEFORE the first call.
+    * oracle discipline in code (as `oracle_conditions` was): tools read the log, never gold; result
+      size must not be a reward -- an agent chasing "plausible size" drifts to the trivial query.
+    * memory: the web-server holds the whole log; the largest (bpic2017) must fit where it runs.
+  DECISION VALUE: C1 ~0.5-0.6 -> the task is solvable and "small fine-tuned models cannot yet" is a
+  bounded finding; C1 near the current ~0.25-0.33 -> the bottleneck is the formalism or the benchmark,
+  which is the more interesting result.
+
+- CONDITIONAL (D, 2026-09-15, gated on C) AGENTIC PIPELINE WITH OPEN MODELS. Same tool loop as C, driven
+  by an open tool-calling instruct model on the H100 (e.g. Qwen3 8B/14B, Ministral 3 14B, Llama 3.1 8B
+  Instruct -- verify tool-calling quality and transformers support when choosing). Keeps the thesis
+  premise ("open-source LLMs"), which C does not.
+  GATE: run only if C1 clearly beats C0. If tools do not help a frontier model, they will not help an
+  8-14B one, and D is a week spent confirming that.
+  COST: reuses C's tool layer, so ~1 week engineering (multi-turn chat template + tool-call parsing in
+  the local backend; constrained decoding only on the final JSON turn). Runs: multi-turn local
+  generation ~2-5 min per case -> ~6-14 h per rung; use --case-shard to stay inside the 14 h wall.
+  ~15-30 GPU-h for C0/C1-style rungs on one model.
+  FEASIBILITY: MEDIUM-LOW. The fine-tuned adapters were trained to emit one JSON object and cannot
+  hold a tool trajectory (see G2 note above), so this runs on BASE instruct models -- it measures
+  "agentic open model" against "fine-tuned one-shot open model", not the effect of tools on the
+  fine-tuned model. Small models are weak at multi-step tool use; report the tool-call error rate
+  (malformed calls, loops, budget exhaustion) as a first-class result, before any F1.
+
+- COULD (E, 2026-09-15) REASONING LLMs, FINE-TUNED, THROUGH THE SAME PIPELINE AS THE FOUR NON-REASONING
+  MODELS (llama31-8b, ministral3-14b, ministral3-3b, gemma3-4b). Extends the notes/TODO.md Q10
+  decision ("one reasoning LLM, best strategy, supplementary table, not a matrix cell").
+  CANDIDATES (verify current checkpoints and unsloth support): DeepSeek-R1-Distill-Llama-8B -- built on
+  Llama 3.1 8B, so against llama31-8b the reasoning distillation is close to the ONLY variable, the
+  cleanest comparison available; Qwen3-8B (hybrid thinking on/off in one checkpoint, so thinking can be
+  ablated without a second model); Phi-4-reasoning 14B; gpt-oss-20b (tried before -- that adapter
+  collapsed because of the resume bug fixed in notes 10, not because of the model).
+  THE CENTRAL PROBLEM: data/finetune_ocpq.jsonl has JSON-ONLY targets (notes/TODO.md Q7). Fine-tuning
+  a reasoning model on answer-only targets trains it to skip thinking, which yields a non-reasoning
+  model on a different base. Three options, pick one and state it:
+    E-a  fine-tune with thinking disabled, evaluate with thinking on    cheapest; train/test mismatch
+    E-b  rejection-sampled self-traces: sample the base reasoning model on a 10-20k-row subset, keep
+         traces whose final JSON equals the target, fine-tune on trace + JSON (STaR-style). The
+         training data cannot be executed (not tied to logs), so the filter is exact JSON match.
+         ~2-4 GPU-days of trace generation. Regenerating finetune_ocpq.jsonl needs instruction
+         (CLAUDE.md 2.4) -- write traces to a NEW derived file instead.
+    E-c  no fine-tuning: base reasoning model only                     answers "does reasoning help",
+                                                                        not "does fine-tuning a reasoner"
+  PIPELINE CHANGES, each behind a flag: strip <think> in parse_llm_json; generation_token_budget
+  4000 -> 8-16k for this model; constrained decoding must leave the thinking span free and apply the
+  grammar only after </think> (xgrammar structural tags, or two-phase generation); case_timeout_sec
+  must rise -- CLAUDE.md 6 requires the cap on EVERY arm of a comparison, so run the reasoning model
+  with its non-reasoning counterpart re-run at the same cap, or report it as its own table.
+  temperature 0 is fixed by CLAUDE.md 2.1 but reasoning models are tuned for sampling and can loop
+  under greedy -- keep greedy, measure and report the loop / budget-exhaustion rate; changing it
+  needs explicit approval.
+  TRAINING: traces push rows past max_seq_length 4096 -> 8192. Measured today at 4096: Llama 3.1 8B
+  4.01 h, Ministral 3 14B 8.31 h (notes 04). At 8192 expect ~2x or more: 8B ~8-10 h (inside the 14 h
+  wall), 14B ~17-20 h (needs checkpoint resume -- exactly where the notes-10 bug lived; re-test resume
+  first).
+  EVALUATION: reasoning generation is ~3-5x the tokens. The recommended scope is ONE model, base +
+  fine-tuned, on the best cell (allowed-entities-only, schema on, constrained), 169 cases: ~2 x 169 x
+  2-4 min ~= 11-23 GPU-h. The full per-model matrix equivalent would be ~30-125 GPU-h -- not in budget.
+  TOTAL: ~3 weeks with E-b (1 week integration + tests, 2-4 days traces, 1-2 days training, 1 day eval,
+  analysis). FEASIBILITY: MEDIUM for E-a/E-c, LOW-MEDIUM for E-b.
+  WHAT THE EVIDENCE PREDICTS: the failure is semantic (notes 37.2) and arity choice is worse than a
+  constant (notes 33.1), both decisions a reasoning step could plausibly improve. But prompted CoT on
+  non-reasoning models did not help in matrix_full (chain-of-thought-plus below allowed-entities-only),
+  so the prior is weak -- pre-register the effect needed (> ~0.03) before building.
+
+- DECIDE (2026-09-14) TWO PROMPT GAPS, both of which move the pipeline fingerprint:
+    * `throughputTime` is stored in SECONDS and rendered as `throughputTime (Float)` -- 3 of N2's 26
+      link_mismatch cases write days (notes 36.3). A unit in the schema block is real missing information.
+    * p2p attribute names carry SAP codes in parentheses, `_render_attribute` prints `name (Type)`, and
+      the model strips the code (0 of 60,018 training examples show such a name) -- 2 gold cases, at
+      most ~+0.006 F1 (notes 36.8). Quoting names would also diverge from the training format.
+
+- PARTLY DONE: the re-derivation TODO above -- notes 34.2's decomposition and the clearing oracle are
+  re-derived on the corrected run in notes 36.3. 2026-09-15: notes 33.1 gains re-derived (+0.0577 /
+  +0.1462; constant estimate 0.2449-0.2713 vs N1 0.2354), probe constants updated; notes 28 marked
+  old-corpus with a pointer to 36.3; notes 27's floors stand (laptop corpus). DONE 2026-09-20: the probe re-ran on the pinned
+  corpus and notes 33.1-33.4 are re-measured in notes 42 -- the predictor is unchanged, and the GATE's own
+  arithmetic was wrong and is fixed. Still open: notes 27 / 28.
+
+- NOTE (2026-09-14) the skill columns in notes 31.1 and 32.1 were computed against the NO-OP floor
+  (0.5148): the cluster read a stale floors file until 2026-09-12. They print 0.7250 beside them.
+  Compare F1 across those runs, not skill (notes 36.2).
+
+- DONE (2026-09-20, verified: nothing left to move) CLEANUP ON THE CLUSTER: an earlier `root_population_diagnostic.py --out
+  eval_runs/...` wrote a nested `eval_runs/` folder INSIDE two completed run directories
+  (`--out` is a filename inside --run_dir). Move root_population_N{1,2}_20260913.json out and rmdir.
+
+- DONE (2026-09-18) B: THE NON-ORACLE SYSTEM, AS A 2x2 -- notes 41. eval_runs/non_oracle (job 4206133),
+  4 x 169, exit 0, all pre-registered compliance checks pass, oracle_conditions [] everywhere, corpus
+  recorded with no problems, one fingerprint (matrix_v2's). 9.0 GPU-h.
+  Discriminating F1 / skill:  B0 constrained 0.2284 / -0.5767   B1 + structural check 0.2534 / -0.5368
+                              B2 + constant arity 0.2483 / -0.5608   B3 both 0.2518 / -0.5623
+  * THE SYSTEM NUMBER IS B1 (0.2534), not B3. Constant arity adds nothing on top (-0.0017), costs 13
+    executions and +76% LLM time.
+  * Structural check B0->B1 +0.0251 (bootstrap CI +0.0034..+0.0536; exec 9 gained / 1 lost, p=0.021);
+    second measurement with the same sign as notes 37's +0.0146.
+  * Constant arity +0.0199 (CI spans 0), at the bottom of the 0.2449-0.2713 estimate: +0.063 on the 84
+    discriminating cases with gold root (0,1), and ALL 51 others score 0.
+  * Interaction -0.0216: the check's gain lives on the minority cases the pin zeroes, and under the pin
+    the repair cannot declare the event variable the root's filters read (accepted 20% vs 53%).
+  * Reproduction: B0 vs S0 and B1 vs S1 differ by one case each -> run-to-run noise ~+-0.007.
+  Analysis was throwaway (as for notes 37); see the OPTIONAL entry on a committed report script.
+
+- DONE (2026-09-17) SENSITIVITY PASS ON matrix_v2 -- notes 40.1. Truncation is negligible: 93 predictions
+  zeroed, 0 gold-truncated entries excluded, pooled discriminating F1 -0.0006 (worst arm -0.0038,
+  ministral3-3b-finetuned), skill -0.9159 -> -0.9169, no ordering changes. Measured against an AS-MEASURED
+  recompute, not against `merged`, because a recompute also drops 211 unstored predictions; that recompute
+  reproduces merged to four decimals, which isolates the policy. Variants (notes 26) on matrix_v2: strict
+  0.0487 vs kind_projected 0.0719 on the same floor -- the extra-variable artefact is +0.023 matrix-wide.
+  Outputs: eval_runs/matrix_v2/merged_asmeasured, merged_strict_zero.
+
+- DONE (2026-09-17) NOTES 23 IS REPRODUCIBLE AGAIN -- src/failure_anatomy.py + tests/test_failure_anatomy.py.
+  Notes 23's figures were computed ad hoc on the old-corpus self-consistency run and nothing in the repo
+  could reproduce them. The script classifies and counts only; every F1 it prints is read from the record
+  (CLAUDE.md 2.5). Reports the notes-23 condition AND the pooled arm, with n and a 95% band on every
+  percentage. Output: eval_runs/matrix_v2/failure_anatomy_20260917.json. Results in notes 40.
+
+- DONE (2026-09-17) MATRIX RE-RUN COMPLETE -- notes 39. eval_runs/matrix_v2 (job 4151340), 96/96 shards,
+  8112 records, 0 duplicates, ONE pipeline fingerprint, corpus_consistent TRUE, 94.8 GPU-hours.
+  Discriminating F1: llama-ft 0.0886, ministral14-ft 0.0980, 3b-ft 0.0557, gemma-ft 0.0322; pooled 0.0487,
+  skill -0.9159, floor 0.7250 -- the central finding is unchanged.
+  THREE CLAIMS FROM NOTES 21 CHANGED: no single best arm (ministral14-ft vs llama-ft CI spans zero);
+  Gemma's fine-tuning gain not established (+0.0143, CI -0.004..+0.032); 3b-ft no longer above
+  ministral14-base. Cause is the corpus, not the pipeline: on the 8 untouched logs every arm moves by
+  <=0.001, and 67 records that scored a perfect 1.00 on the old corpus (empty gold, notes 35.3) no longer
+  do. QUOTE matrix_v2 FROM NOW ON; matrix_full stays as provenance for notes 21-23.
+  FOLLOW-UPS:
+    a. sensitivity pass: python src/eval_testset.py --recompute eval_runs/matrix_v2/merged
+       --truncation-policy strict-zero  (the matrix_strict_zero equivalent)
+    b. re-derive the notes-23 error analysis on matrix_v2 (23.3 entity naming, 23.4 node-count
+       agreement, 23.6 training-vs-output distribution) -- they are cited and were measured on the old run
+    c. notes 22 (self-consistency) and 25 (structure ablation) stay old-corpus; mark them if cited
+    d. optional: re-run src/root_population_diagnostic.py on matrix_v2 for a matrix-wide failure budget
+
+- DONE (2026-09-20) A HOUSEKEEPING IS CLOSED. Arity probe v3 re-run on the pinned corpus (job 4283714,
+  eval_runs/arity_probe/) -- notes 42. The predictor does not move with the corpus (accuracy 46.2% ->
+  47.9%, minority recall 27.4% -> 29.0%, (1,0) recall still 0% of 13), so notes 33's conclusion stands.
+  THE GATE ITSELF WAS WRONG AND IS FIXED: its expected value credited correct predictions and charged
+  NOTHING for wrong ones, so it printed PASS at 6.27 vs 6.17. Notes 41 measured the cost of a wrong
+  force (B2: all 51 minority cases 0.0000, against 0.0514 free), and with that loss term the verdict is
+  FAIL: -9.70 vs the constant's +3.58, and the constant still wins at zero loss (+6.61 vs +6.76).
+  src/arity_predictor_probe.py now carries LOSS_MAJORITY/LOSS_MINORITY, prints the zero-loss row as a
+  sensitivity, and accepts --rescore <probe json> to re-derive the verdict with no model and no GPU
+  (eval_runs/arity_probe/arity_probe_20260920_rescored.json). slurm/submit_arity_probe.sh writes a dated
+  output and a per-job log, and forwards extra arguments.
+  Cluster cleanup verified the same day: no nested eval_runs/ dirs remain inside the arity run dirs
+  (root_population_N{1,2}_20260913.json sit at eval_runs/ top level), and eval_runs holds no loose
+  shard_* directories -- the pre-corpus-fix shards are already under _archive_matrix_full_shards_20260821
+  and _archive_precap_20260819.
+  OPEN, unchanged: notes 27 / 28 old-corpus annotations.
+
+- DONE, kept for provenance (A, 2026-09-15) HOUSEKEEPING -- plan: ~/.claude/plans/write-all-the-results-greedy-panda.md.
+  Done on the laptop: corpus pinning, docstrings, matrix_v2 config + --config in submit_eval_array.sh
+  (plus node/GPU echo), probe constants, notes 28/33 annotations, recomputes of matrix_full and the
+  decoding ablation (see notes 38).
+  REMAINING, on the cluster, in order:
+    1. sync src/, tests/, configs/, slurm/, data/corpus_manifest.json, TODO; copy CLAUDE.md by hand
+    2. python src/corpus_manifest.py --check           (must pass; note the hashing time)
+    3. every tests/test_*.py -- five need xgrammar/transformers and only pass there:
+       test_constrained_decoding, test_forced_arity, test_type_aware_filters, test_arity_predictor,
+       test_merged_guard
+    4. python src/check_shard_map.py --config configs/eval_config.matrix_v2.json
+    4b. FOUND BY THE SMOKE (2026-09-15): all 24 Gemma runs failed with HFValidationError. The merged
+       16-bit checkpoints (gemma3-4b-base-16bit, gemma3-4b-merged-16bit) are outside git, and the
+       2026-08-29 reorg changed the config from adapters/... to models/adapters/... without moving
+       them. Move them (`mv adapters/gemma3-4b-*-16bit models/adapters/`), or regenerate with
+       src/merge_gemma.py + --verify in the training env. check_eval_deps.py now fails the preflight
+       on a missing local model directory, so this cannot reach a GPU again.
+    5. sbatch slurm/submit_eval_smoke.sh --limit 2  ->  python src/smoke_check.py <run>; confirm the
+       manifest has `corpus` and the preflight time is acceptable (add a digest cache only if > ~60 s)
+    6. python src/arity_predictor_probe.py --model-idx 1 --out eval_runs/arity_probe_20260915.json
+    7. move root_population_N{1,2}_20260913.json out of the two arity run dirs (CLEANUP entry above)
+    8. submit B first (8 GPU-h), then:
+       sbatch slurm/submit_eval_array.sh --config configs/eval_config.matrix_v2.json
+    9. merge gate: 8112 records, dropped 0, pipeline_consistent AND corpus_consistent true

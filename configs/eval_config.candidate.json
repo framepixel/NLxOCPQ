@@ -1,0 +1,42 @@
+{
+  "testset_path": "data/testset.json",
+  "output_dir": "eval_runs",
+  "backend": "local-gpu",
+  "local_device": "cuda",
+  "local_dtype": "auto",
+  "local_quantization": "4bit",
+  "temperature": 0.0,
+  "repeats": 1,
+  "limit": 0,
+  "seed": 3407,
+  "few_shot_k": 3,
+  "keep_result_files": false,
+  "result_store": true,
+  "result_store_max_situations": 200000,
+  "shuffle": false,
+  "auto_expand_finetuned": true,
+  "fine_tune_map": {
+    "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit": {
+      "name": "models/adapters/ministral3-3b-fine-tuned-quantized",
+      "label": "ministral3-3b-finetuned"
+    }
+  },
+  "schema_enforced": [
+    true,
+    false
+  ],
+  "schema_validation": true,
+  "schema_validation_when_no_schema": false,
+  "prompt_strategies": [
+    "schema-allowed-entities-only",
+    "schema-grammar-guided",
+    "schema-chain-of-thought-plus"
+  ],
+  "models": [
+    {
+      "name": "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit",
+      "label": "ministral3-3b-base"
+    }
+  ],
+  "_comment": "Throwaway config for src/check_model_load.py only -- NOT an evaluation config. Index 0 is the base model (verified 2026-08-17, job 3015981, before training was queued); index 1 is the adapter trained on it (job 3021705, finished 2026-08-18). The fine_tune_map entry was empty while only the base existed, because expand_models then synthesises a '<name>-finetuned' path that does not exist. Run with: sbatch slurm/submit_model_check.sh --config configs/eval_config.candidate.json --model-idx 1. Options must be ARGUMENTS: this cluster does not propagate the submitting environment into jobs."
+}

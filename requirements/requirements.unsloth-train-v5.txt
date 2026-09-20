@@ -1,0 +1,158 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
+
+# Fine-tuning environment for the transformers-v5 model set — conda env, Python 3.10, H100.
+# Used by submit_job_v5_*.sh for ALL THREE models (Llama 3.1 8B, Ministral 3 14B, Gemma 3 4B),
+# so every adapter in the results comes from one dependency stack.
+#
+# SEPARATE from `nlxocpq-train-next` / requirements.unsloth-train.txt on purpose. Ministral 3
+# needs transformers v5, while that env pins transformers 4.57.6 and produced the superseded
+# adapters. Upgrading it in place would have made those results unreproducible
+# (CLAUDE.md 2.2: never upgrade a package mid-experiment without a new named environment).
+# The older file stays as the provenance record of the superseded runs.
+#
+# Create with:
+#   conda create -n nlxocpq-train-v5 python=3.10 -y
+#   conda activate nlxocpq-train-v5
+#   pip install -r requirements.unsloth-train-v5.txt
+# `nlxocpq-train-v5` is the default in prefetch_models.sh and every submit_job_v5_*.sh, so no
+# export is needed once it exists. If you would rather reuse `nlxocpq-spike-ministral` (the env
+# the Ministral spike ran in - same stack), set OCPQ_TRAIN_ENV=nlxocpq-spike-ministral instead.
+# Do not leave the two names disagreeing: with both envs present, a forgotten export would run
+# training in an environment other than the one these pins describe.
+#
+# RECONCILED 2026-08-14 against `pip freeze` from `nlxocpq-train-v5` — the environment that ran
+# the 2026-08-13 jobs (LLaMA 3.1 to completion; Gemma 3 and Ministral 3 to step 5750 before an
+# unrelated filesystem fault). Every version below is observed, not intended. This discharges the
+# earlier note in this file that "a pin nobody has run is worse than no pin".
+#
+# Two things worth knowing before editing:
+#   * `unsloth_zoo` is 2026.8.9 while `unsloth` is 2026.8.12 — they are NOT released in lockstep.
+#     Do not "correct" the zoo pin to match unsloth.
+#   * `packaging` is provided by conda in this env (`pip freeze` shows a file:// path, no
+#     version), so it is deliberately absent below; pip pulls a compatible build transitively.
+#   * `torchaudio` is NOT installed. Only torch / torchvision / torchao are present.
+
+# --- core training stack -------------------------------------------------------------
+unsloth==2026.8.12
+unsloth_zoo==2026.8.9
+cut-cross-entropy==25.1.1
+trl==0.24.0
+peft==0.19.1
+accelerate==1.13.0
+datasets==4.3.0
+bitsandbytes==0.49.2
+
+# transformers v5 is a hard requirement: 4.57.6 does not know the Ministral 3 architecture.
+transformers==5.5.0
+tokenizers==0.22.2
+
+# Mistral's tokenizer stack, required for correct Ministral 3 tokenization.
+mistral_common==1.11.7
+tiktoken==0.13.0
+sentencepiece==0.2.2
+
+# --- torch / CUDA (same CUDA 12.6 / H100 path as the superseded environment) -----------
+torch==2.10.0+cu126
+torchvision==0.25.0+cu126
+torchao==0.18.0+cu126
+triton==3.6.0
+xformers==0.0.35
+
+# --- hub / data ------------------------------------------------------------------------
+huggingface_hub==1.27.0
+hf_transfer==0.1.9
+hf-xet==1.6.0
+safetensors==0.8.0
+numpy==2.2.6
+pandas==2.3.3
+pyarrow==25.0.1
+protobuf==7.35.1
+requests==2.34.2
+tqdm==4.70.0
+xxhash==3.8.1
+dill==0.4.0
+multiprocess==0.70.16
+fsspec==2025.9.0
+filelock==3.32.2
+regex==2026.7.19
+PyYAML==6.0.3
+psutil==7.2.2
+
+# Multimodal processors (Gemma 3 and Ministral 3 load a processor, not a bare tokenizer).
+pillow==12.3.0
+diffusers==0.39.0
+
+# --- transitive, pinned for exact reproducibility ---------------------------------------
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.14.2
+async-timeout==5.0.1
+attrs==26.1.0
+certifi==2026.7.22
+charset-normalizer==3.4.9
+click==8.4.2
+cuda-bindings==12.9.4
+cuda-pathfinder==1.6.0
+docstring_parser==0.18.0
+exceptiongroup==1.3.1
+frozenlist==1.8.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.18
+importlib_metadata==9.0.0
+Jinja2==3.1.6
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+markdown-it-py==4.2.0
+MarkupSafe==3.0.3
+mdurl==0.1.2
+mpmath==1.3.0
+msgspec==0.21.1
+multidict==6.7.1
+nest-asyncio==1.6.0
+networkx==3.4.2
+propcache==0.5.2
+pycountry==26.2.16
+pydantic==2.13.4
+pydantic-extra-types==2.11.1
+pydantic_core==2.46.4
+Pygments==2.20.0
+python-dateutil==2.9.0.post0
+pytz==2026.3.post1
+referencing==0.37.0
+rich==15.0.0
+rpds-py==0.30.0
+shellingham==1.5.4
+six==1.17.0
+structlog==26.1.0
+sympy==1.14.0
+typeguard==4.6.0
+typer==0.27.1
+typing-inspection==0.4.3
+typing_extensions==4.16.0
+tyro==1.0.15
+tzdata==2026.3
+urllib3==2.7.0
+yarl==1.24.5
+zipp==4.1.0
+
+# --- pulled in transitively by torch==2.10.0+cu126 ---------------------------------------
+nvidia-cublas-cu12==12.6.4.1
+nvidia-cuda-cupti-cu12==12.6.80
+nvidia-cuda-nvrtc-cu12==12.6.77
+nvidia-cuda-runtime-cu12==12.6.77
+nvidia-cudnn-cu12==9.10.2.21
+nvidia-cufft-cu12==11.3.0.4
+nvidia-cufile-cu12==1.11.1.6
+nvidia-curand-cu12==10.3.7.77
+nvidia-cusolver-cu12==11.7.1.2
+nvidia-cusparse-cu12==12.5.4.2
+nvidia-cusparselt-cu12==0.7.1
+nvidia-nccl-cu12==2.27.5
+nvidia-nvjitlink-cu12==12.6.85
+nvidia-nvshmem-cu12==3.4.5
+nvidia-nvtx-cu12==12.6.77

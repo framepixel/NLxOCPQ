@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "pinned_at": "2026-09-15",
+  "note": "Size and sha256 of every OCEL log data/testset.json references. Checked by check_eval_deps.py and eval_testset.py (corpus_check); a mismatch stops the run. Regenerate ONLY after a deliberate corpus change, with `python src/corpus_manifest.py --pin`, in the same commit. See Thesis/notes/11-evaluation-readiness.md 35.",
+  "logs": {
+    "03_hiring.xml": {
+      "bytes": 6042246,
+      "sha256": "aaef4722c93c49cb753a8845512c883a74a05bc8332c43f34bb70118053b8eb2"
+    },
+    "04_hospital.xml": {
+      "bytes": 4369703,
+      "sha256": "5bc3a13a901b94d538e3a93d74df20bc0aee95371e443a8a22463a7b264ac558"
+    },
+    "angular_github_commits_ocel.xml": {
+      "bytes": 178138217,
+      "sha256": "491a50aa164d36418dc5cc9bf7677216716fa3cfbad9e44cf5e8e0b5bd461382"
+    },
+    "bpic2017-ocel2.json": {
+      "bytes": 2342875781,
+      "sha256": "ac1054cd08584a3d3076b7f6fff665312e67ec85509b27e2276b115a6f6470d7"
+    },
+    "container_logistics.json": {
+      "bytes": 10014406,
+      "sha256": "95290faf29b7b9ad6240bb6b1f9cb9a07a7bcd0ce54227d5df355512eab7bc95"
+    },
+    "hospital_log_high.json": {
+      "bytes": 44082356,
+      "sha256": "505f14fc143b20541d9332d2e0a7787d8f029a08f1c057a3f53a8a8a81e0932b"
+    },
+    "lending_log_high.json": {
+      "bytes": 45393523,
+      "sha256": "6b9f3054f65dcf8995e33a55f7a46ed7ee7cfa50dbb34d4cca165aa1c43a542d"
+    },
+    "ocel2-p2p.json": {
+      "bytes": 24503371,
+      "sha256": "3b1a87758274ef3de5c5a89623bf2951170400ac51113516f7793d184c3a8546"
+    },
+    "order-management.json": {
+      "bytes": 12553098,
+      "sha256": "6e8228f302d70f7fac23622a38b29a355913fc96d0d71289aa43d15312bd53c5"
+    },
+    "reasoning_benchmark.json": {
+      "bytes": 28067047,
+      "sha256": "bd32a0263b7228d186477e0c4076745d39c37d0c3de0f0af176d6adce992f110"
+    },
+    "renting_log_high.json": {
+      "bytes": 57321096,
+      "sha256": "09d8273df80f1377a744f542451dc2410499de859bece6211a69907f3fb36b62"
+    }
+  }
+}

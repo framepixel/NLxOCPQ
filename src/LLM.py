@@ -1,0 +1,3914 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
+import copy
+import hashlib
+import json
+import numpy as np
+import os
+import time
+import traceback
+from types import SimpleNamespace
+
+from sklearn.metrics.pairwise import cosine_similarity
+import torch
+from transformers import AutoModel, AutoTokenizer
+
+from openai import OpenAI
+from huggingface_hub import InferenceClient
+from pydantic import ValidationError
+
+import paths
+from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
+
+from LogEvents import events_and_objects_from_ocel, extract_ocel_schema
+
+# In[2]:
+
+def _corpus_fingerprint(path=None):
+    path = paths.DATA / 'ocpq_dataset.json' if path is None else path
+    """Content hash of the retrieval corpus, used to detect stale embeddings."""
+    digest = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_resources():
+    # Load the dataset
+    with open(paths.DATA / 'ocpq_dataset.json', 'r') as f:
+        dataset = json.load(f)
+
+    # Load the generated embeddings
+    embeddings = np.load(paths.DATA / 'embeddings.npy')
+
+    embedding_error = None
+
+    # Guard against embeddings generated from a DIFFERENT corpus. Row counts alone cannot
+    # catch this: `ocpq_dataset.json` was regenerated at the same 20 000 rows, so the old
+    # (20000, 384) array still lines up and every retrieval would silently return the
+    # example that was similar in the OLD corpus, at that index in the NEW one. Compare a
+    # content hash written by Embeddings.py instead, and degrade to the documented
+    # non-embedding fallback rather than retrieving nonsense.
+    meta_path = paths.DATA / 'embeddings.meta.json'
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+            if meta.get('corpus_sha256') != _corpus_fingerprint():
+                embedding_error = (
+                    'embeddings.npy was built from a different ocpq_dataset.json '
+                    '(corpus hash mismatch) - re-run Embeddings.py'
+                )
+        except Exception as exc:  # noqa: BLE001 - a bad meta file must not be fatal
+            embedding_error = f'could not verify embeddings freshness: {exc}'
+    else:
+        embedding_error = (
+            'embeddings.meta.json is missing, so embeddings.npy cannot be checked against '
+            'ocpq_dataset.json - re-run Embeddings.py to create it'
+        )
+    if embedding_error:
+        print(
+            'Warning: embedding retrieval disabled. '
+            'Falling back to non-embedding example retrieval. '
+            f'Reason: {embedding_error}'
+        )
+        return dataset, embeddings, None, None, embedding_error
+
+    # Load the local embedding model so we can embed user queries on the fly.
+    tokenizer = None
+    model = None
+    try:
+        local_dir = str(paths.MODELS / 'local-all-MiniLM-L6-v2')
+        model_name = 'sentence-transformers/all-MiniLM-L6-v2'
+        source_dir = local_dir if os.path.isdir(local_dir) else model_name
+        tokenizer = AutoTokenizer.from_pretrained(source_dir)
+        model = AutoModel.from_pretrained(source_dir)
+    except Exception as exc:
+        embedding_error = str(exc)
+        print(
+            "Warning: the embedding model could not be loaded. "
+            "Falling back to non-embedding example retrieval. "
+            f"Reason: {embedding_error}"
+        )
+    
+    return dataset, embeddings, tokenizer, model, embedding_error
+
+dataset, embeddings, tokenizer, model, embedding_load_error = load_resources()
+
+
+def mean_pooling(model_output, attention_mask):
+    token_embeddings = model_output.last_hidden_state
+    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
+def get_embedding(text):
+    if model is None or tokenizer is None:
+        raise RuntimeError(
+            "Embedding model is unavailable. "
+            f"embedding load error: {embedding_load_error}"
+        )
+    inputs = tokenizer(text, padding=True, truncation=True, return_tensors='pt')
+    with torch.no_grad():
+        model_output = model(**inputs)
+    embedding = mean_pooling(model_output, inputs['attention_mask'])
+    embedding = torch.nn.functional.normalize(embedding, p=2, dim=1)
+    return embedding.squeeze(0).cpu().numpy()
+
+hf_client = None
+openai_client = None
+hf_model = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
+hf_provider = os.getenv("HF_PROVIDER")
+hf_base_url = os.getenv("HF_BASE_URL")
+hf_backend = os.getenv("HF_BACKEND", "huggingface")
+hf_token = os.getenv("HF_TOKEN")
+failure_log_path = os.getenv("OCPQ_FAILURE_LOG_PATH", "ocpq_failure_log.jsonl")
+few_shot_enabled = True
+# Number of retrieved examples per few-shot prompt. 3 is the value every recorded run used;
+# it is exposed so the "do more examples help?" comparison can be run without touching call sites.
+DEFAULT_FEW_SHOT_K = 3
+few_shot_k = DEFAULT_FEW_SHOT_K
+generation_temperature = None
+# Consulted only when sampling is active. See `set_generation_seed`.
+generation_seed = None
+# When True, generation is constrained to the OCPQ grammar so invalid output cannot be produced.
+# Default False: every run recorded before 2026-09-02 generated freely, and the flag must not
+# change what those runs meant. See `set_constrained_decoding`.
+constrained_decoding = False
+# Overrides the per-call `max_tokens` the pipelines pass. None keeps their own values.
+generation_token_budget = None
+# ORACLE control: `(root_index, n_event_vars, n_object_vars)` taken from gold, or None. Tightens
+# the constrained-decoding grammar so the root box must declare exactly that many variables.
+# See `set_forced_root_arity` -- any run using it produces a ceiling, never system performance.
+forced_root_arity = None
+# NON-ORACLE per-case constraint: the log whose declared attribute types the value filters must
+# respect, or None. Unlike `forced_root_arity` this comes from the log schema, not gold.
+type_aware_filters_log = None
+# NON-ORACLE per-case switch: before execution, check the generated tree for defects ocpq_cli
+# cannot evaluate (unbound variables, inconsistent edges, unknown child names) and spend ONE
+# repair call on them. Default False, so every run recorded before 2026-09-14 is unchanged.
+# See `set_structural_validation`.
+structural_validation = False
+# What that check found and did on the most recent verified tree, or None. Per case.
+_last_structural_report = None
+# Per-call override: constrain generation to a DIFFERENT Pydantic model than the OCPQ tree. Used
+# by the arity predictor, which asks a narrow question and wants a two-integer answer, not a query.
+# None keeps the OCPQ grammar. See `set_constrained_schema`.
+constrained_schema_override = None
+
+LLM_CALL_STATS = []
+QUERY_EXEC_STATS = []
+
+local_model = None
+local_tokenizer = None
+local_model_key = None
+local_gpu_device = "cuda"
+local_gpu_dtype = "auto"
+local_gpu_quantization = "4bit"
+
+def set_hf_client(
+    token=None,
+    provider=None,
+    model_name=None,
+    base_url=None,
+    backend_mode=None,
+    local_device="cuda",
+    local_dtype="auto",
+    local_quantization="4bit",
+):
+    global hf_client
+    global openai_client
+    global hf_model
+    global hf_provider
+    global hf_base_url
+    global hf_backend
+    global hf_token
+    global local_model
+    global local_tokenizer
+    global local_model_key
+    global local_gpu_device
+    global local_gpu_dtype
+    global local_gpu_quantization
+
+    selected_provider = provider or hf_provider
+    selected_model = model_name or hf_model
+    selected_base_url = base_url or hf_base_url
+    selected_backend = (backend_mode or "").strip().lower() if backend_mode else None
+
+    hf_model = selected_model
+    hf_provider = selected_provider
+    hf_base_url = selected_base_url
+    hf_token = token or hf_token
+
+    if selected_backend == "local-gpu":
+        hf_backend = "local-gpu"
+        hf_client = None
+        openai_client = None
+        hf_provider = None
+        hf_base_url = None
+        new_device = local_device or "cuda"
+        new_dtype = local_dtype or "auto"
+        new_quantization = (local_quantization or "4bit").strip().lower()
+        local_gpu_device = new_device
+        local_gpu_dtype = new_dtype
+        local_gpu_quantization = new_quantization
+        # Only evict the cached model when the configuration actually changes.
+        # Without this guard, calling set_local_gpu_client() in every eval loop
+        # iteration resets local_model to None each case, forcing a full reload.
+        new_key = (hf_model, hf_token, new_device, new_dtype, new_quantization)
+        if local_model_key != new_key:
+            local_model = None
+            local_tokenizer = None
+            local_model_key = None
+        return
+
+    if selected_base_url:
+        hf_backend = "custom-endpoint"
+        openai_client = OpenAI(api_key=token or "EMPTY", base_url=selected_base_url)
+        hf_client = None
+        return
+
+    openai_client = None
+    if selected_provider:
+        hf_backend = "hf-provider"
+        hf_client = InferenceClient(api_key=token or None, provider=selected_provider)
+    else:
+        hf_backend = "hf-default"
+        hf_client = InferenceClient(api_key=token or None)
+
+
+def set_few_shot_enabled(enabled=True):
+    global few_shot_enabled
+    few_shot_enabled = bool(enabled)
+
+
+def set_few_shot_k(value=None):
+    """Set how many examples few-shot retrieval returns.
+
+    Args:
+        value: Number of examples, or None to restore the default of 3.
+    """
+    global few_shot_k
+    if value is None:
+        few_shot_k = DEFAULT_FEW_SHOT_K
+        return few_shot_k
+    parsed = int(value)
+    if parsed < 0:
+        raise ValueError(f"few_shot_k must be >= 0, got {parsed}")
+    few_shot_k = parsed
+    return few_shot_k
+
+
+def get_few_shot_k():
+    return few_shot_k
+
+
+def set_failure_log_path(path=None):
+    """Point the failure log at a specific file, or restore the default.
+
+    The default is relative to the working directory, and `submit_eval_array.sh` `cd`s once
+    to `$SLURM_SUBMIT_DIR` and never leaves it — so all 24 concurrently running array tasks
+    would append to one file. The payloads embed full prompt messages and exceed the write
+    buffer, so records get split across `write()` calls and interleave, corrupting exactly
+    the log you would want to read afterwards. `eval_testset.py` therefore points this at
+    its own run directory, giving every file a single writer.
+
+    Args:
+        path: Destination file, or None to restore `OCPQ_FAILURE_LOG_PATH` / the default.
+
+    Returns:
+        The path now in effect.
+    """
+    global failure_log_path
+    if path is None:
+        failure_log_path = os.getenv("OCPQ_FAILURE_LOG_PATH", "ocpq_failure_log.jsonl")
+    else:
+        failure_log_path = str(path)
+    return failure_log_path
+
+
+def get_failure_log_path():
+    return failure_log_path
+
+
+def set_generation_temperature(value):
+    global generation_temperature
+    if value is None:
+        generation_temperature = None
+        return
+    generation_temperature = float(value)
+
+
+def get_generation_temperature():
+    return generation_temperature
+
+
+def set_generation_seed(value):
+    """Seed the next sampled generation, or None to leave the RNG alone.
+
+    Sampling was previously unseeded: `torch.manual_seed` is never called anywhere in this
+    project, and the `seed` key in eval_config only feeds `_load_testset`'s shuffle. That is
+    fine for a greedy run -- `do_sample` is False, so the RNG is not consulted and the output is
+    deterministic regardless. It stops being fine the moment temperature > 0, which is what the
+    self-consistency experiment needs: the samples would differ (good) but the run would not be
+    reproducible (not good enough for a thesis result).
+
+    Set per (case, condition, repeat) rather than once per process, so a sample's identity does
+    not depend on how many cases ran before it -- otherwise a shard boundary would silently
+    change the draw, and the 4-way case-shard split would not reproduce a single-job run.
+
+    None leaves the global RNG untouched, reproducing the pre-2026-08-29 behaviour exactly.
+    """
+    global generation_seed
+    generation_seed = None if value is None else int(value)
+
+
+def set_constrained_decoding(value):
+    """Constrain generation to the OCPQ grammar, so invalid output cannot be produced.
+
+    Until now the schema has only ever been applied *after* generation: `schema_enforced` gates
+    `verify_ocpq_json`, which parses the model's text, validates it against `BindingBoxTree`, and
+    on failure spends a second LLM call asking the model to fix itself. That repair pass runs on
+    2043 cases and fails on 1613 of them (79%), each ending as a score of 0. `response_format`
+    never reached `generate()` on the local backend at all -- it only ever appended the sentence
+    "Return only valid JSON", identically in both settings.
+
+    This is the other thing entirely: at every decoding step the grammar says which tokens could
+    still lead to a valid `BindingBoxTree`, and the rest are masked to -inf. Detection becomes
+    prevention.
+
+    Off by default, and deliberately so: it changes what the model can emit, so a run that had it
+    on is not comparable to one that did not. `Thesis/notes/11-evaluation-readiness.md` 29-30.
+    """
+    global constrained_decoding
+    constrained_decoding = bool(value)
+
+
+def get_constrained_decoding():
+    return constrained_decoding
+
+
+def set_constrained_schema(model):
+    """Constrain the next generation to `model` instead of the OCPQ tree, or None to restore it.
+
+    The grammar machinery is per-call state exactly as `set_generation_seed` and
+    `set_forced_root_arity` are, and for the same reason: which schema applies depends on what is
+    being asked, so it must not be process-global.
+
+    Only consulted when constrained decoding is on. Callers are expected to clear it in a
+    `finally`, because a leaked override would silently constrain the NEXT query generation to a
+    two-integer object and fail every case after it.
+    """
+    global constrained_schema_override
+    constrained_schema_override = model
+
+
+def get_constrained_schema():
+    return constrained_schema_override
+
+
+def set_forced_root_arity(value):
+    """Pin how many event/object variables the ROOT box may declare, or None to leave it free.
+
+    **This is an ORACLE control.** The arity comes from the gold query, so any condition using it
+    produces a ceiling and can never be reported as system performance. `eval_testset` owns gold
+    and records `forced_root_arity` on every record, exactly as it does for `structure_hint`.
+
+    Set per (case, condition, repeat) rather than once per process, for the same reason
+    `set_generation_seed` is: the constraint depends on the case, so a shard boundary must not be
+    able to change which grammar a case was generated under.
+
+    Only takes effect when constrained decoding is on -- it is a tightening of that grammar, not a
+    separate mechanism. `None` restores the plain schema grammar.
+
+    Args:
+        value: `(n_event_vars, n_object_vars)` plus the root's index, as
+            `(root_index, n_event_vars, n_object_vars)`, or None.
+    """
+    global forced_root_arity
+    forced_root_arity = None if value is None else tuple(int(v) for v in value)
+
+
+def get_forced_root_arity():
+    return forced_root_arity
+
+
+def set_type_aware_filters(ocel_path):
+    """Constrain attribute filters to the declared types of `ocel_path`, or None to leave free.
+
+    **Not an oracle**, and the distinction matters for how any result is reported: the types come
+    from the log schema, which a deployment has, where `set_forced_root_arity` takes its number
+    from the gold query. A run using only this remains system performance.
+
+    Per case for the same reason the others are -- the constraint depends on which log the case
+    uses -- though the compiled grammar caches on the log, so it holds at most one entry per log.
+    """
+    global type_aware_filters_log
+    type_aware_filters_log = ocel_path or None
+
+
+def get_type_aware_filters():
+    return type_aware_filters_log
+
+
+def set_structural_validation(enabled):
+    """Switch the pre-execution structural check, and its single repair call, on or off.
+
+    **Not an oracle.** The check reads only the generated tree, and the repair prompt carries only
+    that tree and the defects found in it -- nothing from gold. A rung using it is system
+    performance.
+
+    Set per case like the other switches, and it clears the per-case report, so a case can never
+    report what the previous case's check found.
+    """
+    global structural_validation, _last_structural_report
+    structural_validation = bool(enabled)
+    _last_structural_report = None
+
+
+def get_structural_validation():
+    return structural_validation
+
+
+def get_last_structural_report():
+    """What the structural check found and did on the most recent verified tree; None when off."""
+    return _last_structural_report
+
+
+def set_generation_token_budget(value):
+    """Override every pipeline's `max_tokens`, or None to leave their own values alone.
+
+    The pipelines hard-code 1000/2000 across eight call sites. Truncation is a *measured* failure
+    mode distinct from schema violation -- failed generations run median 794 completion tokens
+    against 357 for successful ones and pile up at the 2000 cap -- so the budget has to be
+    movable to separate the two. Applied at the single point where generation happens rather than
+    at the call sites, so no pipeline signature changes and nothing can bypass it.
+    """
+    global generation_token_budget
+    generation_token_budget = None if value is None else int(value)
+
+
+def get_generation_token_budget():
+    return generation_token_budget
+
+
+def get_generation_seed():
+    return generation_seed
+
+
+def reset_llm_call_stats():
+    LLM_CALL_STATS.clear()
+
+
+def get_llm_call_stats():
+    return list(LLM_CALL_STATS)
+
+
+def reset_query_exec_stats():
+    QUERY_EXEC_STATS.clear()
+
+
+def get_query_exec_stats():
+    return list(QUERY_EXEC_STATS)
+
+
+def get_few_shot_enabled():
+    return few_shot_enabled
+
+
+def get_hf_backend_description():
+    if hf_backend == "local-gpu":
+        quant = f", {local_gpu_quantization}" if local_gpu_quantization else ""
+        return f"Local GPU ({hf_model}{quant})"
+    if hf_backend == "custom-endpoint":
+        return f"Custom endpoint ({hf_base_url or 'unset'})"
+    if hf_backend == "hf-provider":
+        return f"HF provider ({hf_provider or 'auto'})"
+    return "HF default"
+
+
+def set_local_gpu_client(model_name=None, token=None, device="cuda", dtype="auto", quantization="4bit"):
+    set_hf_client(
+        token=token,
+        model_name=model_name,
+        backend_mode="local-gpu",
+        local_device=device,
+        local_dtype=dtype,
+        local_quantization=quantization,
+    )
+
+def set_hf_model(model_name):
+    global hf_model
+    hf_model = model_name
+
+def set_hf_provider(provider_name):
+    global hf_provider
+    hf_provider = provider_name
+
+
+PROMPT_STRATEGIES = [
+    "schema-grammar-guided",
+    "schema-allowed-entities-only",
+    "schema-few-shot",
+    "schema-chain-of-thought-plus",
+    "schema-least-to-most",
+    # ORACLE conditions, for the structure ablation only. Both receive part of the GOLD query as
+    # a `structure_hint` built by eval_testset, so their scores are ceilings and can never be
+    # reported as system performance. The `oracle-` prefix is load-bearing: it is what makes that
+    # unmissable in a config, a log line, a run directory name and a config_id.
+    "oracle-skeleton-given",
+    "oracle-skeleton-and-constraints-given",
+]
+ORACLE_PROMPT_STRATEGIES = ("oracle-skeleton-given", "oracle-skeleton-and-constraints-given")
+DEFAULT_PROMPT_STRATEGY = os.getenv("OCPQ_PROMPT_STRATEGY", "schema-grammar-guided")
+
+
+# --- Schema-richness levels (grounding ablation) -------------------------------------
+# How much of the OCEL schema is placed in the prompt. This is an independent variable:
+# it measures how much of the NL->OCPQ difficulty is *grounding* versus reasoning/syntax.
+#
+#   entities            event + object type names only (historic behaviour)
+#   entities_attributes + declared object attribute names/types. This is the format the
+#                       fine-tuning prompts were built with, so it also repairs a
+#                       train/inference mismatch: every training prompt carried an
+#                       OBJECT ATTRIBUTES block, but inference previously sent none,
+#                       leaving the model to invent names like `is_Married`.
+#   full                + the type-level E2O and O2O relation graphs, so the model can
+#                       see which events touch which objects and route through an
+#                       intermediary when no direct relation exists.
+SCHEMA_LEVELS = ["entities", "entities_attributes", "full"]
+DEFAULT_SCHEMA_LEVEL = os.getenv("OCPQ_SCHEMA_LEVEL", "full")
+schema_level = DEFAULT_SCHEMA_LEVEL
+
+# OCEL declares attribute types lowercase ("integer"); OCPQ value_filter discriminators
+# and the fine-tuning prompts use capitalised names ("Integer"). Normalise so the prompt
+# shows the model exactly the token it must emit in `value_filter.type`.
+_ATTR_TYPE_DISPLAY = {
+    "integer": "Integer",
+    "float": "Float",
+    "double": "Float",
+    "boolean": "Boolean",
+    "bool": "Boolean",
+    "string": "String",
+    "time": "Time",
+    "date": "Time",
+}
+
+# Upper bound on the rendered schema block, in estimated tokens. Deliberately ONE value for
+# every model: giving a 256k-context model more schema than a smaller one would mean the models
+# see different prompts, which confounds the model-vs-model comparison the thesis rests on.
+# Nothing else caps the prompt — the local backend tokenizes without `max_length` — so this is
+# the only guard.
+#
+# Caps the schema SECTION, not the whole prompt. The largest rendered block across the eleven
+# evaluation logs is 10,493 tokens (angular_github_commits_ocel.xml; bpic2017 is 4,846, every
+# other log is under 1,500), so any ceiling from ~11k upward renders identical prompts. 17000 is
+# headroom above that measurement, not a whole-prompt figure.
+#
+# The previous 3500 was sized for Llama 3 8B's 8k context and silently dropped sections for
+# angular and bpic2017, contradicting the design stated in eval_testset.py — that every model
+# always receives the complete schema, richness not being a design variable. With Llama 3 and
+# Phi-4 replaced, the smallest context in the set is Gemma 3 4B at 128k (Llama 3.1 128k,
+# Ministral 3 256k), so the block no longer needs capping below its natural size.
+SCHEMA_BLOCK_TOKEN_BUDGET = int(os.getenv("OCPQ_SCHEMA_TOKEN_BUDGET", "17000"))
+
+# Schema text is name-heavy, so it tokenizes denser than prose. Used only to keep the block
+# under budget, never to report a metric, so an approximation is sufficient and avoids
+# loading a tokenizer on a function called once per evaluation case.
+_CHARS_PER_TOKEN = 3.6
+
+# Records why a section was left out, for the run manifest. Reset per render.
+_last_schema_omissions: list = []
+
+# Context-overflow warnings are emitted once per (model, rough size) so a systematic
+# overflow is reported without flooding 5400 runs' worth of logs.
+_context_warned: set = set()
+
+
+def _estimated_tokens(text):
+    return int(len(text) / _CHARS_PER_TOKEN)
+
+
+def get_last_schema_omissions():
+    """Sections dropped from the most recent `build_schema_block` call, if any."""
+    return list(_last_schema_omissions)
+
+
+def _render_attribute(attr):
+    """Render one attribute as the fine-tuning prompts do.
+
+    `convert_dataset_for_finetuning.py` emits `name (Type)` and, for low-cardinality string
+    attributes, `name (Type: v1, v2)`. Evaluation previously emitted only the former, so a
+    model taught to read the literal `"0"` off `isCitizen (String: 0, 1)` was left guessing
+    between `"0"`, `"false"` and `"No"`. Matching the training format closes that gap.
+    """
+    display = _ATTR_TYPE_DISPLAY.get(str(attr.get("type", "")).lower(), "String")
+    values = attr.get("values")
+    if values:
+        return f"{attr['name']} ({display}: {', '.join(str(v) for v in values)})"
+    return f"{attr['name']} ({display})"
+
+
+def _render_attribute_section(header, types, attributes_by_type):
+    """Render one `X ATTRIBUTES:` section, or [] when nothing has attributes."""
+    lines = []
+    for type_name in types:
+        attrs = (attributes_by_type or {}).get(type_name) or []
+        rendered = ", ".join(_render_attribute(a) for a in attrs if a.get("name"))
+        if rendered:
+            lines.append(f"  {type_name}: {rendered}")
+    return ([header] + lines) if lines else []
+
+
+def normalize_schema_level(level):
+    """Return a valid schema level, falling back to the default."""
+    if not level:
+        return DEFAULT_SCHEMA_LEVEL
+    normalized = str(level).strip().lower().replace("-", "_")
+    aliases = {
+        "entities": "entities",
+        "entities_only": "entities",
+        "entities_attributes": "entities_attributes",
+        "attributes": "entities_attributes",
+        "full": "full",
+        "relations": "full",
+    }
+    return aliases.get(normalized, DEFAULT_SCHEMA_LEVEL)
+
+
+def set_schema_level(level):
+    """Set the active schema-richness level for subsequent pipeline calls."""
+    global schema_level
+    schema_level = normalize_schema_level(level)
+    return schema_level
+
+
+def build_schema_block(schema, level=None):
+    """Render the OCEL schema for the prompt at the requested richness level.
+
+    The ALLOWED EVENTS / ALLOWED OBJECTS / OBJECT ATTRIBUTES sections reproduce the
+    format used in the fine-tuning prompts — including the `(String: v1, v2)` value
+    enumeration — so the fine-tuned models see at inference what they saw in training.
+
+    The block is capped at `SCHEMA_BLOCK_TOKEN_BUDGET`; sections that do not fit are
+    dropped whole and reported by `get_last_schema_omissions()`. Two deliberate
+    differences from the training prompt remain and are documented in
+    `Thesis/notes/11-evaluation-readiness.md`: the relation graphs and the event-attribute
+    section appear here but in no training prompt, because `ocpq_dataset.json` carries
+    neither.
+
+    Args:
+        schema: Output of LogEvents.extract_ocel_schema().
+        level: One of SCHEMA_LEVELS; defaults to the module-level `schema_level`.
+
+    Returns:
+        The schema text block to embed in a prompt.
+    """
+    global _last_schema_omissions
+    _last_schema_omissions = []
+    level = normalize_schema_level(level or schema_level)
+
+    event_types = schema.get("event_types", [])
+    object_types = schema.get("object_types", [])
+    lines = [
+        f"ALLOWED EVENTS: {json.dumps(event_types)}",
+        f"ALLOWED OBJECTS: {json.dumps(object_types)}",
+    ]
+
+    if level == "entities":
+        return "\n".join(lines)
+
+    def _add(section, name):
+        """Append a section unless it would push the block past the budget.
+
+        Sections are dropped whole rather than truncated: half a relation list or half an
+        attribute list would read as a complete one, and the model would confidently treat
+        the missing entries as nonexistent. An omission is recorded instead.
+        """
+        if not section:
+            return
+        candidate = "\n".join(lines + section)
+        if _estimated_tokens(candidate) > SCHEMA_BLOCK_TOKEN_BUDGET:
+            _last_schema_omissions.append({
+                "section": name,
+                "estimated_tokens": _estimated_tokens("\n".join(section)),
+                "budget": SCHEMA_BLOCK_TOKEN_BUDGET,
+            })
+            return
+        lines.extend(section)
+
+    _add(_render_attribute_section("OBJECT ATTRIBUTES:", object_types,
+                                   schema.get("object_attributes")), "object_attributes")
+
+    if level == "entities_attributes":
+        return "\n".join(lines)
+
+    # level == "full": add the relation graphs.
+    def _render_relations(triples):
+        rendered = []
+        for source, target, qualifier in triples:
+            suffix = f" ({qualifier})" if qualifier else ""
+            rendered.append(f"  {source} -> {target}{suffix}")
+        return rendered
+
+    e2o = _render_relations(schema.get("e2o", []) or [])
+    if e2o:
+        _add(["EVENT-TO-OBJECT RELATIONS (only these event/object pairs are linked):"] + e2o,
+             "e2o_relations")
+
+    o2o = _render_relations(schema.get("o2o", []) or [])
+    if o2o:
+        _add(["OBJECT-TO-OBJECT RELATIONS (only these object pairs are linked):"] + o2o,
+             "o2o_relations")
+    lines.append(
+        "Use ONLY the relations listed above. If two entities are not directly related, "
+        "connect them through an intermediary that is."
+    )
+
+    # Event attributes come last because they are the least often needed and by far the
+    # largest: bpic2017 declares 494 of them and angular 277. Ordered last so that if the budget
+    # ever does bind, this is the section that goes rather than the entity or relation lists.
+    # At the current 17000 budget nothing is dropped for any of the eleven evaluation logs.
+    _add(_render_attribute_section("EVENT ATTRIBUTES:", event_types,
+                                   schema.get("event_attributes")), "event_attributes")
+
+    return "\n".join(lines)
+
+
+def normalize_prompt_strategy(prompt_strategy):
+    if not prompt_strategy:
+        return DEFAULT_PROMPT_STRATEGY
+    normalized = prompt_strategy.strip().lower()
+    aliases = {
+        "grammar-guided": "schema-grammar-guided",
+        "schema-grammar-guided": "schema-grammar-guided",
+        "allowed-entities-only": "schema-allowed-entities-only",
+        "allowed-only": "schema-allowed-entities-only",
+        "schema-allowed-entities-only": "schema-allowed-entities-only",
+        "few-shot": "schema-few-shot",
+        "schema-few-shot": "schema-few-shot",
+        "chain-of-thought-plus": "schema-chain-of-thought-plus",
+        "schema-chain-of-thought-plus": "schema-chain-of-thought-plus",
+        "schema-chain-of-though-plus": "schema-chain-of-thought-plus",
+        "least-to-most": "schema-least-to-most",
+        "schema-least-to-most": "schema-least-to-most",
+        "skeleton-given": "oracle-skeleton-given",
+        "oracle-skeleton-given": "oracle-skeleton-given",
+        "skeleton-and-constraints-given": "oracle-skeleton-and-constraints-given",
+        "oracle-skeleton-and-constraints-given": "oracle-skeleton-and-constraints-given",
+    }
+    return aliases.get(normalized, normalized)
+
+# In[3]:
+
+def validate_query(q):
+    try:
+        assert "nodes" in q
+        for node in q["nodes"]:
+            box = node["Box"]
+            assert isinstance(box, list) and len(box) == 2
+            assert "newEventVars" in box[0]
+        return True
+    except:
+        return False
+
+def retrieve_examples(query, dataset, embeddings, top_k=3):
+    """
+    Retrieve the top-k most similar examples from the dataset based on cosine similarity of embeddings.
+    """
+    top_indices = None
+    try:
+        query_emb = get_embedding(query)
+
+        # Calculate cosine similarity between the query and all dataset questions
+        similarities = cosine_similarity([query_emb], embeddings)[0]
+
+        # Get the indices of the top-k most similar questions
+        top_indices = np.argsort(similarities)[-top_k:][::-1]
+    except Exception as exc:
+        print(
+            "Warning: using deterministic fallback examples because embedding retrieval failed. "
+            f"Reason: {exc}"
+        )
+        top_indices = np.arange(min(top_k, len(dataset)))
+    
+    examples = []
+    for idx in top_indices:
+        examples.append({
+            "nl": dataset[idx]["nl"],
+            "nl_clean_1": dataset[idx].get("nl_clean_1"),
+            "nl_clean_2": dataset[idx].get("nl_clean_2"),
+            "query": dataset[idx]["query"],
+            "reasoning": dataset[idx].get("reasoning")
+        })
+    
+    return examples
+
+# In[4]:
+
+# Commented out the stray retrieval call that automatically executes on import
+# retrieve_examples("For any person, the diagnosis must be completed within 3 days after the registration at ER.", dataset, embeddings)
+
+# In[5]:
+
+# from LogEvents import events_and_objects_from_ocel
+# event_names, object_names = events_and_objects_from_ocel("../hospital_log_high.json")
+
+# In[6]:
+
+
+import re
+import ast
+
+def parse_llm_json(content):
+    if not isinstance(content, str):
+        return None
+    # Target json code blocks specifically
+    match = re.search(r'```(?:json)?\n(.*?)\n```', content, re.DOTALL)
+    if not match:
+        match = re.search(r'\{.*\}', content, re.DOTALL)
+
+    if match:
+        if match.lastindex:
+            clean_content = match.group(1)
+        else:
+            clean_content = match.group(0)
+    else:
+        clean_content = content.strip()
+
+    if not clean_content:
+        return None
+    
+    # Auto-heal truncated JSON
+    if not clean_content.endswith("}"):
+        clean_content += "\n}"
+        
+    try:
+        return json.loads(clean_content)
+    except json.JSONDecodeError:
+        try:
+            # Fallback: convert python-like string (with single quotes) to Python dict
+            py_content = clean_content.replace("null", "None").replace("true", "True").replace("false", "False")
+            parsed = ast.literal_eval(py_content)
+        except Exception as e:
+            print(f"Failed to decode JSON. Error: {e}\nRaw output:\n{content}")
+            return None
+
+        # `literal_eval` accepts Python literals that JSON has no concept of. The one that bites
+        # is `...`, which models emit constantly as an abbreviation placeholder: it evaluates to
+        # `Ellipsis`, so the result *looks* like a parsed dict and only fails later, deep inside
+        # `json.dumps`, as "Object of type ellipsis is not JSON serializable". That surfaced as an
+        # unhandled `pipeline_error` -- our defect -- rather than the `parse_failed` it really is,
+        # and it hit 2 of the first 29 runs of the 2026-08-16 smoke test.
+        #
+        # A round-trip through `json.dumps` catches the whole family (ellipsis, sets, bytes,
+        # complex) rather than special-casing the one we happened to see.
+        try:
+            json.dumps(parsed)
+        except (TypeError, ValueError) as exc:
+            print(f"Parsed output is not JSON-serialisable ({exc}); treating as unparseable.\n"
+                  f"Raw output:\n{content}")
+            return None
+        return parsed
+
+
+def get_validation_error_text(ocpq_json):
+    try:
+        candidate = _normalize_constraints_shape(ocpq_json)
+        BindingBoxTree.model_validate(candidate)
+        return None
+    except ValidationError as e:
+        return str(e)
+    except Exception as e:
+        return str(e)
+
+
+def append_failure_log(
+    stage,
+    query,
+    messages,
+    raw_output,
+    parsed_json,
+    normalized_json,
+    allowed_events=None,
+    allowed_objects=None,
+    validation_error=None,
+    extra=None,
+):
+    payload = {
+        "stage": stage,
+        "query": query,
+        "prompt_messages": messages,
+        "raw_output": raw_output,
+        "parsed_json": parsed_json,
+        "normalized_json": normalized_json,
+        "allowed_events": sorted(allowed_events or []),
+        "allowed_objects": sorted(allowed_objects or []),
+        "validation_error": validation_error,
+        "extra": extra or {},
+    }
+
+    try:
+        with open(failure_log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        print(f"Warning: failed to write failure log to {failure_log_path}: {exc}")
+
+
+def _dtype_from_name(torch_module, dtype_name):
+    normalized = (dtype_name or "auto").strip().lower()
+    if normalized in ("auto", ""):
+        return None
+    if normalized in ("float16", "fp16", "half"):
+        return torch_module.float16
+    if normalized in ("bfloat16", "bf16"):
+        return torch_module.bfloat16
+    if normalized in ("float32", "fp32"):
+        return torch_module.float32
+    raise ValueError(
+        f"Unsupported local dtype '{dtype_name}'. Use one of: auto, float16, bfloat16, float32"
+    )
+
+
+def _build_local_prompt(messages):
+    parts = []
+    for message in messages:
+        role = message.get("role", "user")
+        content = message.get("content", "")
+        parts.append(f"{role.upper()}: {content}")
+    parts.append("ASSISTANT:")
+    return "\n\n".join(parts)
+
+
+def _bitsandbytes_quantization_config(torch_module, quantization_mode, resolved_dtype):
+    mode = (quantization_mode or "").strip().lower()
+    if mode in ("", "none", "fp16", "float16", "bfloat16", "bf16", "auto"):
+        return None
+
+    try:
+        from transformers import BitsAndBytesConfig
+    except Exception as exc:
+        raise RuntimeError(
+            "4-bit local inference requires the 'bitsandbytes' package."
+        ) from exc
+
+    if mode in ("4bit", "4-bit", "bnb4", "bnb-4bit", "nf4"):
+        compute_dtype = resolved_dtype or torch_module.bfloat16
+        return BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=compute_dtype,
+        )
+
+    raise ValueError(
+        f"Unsupported local quantization mode '{quantization_mode}'. Use 4bit or none."
+    )
+
+
+def is_merged_model_dir(path) -> bool:
+    """Does this directory hold full model weights, as opposed to a LoRA adapter?
+
+    Public because it is a contract, not a detail: anything that PRODUCES a checkpoint for this
+    pipeline has to agree with what LOADS one. `merge_gemma.py` imports it for exactly that
+    reason. On 2026-08-19 the two disagreed -- the merge script accepted sharded safetensors that
+    this check did not list -- and all 48 Gemma smoke conditions failed with "not recognized as a
+    merged model or a PEFT adapter" after the checkpoints had passed every verification step.
+
+    Sharded safetensors (`model-00001-of-00002.safetensors` + `model.safetensors.index.json`) is
+    the ordinary output format for any model past a few GB; `save_pretrained` shards by default.
+    Omitting it meant this pipeline could only load models small enough to fit in one file, which
+    was never the intent.
+    """
+    import glob
+    import os
+
+    single = (
+        "model.safetensors",
+        "pytorch_model.bin",
+        "pytorch_model-00001-of-00002.bin",
+        # Index files are the canonical marker of a sharded checkpoint.
+        "model.safetensors.index.json",
+        "pytorch_model.bin.index.json",
+    )
+    if any(os.path.exists(os.path.join(path, name)) for name in single):
+        return True
+    # Shards without an index: unusual, still loadable by transformers.
+    return bool(
+        glob.glob(os.path.join(path, "model-*-of-*.safetensors"))
+        or glob.glob(os.path.join(path, "pytorch_model-*-of-*.bin"))
+    )
+
+
+def _load_text_generation_model(model_name, **kwargs):
+    """Load a checkpoint for text generation under whichever auto class it is registered for.
+
+    `AutoModelForCausalLM` is not universal. Multimodal checkpoints may be registered only under
+    `AutoModelForImageTextToText`, and which ones varies by transformers release: on 5.5.0
+    Gemma 3 loads fine as a causal LM while Ministral 3 raises
+
+        Unrecognized configuration class Mistral3Config for this kind of AutoModel:
+        AutoModelForCausalLM
+
+    That killed all 48 Ministral runs of the 2026-08-15 smoke test -- a third of the matrix
+    producing nothing. Because the split does not follow architecture families, this reacts to
+    the actual error rather than encoding a mapping of which models are multimodal, which would
+    drift with every transformers upgrade.
+
+    The image-text-to-text wrapper generates from `input_ids` alone; no pixel inputs are needed.
+    """
+    from transformers import AutoModelForCausalLM
+
+    try:
+        return AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
+    except ValueError as exc:
+        if "Unrecognized configuration class" not in str(exc):
+            raise
+        try:
+            from transformers import AutoModelForImageTextToText
+        except ImportError:
+            raise exc
+        print(
+            f"[model load] {model_name} is not registered for AutoModelForCausalLM; "
+            "loading via AutoModelForImageTextToText (multimodal checkpoint)."
+        )
+        return AutoModelForImageTextToText.from_pretrained(model_name, **kwargs)
+
+
+def _as_tokenizer(tokenizer_or_processor):
+    """Return the tokenizer, unwrapping a processor if one came back.
+
+    `AutoTokenizer` on a multimodal repo can yield a processor whose first positional argument is
+    `images`, not `text` -- the failure the Ministral training spike hit. Unwrapping keeps every
+    downstream call (`apply_chat_template`, `__call__`, `pad_token`) operating on a tokenizer.
+    """
+    inner = getattr(tokenizer_or_processor, "tokenizer", None)
+    if inner is not None and hasattr(inner, "apply_chat_template"):
+        print(f"[model load] unwrapped {type(tokenizer_or_processor).__name__} -> "
+              f"{type(inner).__name__}")
+        return inner
+    return tokenizer_or_processor
+
+
+def _ensure_local_gpu_model_loaded():
+    global local_model
+    global local_tokenizer
+    global local_model_key
+
+    model_key = (hf_model, hf_token, local_gpu_device, local_gpu_dtype, local_gpu_quantization)
+    if local_model is not None and local_tokenizer is not None and local_model_key == model_key:
+        return
+
+    try:
+        import torch
+    except Exception as exc:
+        raise RuntimeError(
+            "Local GPU backend requires PyTorch with CUDA support."
+        ) from exc
+
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "Local GPU backend selected but no CUDA GPU is available. "
+            "Switch to HF Inference Providers or run on a machine with CUDA."
+        )
+
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except Exception as exc:
+        raise RuntimeError(
+            "transformers is required for local GPU backend but could not be imported."
+        ) from exc
+
+    auth_kwargs = {"token": hf_token} if hf_token else {}
+    # Support three cases for the `--model` argument when using local GPU:
+    # 1) A HF hub id or local model dir with full pretrained weights
+    # 2) A local directory that contains a merged/converted model (pytorch_model.bin, etc.)
+    # 3) A LoRA adapter directory (PEFT) such as lora_model_ocpq* containing adapter_config.json
+    model_kwargs = {"device_map": "auto", "trust_remote_code": True}
+    resolved_dtype = _dtype_from_name(torch, local_gpu_dtype)
+    if resolved_dtype is not None:
+        model_kwargs["torch_dtype"] = resolved_dtype
+    quantization_config = _bitsandbytes_quantization_config(torch, local_gpu_quantization, resolved_dtype)
+    if quantization_config is not None:
+        model_kwargs["quantization_config"] = quantization_config
+
+    # If the provided model string refers to an existing local directory, attempt adapter-aware loading
+    if os.path.isdir(hf_model):
+        # Case: PEFT/LoRA adapter directory
+        adapter_config_path = os.path.join(hf_model, "adapter_config.json")
+        adapter_safetensors = os.path.join(hf_model, "adapter_model.safetensors")
+        merged_weights = is_merged_model_dir(hf_model)
+
+        if os.path.exists(adapter_config_path) or os.path.exists(adapter_safetensors):
+            try:
+                from peft import PeftModel
+            except Exception as exc:
+                raise RuntimeError(
+                    "Loading a LoRA adapter requires the 'peft' package. Install it (pip install peft) to use adapter directories."
+                ) from exc
+
+            # Read base model name from adapter_config if available
+            base_model_name = None
+            try:
+                with open(adapter_config_path, "r", encoding="utf-8") as f:
+                    ac = json.load(f)
+                    base_model_name = ac.get("base_model_name_or_path") or ac.get("base_model_name")
+            except Exception:
+                base_model_name = None
+
+            if not base_model_name:
+                raise RuntimeError(
+                    "Adapter directory detected but base model name not found in adapter_config.json. "
+                    "Include 'base_model_name_or_path' in adapter_config.json or specify the base model explicitly."
+                )
+
+            # This field decides which weights the LoRA is injected into, and for Gemma 3 it does
+            # NOT name the checkpoint the adapter was trained against. unsloth substitutes its own
+            # pre-quantized redistribution when load_in_4bit=True, then
+            # `train_unsloth._restore_requested_base_model_name` redirects this field back to the
+            # requested checkpoint.
+            #
+            # That divergence is deliberate and unavoidable, not an oversight. Pointing Gemma at
+            # the artifact it was actually trained on was tried on 2026-08-16 (job 3015021) and
+            # both its arms failed to generate a token: bitsandbytes raises "FP4 quantization
+            # state not initialized" and asserts inside fix_4bit_weight_quant_state_from_module.
+            # The redistribution is unusable for inference. Llama and Ministral are unaffected —
+            # their requested checkpoint already IS the unsloth artifact, so nothing is redirected
+            # and train and eval agree.
+            #
+            # Consequence to disclose: Gemma's LoRA is applied to weights quantized by bnb rather
+            # than by unsloth. Both are nf4 over the same checkpoint and should be close, but they
+            # are not provably identical. See models/adapters/*/ocpq_provenance.json.
+
+            # Load the base model with 4-bit quantization so its Params4bit layers are
+            # properly initialised. The adapter's LoRA A/B weights are then injected
+            # manually below, bypassing PeftModel.from_pretrained entirely.
+            # Background: unsloth saves adapters in a format that embeds quantized base-
+            # model layers alongside the LoRA deltas. PeftModel.from_pretrained restores
+            # those quantized layers via bitsandbytes but with quant_state=None (version
+            # mismatch between training and inference bitsandbytes), causing every forward
+            # pass to raise a bare AssertionError with empty message. Loading only the
+            # LoRA A/B tensors (keys containing "lora_") sidesteps the issue entirely.
+            base = _load_text_generation_model(base_model_name, **auth_kwargs, **model_kwargs)
+            tokenizer = _as_tokenizer(AutoTokenizer.from_pretrained(base_model_name, use_fast=True, trust_remote_code=True, **auth_kwargs))
+
+            # Compatibility shim: get_peft_model / load_state_dict inspect Params4bit-
+            # specific attributes (compress_statistics, quant_type, …) on the freshly
+            # created plain nn.Parameter LoRA matrices, raising AttributeError. Adding
+            # class-level defaults makes those accesses return a benign value. Real
+            # Params4bit base layers shadow these with instance attributes, unaffected.
+            _bnb_compat = {
+                "compress_statistics": None,
+                "quant_type": "nf4",
+                "quant_state": None,
+                "blocksize": 64,
+                "quant_storage": None,
+            }
+            _added_compat_attrs = [a for a in _bnb_compat if a not in torch.nn.Parameter.__dict__]
+            for _a in _added_compat_attrs:
+                setattr(torch.nn.Parameter, _a, _bnb_compat[_a])
+            try:
+                from peft import PeftConfig, get_peft_model
+                try:
+                    from peft import set_peft_model_state_dict
+                except ImportError:
+                    from peft.utils import set_peft_model_state_dict
+                from safetensors.torch import load_file as _st_load
+
+                _peft_cfg = PeftConfig.from_pretrained(hf_model)
+                model = get_peft_model(base, _peft_cfg)
+
+                _adapter_sf = os.path.join(hf_model, "adapter_model.safetensors")
+                _adapter_bin = os.path.join(hf_model, "adapter_model.bin")
+                if os.path.exists(_adapter_sf):
+                    _raw = _st_load(_adapter_sf, device=str(next(iter(base.parameters())).device))
+                elif os.path.exists(_adapter_bin):
+                    _raw = torch.load(_adapter_bin, map_location=next(iter(base.parameters())).device)
+                else:
+                    raise FileNotFoundError("No adapter_model.safetensors or adapter_model.bin found.")
+
+                # Keep only LoRA delta weights; discard any quantized base-layer tensors
+                # that unsloth may have embedded in the checkpoint. set_peft_model_state_dict
+                # handles the key remapping (including the "default" adapter-name insertion)
+                # between the saved checkpoint and the live get_peft_model() structure.
+                _lora_sd = {k: v for k, v in _raw.items() if "lora_" in k}
+                _result = set_peft_model_state_dict(model, _lora_sd, adapter_name="default")
+                _unexpected = list(getattr(_result, "unexpected_keys", []) or [])
+                _loaded = len(_lora_sd) - len(_unexpected)
+                print(f"[adapter load] injected {_loaded}/{len(_lora_sd)} LoRA tensors "
+                      f"({len(_unexpected)} unexpected)")
+                # Any unmatched key means the fine-tuning is only partly applied, which produces
+                # a silently degraded model rather than an error -- the worst outcome in an
+                # evaluation. Both working adapters report 0 unexpected, so nothing legitimate is
+                # being rejected here. A multimodal wrapper nests the decoder (e.g. under
+                # `model.language_model.*`), so a name shift shows up as unexpected keys; the
+                # sample below is what a prefix mapping would be written from.
+                if _unexpected:
+                    _sample = ", ".join(_unexpected[:3])
+                    raise RuntimeError(
+                        f"Adapter only partially applied: {_loaded}/{len(_lora_sd)} tensors "
+                        f"matched, {len(_unexpected)} did not. Unmatched keys look like: "
+                        f"{_sample}. Loading would give a half-fine-tuned model."
+                    )
+                if _loaded <= 0:
+                    raise RuntimeError("No LoRA tensors matched the model's parameter names.")
+            finally:
+                for _a in _added_compat_attrs:
+                    if _a in torch.nn.Parameter.__dict__:
+                        try:
+                            delattr(torch.nn.Parameter, _a)
+                        except Exception:
+                            pass
+
+        elif merged_weights:
+            # Directory appears to contain merged weights; load directly from the directory
+            tokenizer = _as_tokenizer(AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs))
+            if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+                tokenizer.pad_token = tokenizer.eos_token
+            model = _load_text_generation_model(hf_model, **auth_kwargs, **model_kwargs)
+
+        else:
+            raise RuntimeError(
+                f"Model directory '{hf_model}' not recognized as a merged model or a PEFT adapter."
+            )
+
+    else:
+        # Normal HF hub id or remote model
+        tokenizer = _as_tokenizer(AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs))
+        if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
+        model = _load_text_generation_model(hf_model, **auth_kwargs, **model_kwargs)
+
+    if not any(param.is_cuda for param in model.parameters()):
+        raise RuntimeError(
+            "Local backend loaded the model but no parameters are placed on CUDA. "
+            "Check your local GPU configuration."
+        )
+
+    local_model = model
+    local_tokenizer = tokenizer
+    if hasattr(local_model, "generation_config") and local_model.generation_config is not None:
+        try:
+            local_model.generation_config.max_length = None
+        except Exception:
+            pass
+    local_model_key = model_key
+
+
+def _model_context_limit():
+    """The loaded model's context window, read from its own config.
+
+    Preferred over a hardcoded table: the model set changes, and a stale table would
+    silently mis-report the very thing this guard exists to catch.
+    """
+    config = getattr(local_model, "config", None)
+    for attr in ("max_position_embeddings", "max_sequence_length", "n_positions"):
+        value = getattr(config, attr, None)
+        if isinstance(value, int) and value > 0:
+            return value
+    text_config = getattr(config, "text_config", None)  # multimodal models nest it
+    value = getattr(text_config, "max_position_embeddings", None)
+    return value if isinstance(value, int) and value > 0 else None
+
+
+class PromptTooLongError(RuntimeError):
+    """The prompt alone exceeds the model's context, so no generation budget can rescue it."""
+
+
+def _check_context_budget(prompt_tokens, max_tokens):
+    """Guard the context window: raise when hopeless, warn when merely tight.
+
+    Nothing in this path truncates: the tokenizer is called without `max_length` and
+    `generation_config.max_length` is set to None, so an oversized prompt is not clipped —
+    it degrades or errors during generation. Without this the failure would surface only as
+    unexplained garbage output in the results.
+
+    Two distinct cases, and conflating them is what made the 2026-08-15 smoke test spend five
+    OOM retries on a single case:
+
+    * **Prompt alone over the limit** — unrecoverable. `call_hf_with_retry` responds to OOM by
+      shrinking `max_tokens`, which cannot help when the *prompt* is 1.2M tokens against a 131k
+      context. Raising here turns a five-attempt death spiral (ending in a 1,444 GiB allocation
+      request) into one fast, correctly-classified failure.
+    * **Prompt plus generation budget over the limit** — recoverable by generating less, which
+      is exactly what the retry loop does. Warn and let it proceed.
+    """
+    limit = _model_context_limit()
+    if not limit:
+        return
+    if prompt_tokens > limit:
+        raise PromptTooLongError(
+            f"Prompt is {prompt_tokens} tokens against a {limit}-token context: no generation "
+            "budget can make this fit. Usually runaway conversation history rather than the "
+            f"schema block (currently capped at {SCHEMA_BLOCK_TOKEN_BUDGET} tokens)."
+        )
+    needed = prompt_tokens + int(max_tokens or 0)
+    if needed <= limit:
+        return
+    key = (local_model_key, needed // 512)
+    if key in _context_warned:
+        return
+    _context_warned.add(key)
+    print(
+        f"WARNING: prompt ({prompt_tokens} tokens) + generation budget ({max_tokens}) "
+        f"= {needed} exceeds the model's {limit}-token context. Output will be truncated "
+        f"or degraded. Lower OCPQ_SCHEMA_TOKEN_BUDGET (currently "
+        f"{SCHEMA_BLOCK_TOKEN_BUDGET}) or reduce few_shot_k."
+    )
+
+
+# Compiled grammar + tokenizer info, keyed by tokenizer identity. Compiling is cheap (~0.04 s)
+# but building the token-vocabulary mask is not, and both are invariant across every call in a
+# run, so doing either per call would dominate generation time.
+_XGRAMMAR_CACHE = {}
+
+
+# Which `value_filter` variants are admissible for an attribute of each declared type. Integer and
+# Float are mutually permitted because gold uses Float bounds on integer-ish attributes and the
+# distinction is not one the log's own typing makes reliably; Time permits String because OCEL
+# serialises timestamps as strings.
+VALUE_FILTER_FOR_DECLARED = {
+    "integer": ("ValueFilterInteger", "ValueFilterFloat"),
+    "float": ("ValueFilterFloat", "ValueFilterInteger"),
+    "boolean": ("ValueFilterBoolean",),
+    "string": ("ValueFilterString",),
+    "time": ("ValueFilterTime", "ValueFilterString"),
+}
+_ATTRIBUTE_FILTERS = {
+    "FilterObjectAttributeValueFilter": "object_attributes",
+    "FilterEventAttributeValueFilter": "event_attributes",
+}
+
+
+def _type_aware_schema(schema, ocel_path):
+    """Constrain each attribute filter's `value_filter` to the attribute's DECLARED type.
+
+    Built for notes 34.3's reading that the model collapses comparisons into string membership
+    (`Age` declared Integer, "older than 40" emitted as `String{is_in: ["40"]}`). **That reading
+    was withdrawn in notes 35.4**: every such disagreement sat on an attribute the cluster's stale
+    corpus declared as a string, so the prompt really did say String there. On the corrected
+    corpus the model is type-correct on 8 of 9 attribute filters without this constraint, and the
+    typed ablation was not run (notes 35.6). Off by default; kept as tested machinery.
+
+    **This is not an oracle.** The types come from the log schema, which any deployment has. That is
+    what separates it from the arity forcing of notes 32.
+
+    Grouped by declared TYPE rather than by attribute: one branch per type (at most five), each
+    carrying an enum of the names that have it. Branching per attribute would need one branch per
+    name, and bpic2017 has 494 (event type, name) pairs. Grouping by name is safe because no
+    attribute name carries conflicting declared types in any of the 25 logs -- checked, not assumed.
+
+    Returns the schema unchanged when the log declares no typed attributes, so a log without them
+    costs nothing and cannot fail.
+    """
+    try:
+        log_schema = extract_ocel_schema(ocel_path)
+    except Exception as exc:  # noqa: BLE001 - a constraint we cannot build is one we skip
+        print(f"   type-aware filters unavailable for {ocel_path}: {exc}")
+        return schema
+
+    defs = schema["$defs"]
+    replacements = {}
+    for filter_def, attribute_key in _ATTRIBUTE_FILTERS.items():
+        if filter_def not in defs:
+            continue
+        by_type = {}
+        for attributes in (log_schema.get(attribute_key) or {}).values():
+            for attribute in attributes:
+                declared = str(attribute.get("type", "")).lower()
+                if declared in VALUE_FILTER_FOR_DECLARED:
+                    by_type.setdefault(declared, set()).add(attribute["name"])
+        if not by_type:
+            continue
+        branches = []
+        for declared, names in sorted(by_type.items()):
+            branch = copy.deepcopy(defs[filter_def])
+            branch["properties"]["attribute_name"] = {"enum": sorted(names)}
+            branch["properties"]["value_filter"] = {
+                "anyOf": [{"$ref": f"#/$defs/{v}"} for v in VALUE_FILTER_FOR_DECLARED[declared]]}
+            name = f"{filter_def}__{declared}"
+            defs[name] = branch
+            branches.append({"$ref": f"#/$defs/{name}"})
+        replacements[f"#/$defs/{filter_def}"] = branches
+
+    if not replacements:
+        return schema
+
+    def rewrite_union(node):
+        """Swap each attribute-filter ref for its typed branches, wherever the union appears."""
+        if isinstance(node, dict):
+            for key in ("anyOf", "oneOf"):
+                variants = node.get(key)
+                if isinstance(variants, list) and any(
+                        v.get("$ref") in replacements for v in variants if isinstance(v, dict)):
+                    rebuilt = []
+                    for variant in variants:
+                        ref = variant.get("$ref") if isinstance(variant, dict) else None
+                        rebuilt.extend(replacements[ref] if ref in replacements else [variant])
+                    node[key] = rebuilt
+                    # The discriminator maps a `type` literal to ONE ref, and every branch here
+                    # keeps the same literal. Leaving it would be a mapping that no longer
+                    # describes the union -- drop it rather than let it drift.
+                    node.pop("discriminator", None)
+            for value in node.values():
+                rewrite_union(value)
+        elif isinstance(node, list):
+            for value in node:
+                rewrite_union(value)
+
+    rewrite_union(schema)
+    return schema
+
+
+def _arity_pinned_schema(root_index, n_event_vars, n_object_vars):
+    """The OCPQ schema with the ROOT box's variable counts pinned, every other node left free.
+
+    Pinning `BindingBoxData` directly does not work and the feasibility gate caught it: that
+    definition is shared by every node, so pinning it forces child boxes to the root's arity too
+    and rejects **141 of the 169** gold queries, since a child usually binds something different
+    from its parent. The root is therefore given its own `$def` and reached positionally through
+    `prefixItems`, with `items` left generic so the node COUNT stays free -- this experiment forces
+    root arity, not tree shape.
+
+    `root_index` is not assumed to be 0. It is 0 for 166 of the 169 gold queries and 1 or 2 for the
+    rest, and a valid tree may list a child before its parent.
+
+    Verified over the whole testset: gold is accepted under its own arity 169/169 and rejected
+    under a neighbouring arity 169/169 (`tests/test_forced_arity.py`).
+    """
+    schema = copy.deepcopy(OCPQ_JSON_SCHEMA)
+    defs = schema["$defs"]
+
+    pinned = copy.deepcopy(defs["BindingBoxData"])
+    for field, count in (("newEventVars", n_event_vars), ("newObjectVars", n_object_vars)):
+        pinned["properties"][field] = dict(
+            pinned["properties"][field], minProperties=count, maxProperties=count)
+    defs["BindingBoxDataRoot"] = pinned
+
+    root_node = copy.deepcopy(defs["BindingBoxTreeNodeBox"])
+    root_node["properties"]["Box"]["prefixItems"][0] = {"$ref": "#/$defs/BindingBoxDataRoot"}
+    defs["BindingBoxTreeNodeBoxRoot"] = root_node
+
+    generic = {"$ref": "#/$defs/BindingBoxTreeNodeBox"}
+    schema["properties"]["nodes"] = {
+        "type": "array",
+        "prefixItems": [generic] * root_index + [{"$ref": "#/$defs/BindingBoxTreeNodeBoxRoot"}],
+        "items": generic,
+        "minItems": root_index + 1,
+    }
+    return schema
+
+
+def _ocpq_logits_processor():
+    """A logits processor that masks any token which cannot continue a valid `BindingBoxTree`.
+
+    Built from the Pydantic model itself, so the grammar constraining generation and the validator
+    in `validate_and_normalize_ocpq_json` are one definition and cannot drift apart.
+
+    Two settings are load-bearing and were established by `tests/test_constrained_decoding.py`:
+
+    * `any_order=True` -- gold writes object properties out of schema order (`value_filter` before
+      `at_time` in `FilterObjectAttributeValueFilter`). With ordered matching the grammar rejects
+      **32 of the 169 gold queries**, which would cap the model below gold on 19% of the testset
+      and read as a finding rather than a bug.
+    * `strict_mode=True` -- forbids unknown fields. Pydantic ignores them, so here the grammar is
+      the stricter of the two, which is the safe direction: everything it admits validates.
+
+    Returns None when constrained decoding is off or xgrammar is unavailable, so the caller adds
+    nothing to `generate()` and the free-decoding path stays byte-identical.
+    """
+    if not constrained_decoding:
+        return None
+    try:
+        import xgrammar as xgr
+    except ImportError as exc:  # pragma: no cover - preflight catches this
+        raise RuntimeError(
+            "constrained decoding was requested but xgrammar is not installed. "
+            "Add it to the eval environment (scripts/make_eval_env.sh); "
+            "src/check_eval_deps.py checks for it."
+        ) from exc
+
+    # `forced_root_arity` is per case, so it is part of the key. Gold has only 6 distinct root
+    # arities across 13 (root_index, arity) combinations in the whole testset, so this cache stays
+    # tiny even though the grammar is nominally per-case.
+    key = (id(local_tokenizer), id(local_model), forced_root_arity, type_aware_filters_log,
+           getattr(constrained_schema_override, "__name__", None))
+    cached = _XGRAMMAR_CACHE.get(key)
+    if cached is None:
+        # The model's vocabulary is often LARGER than the tokenizer's, because checkpoints pad the
+        # embedding matrix to a round size. The mask has to match the logits row, so its width
+        # comes from the model config, not from the tokenizer -- get this wrong and the mask is
+        # silently misaligned or `generate` raises on a shape mismatch.
+        vocab_size = getattr(getattr(local_model, "config", None), "vocab_size", None)
+        tokenizer_info = xgr.TokenizerInfo.from_huggingface(
+            local_tokenizer, vocab_size=vocab_size)
+        if constrained_schema_override is not None:
+            # A narrow question (the arity predictor), not a query. The query-shaped constraints
+            # are meaningless here and are deliberately ignored rather than combined.
+            source = constrained_schema_override
+        elif forced_root_arity is None and type_aware_filters_log is None:
+            source = BindingBoxTree
+        else:
+            # The two transforms compose: both rewrite the same schema and touch disjoint parts of
+            # it -- arity pins the root box's variable counts, type-awareness rewrites the
+            # attribute-filter union. Applied in sequence so a rung can carry either or both.
+            built = (_arity_pinned_schema(*forced_root_arity) if forced_root_arity
+                     else copy.deepcopy(OCPQ_JSON_SCHEMA))
+            if type_aware_filters_log is not None:
+                built = _type_aware_schema(built, type_aware_filters_log)
+            source = json.dumps(built)
+        cached = xgr.GrammarCompiler(tokenizer_info).compile_grammar(
+            xgr.Grammar.from_json_schema(source, any_order=True, strict_mode=True)
+        )
+        _XGRAMMAR_CACHE[key] = cached
+    # The matcher carries per-generation state, so it is built fresh per call; the expensive
+    # part -- compiling the grammar against the vocabulary -- is what the cache holds.
+    return xgr.contrib.hf.LogitsProcessor(cached)
+
+
+def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
+    import torch
+
+    _ensure_local_gpu_model_loaded()
+
+    normalized_messages = list(messages)
+    if response_format is not None:
+        json_instruction = "Return only valid JSON. Do not include markdown fences or commentary."
+        if normalized_messages and normalized_messages[0]["role"] == "system":
+            # Merge into the existing system message to avoid consecutive system turns,
+            # which Gemma's chat template rejects with a role-alternation error.
+            normalized_messages = [
+                {"role": "system", "content": normalized_messages[0]["content"] + "\n" + json_instruction}
+            ] + normalized_messages[1:]
+        else:
+            normalized_messages = [{"role": "system", "content": json_instruction}] + normalized_messages
+
+    if hasattr(local_tokenizer, "apply_chat_template"):
+        input_ids = local_tokenizer.apply_chat_template(
+            normalized_messages,
+            add_generation_prompt=True,
+            return_tensors="pt",
+        )
+        if not isinstance(input_ids, torch.Tensor):
+            input_ids = input_ids["input_ids"]
+        input_ids = input_ids.to(local_model.device)
+        attention_mask = torch.ones_like(input_ids)
+    else:
+        prompt = _build_local_prompt(normalized_messages)
+        model_inputs = local_tokenizer(prompt, return_tensors="pt")
+        input_ids = model_inputs["input_ids"].to(local_model.device)
+        attention_mask = model_inputs.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(local_model.device)
+
+    # Applied here rather than at the eight call sites that hard-code 1000/2000, so no pipeline
+    # signature changes and nothing can bypass it. None leaves each caller's own value alone.
+    if generation_token_budget is not None:
+        max_tokens = generation_token_budget
+
+    prompt_tokens = int(input_ids.shape[-1])
+    _check_context_budget(prompt_tokens, max_tokens)
+
+    do_sample = False
+    temperature = generation_temperature
+    if temperature is not None and temperature > 0:
+        do_sample = True
+
+    generate_kwargs = {
+        "input_ids": input_ids,
+        "max_new_tokens": max_tokens,
+        "do_sample": do_sample,
+        "pad_token_id": local_tokenizer.pad_token_id or local_tokenizer.eos_token_id,
+        "eos_token_id": local_tokenizer.eos_token_id,
+    }
+    if temperature is not None and temperature > 0:
+        generate_kwargs["temperature"] = float(temperature)
+    if attention_mask is not None:
+        generate_kwargs["attention_mask"] = attention_mask
+
+    # Added ONLY when constrained decoding is on. With it off, `generate_kwargs` is byte-identical
+    # to what every recorded run used -- asserted by tests/test_constrained_decoding.py, because a
+    # flag that silently perturbs the free path would invalidate the baseline it is compared to.
+    _grammar_processor = _ocpq_logits_processor()
+    if _grammar_processor is not None:
+        generate_kwargs["logits_processor"] = [_grammar_processor]
+
+    # Seeded immediately before the call, not once per process: the draw must depend only on
+    # (case, condition, repeat) so a shard boundary cannot change it. No-op when sampling is off,
+    # where the RNG is not consulted at all.
+    if do_sample and generation_seed is not None:
+        torch.manual_seed(generation_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(generation_seed)
+
+    with torch.no_grad():
+        output_ids = local_model.generate(**generate_kwargs)
+
+    generated_ids = output_ids[0][input_ids.shape[-1]:]
+    content = local_tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+    completion_tokens = int(generated_ids.shape[-1])
+    usage = SimpleNamespace(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
+    )
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
+        usage=usage,
+    )
+
+
+def _extract_usage_from_response(response):
+    usage = getattr(response, "usage", None)
+    if usage is None and isinstance(response, dict):
+        usage = response.get("usage")
+    if usage is None:
+        return None
+
+    if isinstance(usage, dict):
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        total_tokens = usage.get("total_tokens")
+    else:
+        prompt_tokens = getattr(usage, "prompt_tokens", None)
+        completion_tokens = getattr(usage, "completion_tokens", None)
+        total_tokens = getattr(usage, "total_tokens", None)
+
+    if prompt_tokens is None and completion_tokens is None and total_tokens is None:
+        return None
+
+    if total_tokens is None:
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def _record_llm_call(response, duration_sec, model_name=None, response_format=None):
+    usage = _extract_usage_from_response(response)
+    content = ""
+    try:
+        content = response.choices[0].message.content or ""
+    except Exception:
+        pass
+    entry = {
+        "model": model_name,
+        "backend": hf_backend,
+        "duration_sec": round(float(duration_sec), 4),
+        "prompt_tokens": usage.get("prompt_tokens") if usage else None,
+        "completion_tokens": usage.get("completion_tokens") if usage else None,
+        "total_tokens": usage.get("total_tokens") if usage else None,
+        "completion_chars": len(content),
+    }
+    if isinstance(response_format, dict):
+        entry["response_format"] = response_format.get("type")
+    LLM_CALL_STATS.append(entry)
+
+
+# The question the arity predictor asks. Kept at module level because it IS the experiment: if the
+# predictor underperforms a constant, the prompt is the first thing to look at, and it must be
+# quotable in the write-up without digging through a call stack.
+ROOT_ARITY_PROMPT = (
+    # PROMPT v3. Structurally identical to v1 -- same length, same three POSITIVE examples, no
+    # procedure list, no negative example -- and differing from it only in the example nouns.
+    #
+    # v2 changed two things at once and regressed badly (expected value 7.58 -> 5.82, below the
+    # constant's 6.85): it swapped the vocabulary AND added a rule list plus an explicit
+    # "wrong: n_event_vars=1, n_object_vars=1" counter-example. The error that counter-example
+    # named went from 28 cases to 46, and abstentions tripled -- showing a wrong answer primed it.
+    # v3 keeps the vocabulary fix, which is required for hygiene, and drops everything else, so
+    # the comparison against v1 measures the vocabulary change alone.
+    #
+    # The nouns are a support-desk domain that appears in NO evaluation log; writing these in the
+    # vocabulary of one (orders, customers, deliveries) would tune the prompt on the evaluation
+    # set. The observed distribution of gold arities is likewise absent: it is a label statistic
+    # of the testset. Both are asserted in tests/test_arity_predictor.py.
+    "An OCPQ query is a tree of binding boxes. The ROOT box holds the query's ANSWER -- the rows "
+    "the user gets back. Child boxes exist only to express conditions ABOUT those rows, and the "
+    "variables they declare are NOT part of the answer.\n\n"
+    "Decide what the ANSWER is about, not what the question mentions. Examples of the "
+    "distinction:\n"
+    "  \"Which tickets were escalated twice?\"           -> a set of tickets: 0 event variables, "
+    "1 object variable. The escalation is a CONDITION, in a child.\n"
+    "  \"Which escalations happened out of hours?\"      -> a set of events: 1 event variable, "
+    "0 object variables.\n"
+    "  \"Which agents handled a ticket reopened later?\" -> still 1 object variable; both the "
+    "reopening and the ticket are conditions.\n\n"
+    "Count ONLY the variables the root box itself declares.\n\n"
+    "{schema_block}\n\n"
+    "Question: {query}\n\n"
+    "Answer with n_event_vars and n_object_vars for the ROOT box only."
+)
+
+
+def predict_root_arity(query, ocel_path, model_name, schema_block=None):
+    """Predict `(n_event_vars, n_object_vars)` for the root box, from the question alone.
+
+    The non-oracle half of notes 32. Forcing the root arity to GOLD's value moved result F1 from
+    0.2162 to 0.3109, the largest effect in the project; this is the component that has to supply
+    that number without gold.
+
+    Answered through the same constrained decoder as everything else, against `RootArity`, so the
+    reply is a parseable two-integer object by construction rather than prose to be regex'd. That
+    matters more than usual here: a malformed answer means no prediction, and no prediction is
+    strictly better than a wrong one -- forcing the wrong arity makes the correct query
+    UNREACHABLE, whereas not forcing leaves the model its own 43.8% chance.
+
+    Returns:
+        `(n_event_vars, n_object_vars)`, or None when the model gave nothing usable. The caller is
+        expected to treat None as "do not force".
+    """
+    if schema_block is None:
+        schema_block = build_schema_block(extract_ocel_schema(ocel_path))
+    messages = [
+        {"role": "system", "content": "You are a process mining expert. Answer with JSON only."},
+        {"role": "user", "content": ROOT_ARITY_PROMPT.format(
+            schema_block=schema_block, query=query)},
+    ]
+    previous = get_constrained_schema()
+    set_constrained_schema(RootArity)
+    try:
+        response = call_hf_with_retry(
+            model=model_name,
+            messages=messages,
+            max_tokens=64,
+            response_format=_build_response_format("root_arity", ROOT_ARITY_SCHEMA, True),
+        )
+    except Exception as exc:  # noqa: BLE001 - a failed prediction must not fail the case
+        print(f"   arity prediction failed: {exc}")
+        return None
+    finally:
+        # In a finally because a leaked override would constrain the NEXT query generation to a
+        # two-integer object and fail every case after this one.
+        set_constrained_schema(previous)
+
+    parsed = parse_llm_json(response.choices[0].message.content or "")
+    try:
+        arity = RootArity.model_validate(parsed)
+    except Exception:  # noqa: BLE001
+        return None
+    return arity.n_event_vars, arity.n_object_vars
+
+
+def _build_response_format(schema_name, schema, enforce_schema=True):
+    if not enforce_schema:
+        return {"type": "json_object"}
+    return {
+        "type": "json_schema",
+        "json_schema": {"name": schema_name, "schema": schema, "strict": True},
+    }
+
+# In[7]:
+
+# Upper bound on a single message's content, in characters. A well-formed OCPQ query serialises
+# to 1-3 KB and the largest gold query in the testset is under 3 KB, so this never binds on a
+# valid exchange. It exists for the pathological case: the chain-of-thought-plus pipeline and the
+# repair loops append the model's own output back into the history, and one 2026-08-15 smoke case
+# compounded that into a 1,245,363-token prompt.
+MESSAGE_CONTENT_CHAR_CAP = int(os.getenv("OCPQ_MESSAGE_CHAR_CAP", "20000"))
+
+
+def _clamp_message_history(messages):
+    """Truncate over-long message contents, marking what was dropped.
+
+    Applied at the single point where messages are dispatched to a model rather than at the ~10
+    `messages.append` sites, so no future append can bypass it. Returns a new list; the caller's
+    history is left intact, so nothing downstream sees a silently rewritten transcript.
+    """
+    clamped = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, str) and len(content) > MESSAGE_CONTENT_CHAR_CAP:
+            omitted = len(content) - MESSAGE_CONTENT_CHAR_CAP
+            message = dict(message, content=(
+                content[:MESSAGE_CONTENT_CHAR_CAP]
+                + f"\n[... {omitted} characters omitted: message exceeded the "
+                  f"{MESSAGE_CONTENT_CHAR_CAP}-character cap ...]"
+            ))
+        clamped.append(message)
+    return clamped
+
+
+def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries=5):
+    messages = _clamp_message_history(messages)
+    if hf_backend == "local-gpu":
+        current_max_tokens = max_tokens
+        for attempt in range(max_retries):
+            try:
+                start_time = time.time()
+                response = _call_local_gpu_chat_completion(
+                    messages=messages,
+                    max_tokens=current_max_tokens,
+                    response_format=response_format,
+                )
+                _record_llm_call(
+                    response=response,
+                    duration_sec=time.time() - start_time,
+                    model_name=model,
+                    response_format=response_format,
+                )
+                return response
+            except PromptTooLongError:
+                # Never retried: the retry shrinks max_tokens, and the prompt is what does not
+                # fit. Retrying cost five attempts and a 1,444 GiB allocation request once.
+                raise
+            except RuntimeError as exc:
+                is_oom = "out of memory" in str(exc).lower()
+                if is_oom and attempt < max_retries - 1:
+                    current_max_tokens = max(256, int(current_max_tokens * 0.75))
+                    print(
+                        "Local GPU OOM during generation. "
+                        f"Retrying with max_tokens={current_max_tokens} (attempt {attempt + 1}/{max_retries})."
+                    )
+                    try:
+                        import torch
+                        torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                    continue
+                raise
+
+    if hf_backend == "custom-endpoint":
+        if openai_client is None:
+            raise RuntimeError(
+                "OpenAI client is not initialized. Call set_hf_client(token, base_url=...) first."
+            )
+
+        for attempt in range(max_retries):
+            try:
+                kwargs = {
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "response_format": response_format,
+                }
+                if generation_temperature is not None:
+                    kwargs["temperature"] = float(generation_temperature)
+
+                start_time = time.time()
+                response = openai_client.chat.completions.create(**kwargs)
+                _record_llm_call(
+                    response=response,
+                    duration_sec=time.time() - start_time,
+                    model_name=model,
+                    response_format=response_format,
+                )
+                return response
+            except Exception as e:
+                if "429" in str(e):
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 5
+                        print(f"Rate limited (429). Retrying in {wait_time} seconds (Attempt {attempt+1}/{max_retries})...")
+                        time.sleep(wait_time)
+                    else:
+                        raise e
+                else:
+                    raise e
+
+    if hf_client is None:
+        raise RuntimeError(
+            "HF client is not initialized. Call set_hf_client(token, provider=...) first."
+        )
+
+    for attempt in range(max_retries):
+        try:
+            kwargs = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "response_format": response_format,
+            }
+            if generation_temperature is not None:
+                kwargs["temperature"] = float(generation_temperature)
+
+            start_time = time.time()
+            response = hf_client.chat_completion(**kwargs)
+            _record_llm_call(
+                response=response,
+                duration_sec=time.time() - start_time,
+                model_name=model,
+                response_format=response_format,
+            )
+            return response
+        except Exception as e:
+            err_text = str(e)
+            unsupported_model = (
+                "model_not_supported" in err_text
+                or "not supported by any provider" in err_text
+                or "not a chat model" in err_text
+            )
+
+            if unsupported_model:
+                raise RuntimeError(
+                    "Selected model/provider is not usable for chat_completion. "
+                    f"model='{model}', provider='{hf_provider or 'auto'}'. "
+                    "Pick a chat-capable model that is available for your enabled provider, "
+                    "or set a different provider in set_hf_client(token, provider=...) / HF_PROVIDER."
+                ) from e
+
+            if "429" in str(e):
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 5
+                    print(f"Rate limited (429). Retrying in {wait_time} seconds (Attempt {attempt+1}/{max_retries})...")
+                    time.sleep(wait_time)
+                else:
+                    raise e
+            else:
+                raise e
+
+
+FILTER_TYPES = {
+    "O2E",
+    "O2O",
+    "TimeBetweenEvents",
+    "NotEqual",
+    "EventAttributeValueFilter",
+    "ObjectAttributeValueFilter",
+    "BasicFilterCEL",
+}
+
+SIZE_FILTER_TYPES = {
+    "NumChilds",
+}
+
+TIME_UNIT_SECONDS = {
+    "day": 86400,
+    "days": 86400,
+    "hour": 3600,
+    "hours": 3600,
+    "minute": 60,
+    "minutes": 60,
+    "min": 60,
+    "mins": 60,
+    "second": 1,
+    "seconds": 1,
+    "sec": 1,
+    "secs": 1,
+}
+
+
+def _normalize_constraints_shape(ocpq_json):
+    """
+    Normalize common LLM shape mistakes before strict schema validation.
+
+    Common issue: filter objects are placed directly in `constraints` instead of
+    being wrapped as {"type": "Filter", "filter": {...}}.
+    """
+    if not isinstance(ocpq_json, dict):
+        return ocpq_json
+
+    nodes = ocpq_json.get("nodes")
+    if not isinstance(nodes, list):
+        return ocpq_json
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        box = node.get("Box")
+        if not isinstance(box, list) or len(box) != 2:
+            continue
+        node_data = box[0]
+        if not isinstance(node_data, dict):
+            continue
+
+        constraints = node_data.get("constraints")
+        if not isinstance(constraints, list):
+            continue
+
+        normalized_constraints = []
+        for c in constraints:
+            if not isinstance(c, dict):
+                normalized_constraints.append(c)
+                continue
+
+            ctype = c.get("type")
+            if ctype in FILTER_TYPES:
+                normalized_constraints.append({"type": "Filter", "filter": c})
+            elif ctype in SIZE_FILTER_TYPES:
+                normalized_constraints.append({"type": "SizeFilter", "filter": c})
+            else:
+                normalized_constraints.append(c)
+
+        node_data["constraints"] = normalized_constraints
+
+    return ocpq_json
+
+
+def _extract_allowed_names(items, default_key):
+    names = set()
+    if not isinstance(items, list):
+        return names
+
+    for item in items:
+        if isinstance(item, str):
+            names.add(item)
+        elif isinstance(item, dict):
+            candidate = item.get(default_key)
+            if isinstance(candidate, str):
+                names.add(candidate)
+    return names
+
+
+def _extract_allowed_entities_from_messages(messages):
+    allowed_events = set()
+    allowed_objects = set()
+
+    if len(messages) <= 2:
+        return allowed_events, allowed_objects
+
+    try:
+        sp1_content = messages[2].get("content", "{}")
+        extracted_structure = json.loads(sp1_content)
+        allowed_events = _extract_allowed_names(extracted_structure.get("events", []), "event")
+        allowed_objects = _extract_allowed_names(extracted_structure.get("objects", []), "object")
+    except Exception:
+        pass
+
+    return allowed_events, allowed_objects
+
+
+def _within_seconds_from_query(query):
+    if not isinstance(query, str):
+        return None
+
+    match = re.search(
+        r"within\s+(\d+(?:\.\d+)?)\s*(day|days|hour|hours|minute|minutes|min|mins|second|seconds|sec|secs)\b",
+        query,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    value = float(match.group(1))
+    unit = match.group(2).lower()
+    multiplier = TIME_UNIT_SECONDS.get(unit)
+    if multiplier is None:
+        return None
+    return float(value * multiplier)
+
+
+def _normalize_time_between_events_seconds(ocpq_json, query):
+    target_max_seconds = _within_seconds_from_query(query)
+    if target_max_seconds is None or not isinstance(ocpq_json, dict):
+        return ocpq_json
+
+    nodes = ocpq_json.get("nodes")
+    if not isinstance(nodes, list):
+        return ocpq_json
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        box = node.get("Box")
+        if not isinstance(box, list) or len(box) != 2:
+            continue
+        node_data = box[0]
+        if not isinstance(node_data, dict):
+            continue
+
+        filters = node_data.get("filters", [])
+        if isinstance(filters, list):
+            for f in filters:
+                if isinstance(f, dict) and f.get("type") == "TimeBetweenEvents":
+                    f["max_seconds"] = target_max_seconds
+
+        constraints = node_data.get("constraints", [])
+        if isinstance(constraints, list):
+            for c in constraints:
+                if not isinstance(c, dict):
+                    continue
+                if c.get("type") == "Filter" and isinstance(c.get("filter"), dict):
+                    wrapped = c["filter"]
+                    if wrapped.get("type") == "TimeBetweenEvents":
+                        wrapped["max_seconds"] = target_max_seconds
+
+    return ocpq_json
+
+
+def run_ocpq_query_with_logging(ocel_path, output_file, query, messages, stage):
+    start_time = time.time()
+    exec_success = False
+    exec_stdout = None
+    exec_stderr = None
+    exec_result_file = None
+    try:
+        from QueryExecutor import run_ocpq_query
+        result = run_ocpq_query(ocel_path, output_file)
+        if not result:
+            warning = "warning: run_ocpq_query returned no result"
+            allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+            append_failure_log(
+                stage=f"{stage}_query_exec_empty",
+                query=query,
+                messages=messages,
+                raw_output=None,
+                parsed_json=None,
+                normalized_json=None,
+                allowed_events=allowed_events,
+                allowed_objects=allowed_objects,
+                validation_error=warning,
+                extra={"warning": warning},
+            )
+            exec_stdout = warning
+            exec_stderr = warning
+            return warning, warning, None
+        exec_stdout, exec_stderr, exec_result_file = result
+        exec_success = bool(exec_result_file and not exec_stderr)
+        return result
+    except Exception as exc:
+        trace = traceback.format_exc()
+        allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+        append_failure_log(
+            stage=f"{stage}_query_exec_failed",
+            query=query,
+            messages=messages,
+            raw_output=None,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=allowed_events,
+            allowed_objects=allowed_objects,
+            validation_error=str(exc),
+            extra={"traceback": trace},
+        )
+        exec_stdout = f"Error running query automatically: {exc}"
+        exec_stderr = None
+        return exec_stdout, None, None
+    finally:
+        QUERY_EXEC_STATS.append(
+            {
+                "stage": stage,
+                "duration_sec": round(time.time() - start_time, 4),
+                "success": exec_success,
+                "stdout": exec_stdout,
+                "stderr": exec_stderr,
+                "result_file": exec_result_file,
+            }
+        )
+
+# Container fields of `BindingBoxData` whose absence has exactly ONE reading: nothing to apply.
+# Filling them is recovering the model's obvious intent, not guessing at it.
+_BOX_CONTAINER_DEFAULTS = {
+    "filters": list,
+    "sizeFilters": list,
+    "constraints": list,
+    "evVarLabels": dict,
+    "obVarLabels": dict,
+}
+# Names that must NEVER be defaulted, kept as a list rather than left implicit because the reason
+# is not obvious from the schema. `child_names` is the dangerous one: an empty child set satisfies
+# `SAT` VACUOUSLY, so filling it with [] turns a compliance query into one that reports 0%
+# violations while looking correct -- the exact defect Thesis/notes and the OCPQ notes already
+# record. `newEventVars`/`newObjectVars` are excluded because declaring no variables is a
+# meaningful statement rather than a neutral default, and 0 of the 1722 recorded validation
+# failures needed them.
+_NEVER_DEFAULTED = ("child_names", "newEventVars", "newObjectVars")
+
+# What the last `validate_and_normalize_ocpq_json` call filled in, so the caller can record it.
+# A normalisation is the harness doing work the model did not do; the number has to be visible.
+_last_normalized_fields = []
+
+
+def get_last_normalized_fields():
+    """Fields filled by the most recent `validate_and_normalize_ocpq_json` call."""
+    return list(_last_normalized_fields)
+
+
+def _fill_missing_box_containers(ocpq_json):
+    """Fill absent `BindingBoxData` container fields with their empty value.
+
+    Narrow on purpose. Constrained decoding leaves a residue that is not the model's fault:
+    xgrammar's `any_order=True` lets a REQUIRED property be skipped when an optional one is
+    present, and in the 2026-09-10 run 10 of the 11 constrained failures were exactly one shape --
+    a box carrying optional `labels` and omitting required `filters`. An absent `filters` is `[]`
+    under OCPQ semantics, so recovering it costs nothing and loses nothing.
+
+    Measured scope, from 1722 recorded validation failures across every run: 10 are fixable here,
+    655 involve a field with no neutral default (`attribute_name`, `value_filter`, `object`,
+    `is_in`, ...) and stay failures, and 1057 fail for other reasons entirely. This is a repair for
+    a decoder artefact, not a general leniency -- see `_NEVER_DEFAULTED`.
+
+    Returns the (possibly modified) document; the fields filled are recorded in
+    `_last_normalized_fields`.
+    """
+    if not isinstance(ocpq_json, dict):
+        return ocpq_json
+    nodes = ocpq_json.get("nodes")
+    if not isinstance(nodes, list):
+        return ocpq_json
+
+    for index, node in enumerate(nodes):
+        if not isinstance(node, dict):
+            continue
+        box = node.get("Box")
+        if not isinstance(box, list) or not box or not isinstance(box[0], dict):
+            continue
+        node_data = box[0]
+        for field, factory in _BOX_CONTAINER_DEFAULTS.items():
+            if field not in node_data:
+                node_data[field] = factory()
+                _last_normalized_fields.append(f"nodes[{index}].{field}")
+    return ocpq_json
+
+
+def validate_and_normalize_ocpq_json(ocpq_json):
+    """
+    Strictly validate against the Pydantic BindingBoxTree model.
+    Returns a normalized JSON dict (aliases applied) when valid.
+    """
+    global _last_normalized_fields
+    _last_normalized_fields = []
+    try:
+        ocpq_json = _normalize_constraints_shape(ocpq_json)
+        ocpq_json = _fill_missing_box_containers(ocpq_json)
+        validated = BindingBoxTree.model_validate(ocpq_json)
+        return validated.model_dump(by_alias=True)
+    except ValidationError:
+        return None
+
+
+def schema_fix_with_llm(model_name, messages, prompt, max_tokens=2000, schema_enforced=True):
+    """
+    Run a schema-constrained repair pass so the output must match OCPQ schema.
+    """
+    fix_messages = list(messages)
+    fix_messages.append({"role": "user", "content": prompt})
+    fix_response = call_hf_with_retry(
+        model=model_name,
+        messages=fix_messages,
+        max_tokens=max_tokens,
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
+    )
+    fixed_content = fix_response.choices[0].message.content or ""
+    fixed_json = parse_llm_json(fixed_content)
+    fixed_json = validate_and_normalize_ocpq_json(fixed_json)
+    return fixed_json, fixed_content
+
+STRUCTURAL_REPAIR_PROMPT = """The OCPQ JSON below is valid against the schema, but the query engine cannot evaluate it as written. These defects stop it from being evaluated:
+{defects}
+
+Fix exactly these defects:
+- A filter may only use an event or object variable that is declared (newEventVars / newObjectVars) in its own node or in one of that node's ancestors. Variables of sibling or child nodes are not visible. Declare the variable where it is used, or move the filter into a node where it is in scope.
+- Every child index in a node's children array must refer to an existing node, each node has exactly one parent, and the tree has exactly one root.
+- Change nothing that is not needed to fix these defects.
+
+Return ONLY the fixed JSON.
+
+JSON:
+{tree}
+"""
+
+
+def _apply_structural_validation(ocpq_json, model_name, messages, query=None,
+                                 schema_enforced=True):
+    """The pre-execution structural check, on a tree that has already passed schema validation.
+
+    Pydantic accepts trees that ocpq_cli cannot evaluate, and the CLI does not fail loudly on them:
+    it writes `{"Err": ...}` to its export and exits 0. On 2026-09-13 that was 88 of the arity
+    rungs' 507 executions; replayed, 61 of 68 distinct failing trees said "Could not get oN".
+
+    Only BLOCKING defects -- the kinds the evaluator errors on, `ocpq_schema.BLOCKING_DEFECT_KINDS`
+    -- trigger the repair, and only they are shown to the model. Advisory defects are recorded but
+    never repaired: a tree carrying only those evaluates, and repairing it could only damage it.
+    The repair is ONE call under whatever decoding constraints are active, and is kept only if it
+    leaves strictly fewer blocking defects; one that fixes nothing, does not validate, or raises
+    leaves the original tree untouched.
+
+    Inert when the switch is off: the tree is returned as given and no report is written.
+    """
+    global _last_structural_report
+    if not structural_validation or ocpq_json is None:
+        return ocpq_json
+    from ocpq_schema import blocking_defects, structural_defects
+
+    defects = structural_defects(ocpq_json)
+    blocking = blocking_defects(defects)
+    report = {
+        "defects_before": defects,
+        "blocking_before": blocking,
+        "repair_attempted": False,
+        "defects_after": None,
+        "blocking_after": None,
+        "accepted": False,
+        "repair_error": None,
+    }
+    _last_structural_report = report
+    if not blocking:
+        return ocpq_json
+
+    report["repair_attempted"] = True
+    prompt = STRUCTURAL_REPAIR_PROMPT.format(
+        defects="\n".join(f"- {defect}" for defect in blocking),
+        tree=json.dumps(ocpq_json),
+    )
+    try:
+        fixed_json, _fixed_content = schema_fix_with_llm(
+            model_name=model_name,
+            messages=messages,
+            prompt=prompt,
+            schema_enforced=schema_enforced,
+        )
+    except Exception as exc:  # noqa: BLE001 - a failed repair keeps the tree; it never fails a case
+        report["repair_error"] = f"{type(exc).__name__}: {exc}"
+        return ocpq_json
+    if fixed_json is not None:
+        # Same post-processing as the verifier's own repair, so the two repairs are comparable.
+        fixed_json = validate_and_normalize_ocpq_json(
+            _normalize_time_between_events_seconds(fixed_json, query))
+    if fixed_json is None:
+        report["repair_error"] = "repair output did not validate against the schema"
+        return ocpq_json
+
+    remaining = structural_defects(fixed_json)
+    report["defects_after"] = remaining
+    report["blocking_after"] = blocking_defects(remaining)
+    if len(report["blocking_after"]) < len(blocking):
+        report["accepted"] = True
+        return fixed_json
+    return ocpq_json
+
+# Verify the generated OCPQ JSON and ask the LLM to fix it if it's invalid or doesn't follow the schema.
+# This is a safety net to improve the quality of the output before executing the query.
+def verify_ocpq_json(ocpq_json, model_name, messages, query=None, schema_enforced=True):
+    ocpq_json = _normalize_time_between_events_seconds(ocpq_json, query)
+    normalized = validate_and_normalize_ocpq_json(ocpq_json)
+    
+    is_connected = True
+    has_empty_nodes = False
+    has_hallucinated_entities = False
+    missing_o2e = False
+    
+    # Extract allowed entities from SP1 if available
+    allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+
+    if normalized and "nodes" in normalized:
+        num_nodes = len(normalized["nodes"])
+        if num_nodes > 1:
+            referenced_children = set()
+            for node in normalized["nodes"]:
+                box = node.get("Box", [])
+                if len(box) == 2 and isinstance(box[1], list):
+                    referenced_children.update(box[1])
+            for i in range(1, num_nodes):
+                if i not in referenced_children:
+                    is_connected = False
+                    break
+        
+        # Check for empty nodes (no events and no objects)
+        for node in normalized["nodes"]:
+            box = node.get("Box", [])
+            if len(box) > 0 and isinstance(box[0], dict):
+                node_data = box[0]
+                new_events = node_data.get("newEventVars", {})
+                new_objects = node_data.get("newObjectVars", {})
+                constraints = node_data.get("constraints", [])
+                
+                if not new_events and not new_objects and not constraints:
+                     has_empty_nodes = True
+                
+                # Check for Cartesian product explosion (missing O2E)
+                if new_events and new_objects:
+                    filters = node_data.get("filters", [])
+                    has_o2e = any(f.get("type") == "O2E" for f in filters)
+                    if not has_o2e:
+                        missing_o2e = True
+
+                # Check for hallucinated entities (if we have allowed sets)
+                if allowed_events:
+                    for ev_idx, ev_list in new_events.items():
+                        for ev in ev_list:
+                            if isinstance(ev, str) and ev not in allowed_events:
+                                has_hallucinated_entities = True
+                if allowed_objects:
+                    for obj_idx, obj_list in new_objects.items():
+                        for ob in obj_list:
+                            if isinstance(ob, str) and ob not in allowed_objects:
+                                has_hallucinated_entities = True
+
+    validation_error = None if normalized is not None else get_validation_error_text(ocpq_json)
+
+    if normalized is None or not is_connected or has_empty_nodes or has_hallucinated_entities or missing_o2e:
+        append_failure_log(
+            stage="verify_pre_fix",
+            query=query,
+            messages=messages,
+            raw_output=None,
+            parsed_json=ocpq_json,
+            normalized_json=normalized,
+            allowed_events=allowed_events,
+            allowed_objects=allowed_objects,
+            validation_error=validation_error,
+            extra={
+                "is_connected": is_connected,
+                "has_empty_nodes": has_empty_nodes,
+                "has_hallucinated_entities": has_hallucinated_entities,
+                "missing_o2e": missing_o2e,
+            },
+        )
+        prompt = f"""
+The following JSON is invalid, incomplete, contains disconnected nodes, contains completely empty nodes, misses O2E filters, or has hallucinated entities (events/objects not provided).
+
+Fix it so that:
+- It follows OCPQ schema
+- It correctly represents the query
+- ALL nodes are properly connected in a single tree. Every node (except 0) must be referenced in the child indices array of a parent node.
+- Critical filters (O2E, TimeBetweenEvents) are placed in connected child nodes to prevent unbounded Cartesian searches.
+- No nodes are empty. Every node must contain at least an event, an object, or a constraint. DO NOT create empty boxes!
+- ONLY use the following allowed entities natively mapped from the query. DO NOT use hallucinated terms like Person or Diagnosis!
+- If a node has BOTH events and objects, it MUST have an `O2E` filter connecting them. Otherwise, it will cause an infinite Cartesian explosion!
+- If the query says "within X days/hours/minutes", convert it to seconds for `max_seconds` (e.g. 3 days = 259200).
+
+Allowed Events: {allowed_events}
+Allowed Objects: {allowed_objects}
+
+Return ONLY fixed JSON.
+
+JSON:
+{ocpq_json}
+"""
+        fixed_json, _fixed_content = schema_fix_with_llm(
+            model_name=model_name,
+            messages=messages,
+            prompt=prompt,
+            schema_enforced=schema_enforced,
+        )
+        fixed_json = _normalize_time_between_events_seconds(fixed_json, query)
+        fixed_json = validate_and_normalize_ocpq_json(fixed_json)
+        if fixed_json is None:
+            append_failure_log(
+                stage="verify_fix_failed",
+                query=query,
+                messages=messages,
+                raw_output=None,
+                parsed_json=ocpq_json,
+                normalized_json=fixed_json,
+                allowed_events=allowed_events,
+                allowed_objects=allowed_objects,
+                validation_error=get_validation_error_text(ocpq_json),
+                extra={"repair_prompt": prompt},
+            )
+        return _apply_structural_validation(
+            fixed_json, model_name, messages, query=query, schema_enforced=schema_enforced)
+    else:
+        return _apply_structural_validation(
+            normalized, model_name, messages, query=query, schema_enforced=schema_enforced)
+
+
+def run_subproblem_1_extract_entities(query, schema_block, messages, model_name):
+    # Only ask for relation grounding when the schema block actually contains a relation
+    # graph (schema_level == "full"); at lower schema levels this section is absent and
+    # asking for it would just invite hallucinated relations.
+    relations_available = (
+        "EVENT-TO-OBJECT RELATIONS" in schema_block or "OBJECT-TO-OBJECT RELATIONS" in schema_block
+    )
+    relations_instruction = ""
+    if relations_available:
+        relations_instruction = (
+            "\nAlso copy which relations from the EVENT-TO-OBJECT RELATIONS and OBJECT-TO-OBJECT RELATIONS "
+            "lists above connect the events/objects you just mapped. Copy each relation VERBATIM as shown "
+            "(e.g. \"EventType -> ObjectType\") into 'object_event_links' (event-to-object) and "
+            "'object_object_links' (object-to-object). Do NOT invent relations that are not listed. If an "
+            "object you need is not directly related to any identified event, include the relation chain "
+            "through an intermediary object that IS listed, so the chain can be followed later.\n"
+        )
+    prompt_1 = (
+        "Given the user query, map the terms to the exact events and objects involved.\n\n"
+        "CRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly "
+        "to the EXACT names provided below. DO NOT use names that aren't in these lists.\n\n"
+        f"{schema_block}\n\n"
+        f"Query: {query}\n\n"
+        "Output a clear mapping of the elements found in the query to the valid events and objects. "
+        "Also identify any constraints (like 'completed within TIME', 'exactly once', 'at least once').\n"
+        f"{relations_instruction}"
+        "Return ONLY JSON matching the schema."
+    )
+    messages.append({"role": "user", "content": prompt_1})
+
+    response_1 = call_hf_with_retry(
+        model=model_name,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "extracted_structure", "schema": EXTRACTED_STRUCTURE_SCHEMA, "strict": True},
+        }
+    )
+    structure_text = response_1.choices[0].message.content
+    messages.append({"role": "assistant", "content": structure_text})
+    print("Sub-problem 1 completed: Entities extracted.")
+    return structure_text
+
+
+def run_subproblem_2_plan_tree(messages, model_name):
+    # Re-inject extracted structure immediately before generating the tree
+    extracted_structure = "{}"
+    if len(messages) > 2:
+        extracted_structure = messages[2].get("content", "{}")
+
+    prompt_2 = (
+        """Based on the mapped elements, plan the logical tree structure for the OCPQ query.
+
+        TREE FORMAT RULES:
+        - 'events' and 'objects' on each node list ONLY the events/objects newly introduced AT THAT NODE, not 
+        entities already introduced by an ancestor node (a child implicitly inherits its ancestors' bindings).
+        - 'description' is the ONLY place to record filters and constraints for that node -- state the EXACT 
+        type name and key parameters (e.g. "O2E: event 0 -> object 0", "TimeBetweenEvents:
+        max_seconds=259200", "SizeFilter/NumChilds: child A, min=1", "NOT: child A"). Do not leave
+        filters/constraints unstated in a node that needs them.
+        - 'id' values start at 0 and increase by node order. Every edge's 'from'/'to' MUST reference an 'id'
+        that exists in 'nodes' -- never invent or skip ids.
+
+        EXAMPLE (format only -- your actual events/objects/filters must come from the mapped elements below):
+        {
+          "nodes": [
+            {"id": 0, "description": "root: holds Object A, no filters", "events": [], "objects": ["Object A"]},
+            {"id": 1, "description": "O2E: event 0 -> object 0", "events": ["Event A"], "objects": []}
+          ],
+          "edges": [
+            {"from": 0, "to": 1, "label": "A"}
+          ]
+        }
+        OCPQ PATTERN CHEAT SHEET (typical shapes, not fixed node counts -- add nodes if extra constraints require it):
+        - 'completed within TIME': Typically 2 nodes. Parent node has Event A and Object A. Child node has
+        Event B, an 'O2E' filter linking Event B to Object A, and a 'TimeBetweenEvents' filter (max_seconds)
+        bounding Event A -> Event B.
+        - Occurrence-count constraints ('at least once', 'more than once', 'exactly once', 'must not occur more
+        than N times'): Root node has Object A and BOTH a 'SAT' constraint AND a 'SizeFilter'/'NumChilds'
+        constraint pointing at the SAME child path (set min/max per the phrasing, e.g. min:1 for 'at least once',
+        min:1,max:1 for 'exactly once'). Connected child node has Event A and an 'O2E' filter linking
+        Event A to Object A.
+        - 'must not occur' / 'must not X' / 'should not X': Requires AT LEAST 2 nodes -- a 'NOT' constraint
+        always references a child path by name, so the forbidden pattern must live in a real child node. The
+        parent node holds the triggering event/object; the 'NOT' constraint's child_names point at the child
+        node(s) describing what must NOT happen.
+        - Simple, single-condition queries that need no nesting: a single root node with NO children is valid
+        -- put the events, objects, and filters/constraints directly in that one node.
+
+        CRITICAL TO PREVENT SLOW QUERIES (OOM CRASHES):
+        1. DO NOT create orphaned/disconnected nodes. EVERY node except the root must be reachable via some
+        parent's child index array.
+        2. DO NOT create EMPTY nodes that don't contain any events or objects. Every node should have a clear purpose in the query plan.
+        3. Filters like `TimeBetweenEvents`, `O2E`, and `O2O` may live in the root node itself for simple,
+        non-nested queries, or in any node reachable from the root -- just never in a node that is unreachable.
+        4. Connect events to their objects using `O2E` filters to avoid unbounded Cartesian product searches.
+
+        Describe the exact tree structure (number of nodes, what goes in them, parent-child relationships, 
+        and exact filters/constraints).
+
+        CRITICAL: ONLY use the events and objects mapped here. DO NOT INVENT NEW ONES!
+
+        {extracted_structure}
+
+        Return ONLY JSON matching the schema."""
+    ).replace("{extracted_structure}", extracted_structure)
+    messages.append({"role": "user", "content": prompt_2})
+
+    response_2 = call_hf_with_retry(
+        model=model_name,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "query_tree", "schema": QUERY_TREE_SCHEMA, "strict": True},
+        }
+    )
+    tree_text = response_2.choices[0].message.content
+    messages.append({"role": "assistant", "content": tree_text})
+    print("Sub-problem 2 completed: Tree structure planned.")
+    return tree_text
+
+
+def build_few_shot_examples(query, dataset, embeddings):
+    if not few_shot_enabled or few_shot_k <= 0:
+        return ""
+    examples = retrieve_examples(query, dataset, embeddings, top_k=few_shot_k)
+    example_prompts = []
+    for ex in examples:
+        qt = "nl"
+        if qt in ex:
+            reasoning = ex.get(
+                "reasoning",
+                "Step 1: Identify elements. Step 2: Establish logic. Step 3: Implement JSON.",
+            )
+            example_prompts.append(
+                f"Question: {ex[qt]}\nReasoning: {reasoning}\nJSON:\n{json.dumps(ex['query'], indent=2)}"
+            )
+    return "\n\n".join(example_prompts)
+
+
+def run_subproblem_3_generate_json(query, dataset, embeddings, messages, model_name, schema_enforced=True):
+    few_shot_string = build_few_shot_examples(query, dataset, embeddings)
+    
+    # Re-inject extracted structure and logical tree right before the end
+    extracted_structure = "{}"
+    logical_tree = "{}"
+    
+    if len(messages) > 2:
+        extracted_structure = messages[2].get("content", "{}")
+    if len(messages) > 4:
+        logical_tree = messages[4].get("content", "{}")
+
+    example_block = ""
+    if few_shot_string:
+        example_block = (
+            "Use these examples as references for the output syntax.\n"
+            f"EXAMPLES:\n{few_shot_string}\n\n"
+        )
+
+    prompt_3 = (
+        "Now, based on your previous reasoning, output the final OCPQ JSON matching the Exact Schema.\n\n"
+        f"{example_block}"
+        "CRITICAL FINAL CONSTRAINTS:\n"
+        "1. DO NOT copy events or objects from the examples above.\n"
+        "2. You MUST strictly use ONLY the allowed events and objects mapped in your first subproblem.\n"
+        f"ALLOWED ENTITIES: {extracted_structure}\n\n"
+        "3. You must follow the logical tree plan from your second subproblem.\n"
+        f"LOGICAL PLAN: {logical_tree}\n\n"
+        "4. Every 'O2E' and 'O2O' filter you emit MUST correspond to a relation actually present in "
+        "ALLOWED ENTITIES ('object_event_links'/'object_object_links', when populated) or implied by the "
+        "LOGICAL PLAN's node descriptions. Do NOT invent an event-object or object-object link that isn't "
+        "grounded there.\n\n"
+        "Output strictly and ONLY valid JSON matching the exact schema based entirely on these allowed entities and plan."
+    )
+    
+    # Heuristic Context Pruning: Sever the long chat flow. Inject ONLY the distilled outputs natively into SP3 prompt.
+    messages_sp3 = [
+        {
+            "role": "system",
+            "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema.",
+        },
+        {"role": "user", "content": prompt_3}
+    ]
+
+    response_3 = call_hf_with_retry(
+        model=model_name,
+        messages=messages_sp3,
+        max_tokens=2000,
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
+    )
+    content = response_3.choices[0].message.content
+    ocpq_json = parse_llm_json(content)
+    if ocpq_json is None:
+        allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+        append_failure_log(
+            stage="grammar_guided_parse_failed",
+            query=query,
+            messages=messages_sp3,
+            raw_output=content,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=allowed_events,
+            allowed_objects=allowed_objects,
+            validation_error="Could not parse model output as JSON",
+        )
+    # SP3 uses a fresh messages_sp3 for its LLM call, so do NOT append the response
+    # to the shared `messages` list. Doing so would leave two consecutive assistant turns
+    # ([assistant(SP2), assistant(SP3)]), which Gemma's chat template rejects with a
+    # role-alternation error in the subsequent verify/fix calls.
+    print("Sub-problem 3 completed: OCPQ JSON generated.")
+    return ocpq_json
+
+# Use a single continuous chat context with Grammar-Guided Prompting
+def _run_pipeline_grammar_guided(
+    query,
+    dataset,
+    embeddings,
+    output_file="configs/test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+):
+    print("Starting Grammar-Guided NL to OCPQ pipeline...")
+    selected_model = model_name or hf_model
+    print(f"Using model: {selected_model}")
+    
+    # Extract event and object names from the OCEL log
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
+
+    # Initialize the chat messages for context
+    messages = [
+        {"role": "system", "content": "You are a process mining expert that converts natural language into Object-Centric Process Queries (OCPQ). You must think step by step and respond concisely according to the prompts."}
+    ]
+
+    # Sub-problem 1: Extract entities mapping
+    structure_text = run_subproblem_1_extract_entities(
+        query=query,
+        schema_block=schema_block,
+        messages=messages,
+        model_name=selected_model,
+    )
+
+    # Sub-problem 2: Plan tree topology
+    tree_text = run_subproblem_2_plan_tree(messages=messages, model_name=selected_model)
+
+    # Sub-problem 3: Generate final JSON
+    ocpq_json = run_subproblem_3_generate_json(
+        query=query,
+        dataset=dataset,
+        embeddings=embeddings,
+        messages=messages,
+        model_name=selected_model,
+        schema_enforced=schema_enforced,
+    )
+
+    if schema_validation:
+        ocpq_json = verify_ocpq_json(
+            ocpq_json,
+            selected_model,
+            messages,
+            query=query,
+            schema_enforced=schema_enforced,
+        )
+        if ocpq_json is None:
+            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+
+        # Full schema gate before writing/running the query.
+        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+        if ocpq_json is None:
+            raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+    elif ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be parsed.")
+
+    with open(output_file, "w") as f:
+        json.dump(ocpq_json, f, indent=2)
+
+    query_result = None
+    query_result_file_path = None
+    query_stderr = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path,
+            output_file=output_file,
+            query=query,
+            messages=messages,
+            stage="grammar_guided",
+        )
+
+        # Auto-fix using the chat history context block
+        # Only try to fix if an actual execution error (stderr from a crash/panic) occurred
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            prompt_4 = f"The generated JSON query caused this execution error:\n{query_stderr}\n\nPlease fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
+            fixed_json, fixed_content = schema_fix_with_llm(
+                model_name=selected_model,
+                messages=messages,
+                prompt=prompt_4,
+                schema_enforced=schema_enforced,
+            )
+
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path,
+                    output_file=output_file,
+                    query=query,
+                    messages=messages,
+                    stage="grammar_guided_fix",
+                )
+                ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_4})
+                messages.append({"role": "assistant", "content": fixed_content})
+
+    return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
+
+
+def _run_pipeline_few_shot(
+    query,
+    dataset,
+    embeddings,
+    output_file="configs/test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+):
+    print("Starting Few-Shot NL to OCPQ pipeline...")
+    selected_model = model_name or hf_model
+    print(f"Using model: {selected_model}")
+
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
+
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a process mining expert that converts natural language into Object-Centric Process Queries (OCPQ). You must think step by step and respond concisely according to the prompts.",
+        }
+    ]
+
+    few_shot_string = build_few_shot_examples(query, dataset, embeddings)
+    example_block = f"\nEXAMPLES:\n{few_shot_string}\n" if few_shot_string else ""
+    prompt_intro = "Translate natural language process queries into OCPQ JSON based on the examples."
+    if not few_shot_string:
+        prompt_intro = "Translate natural language process queries into OCPQ JSON."
+
+    prompt_3 = f"""
+{prompt_intro}
+
+Output ONLY valid JSON.
+
+CRITICAL: You MUST translate colloquial terms (e.g. 'person', 'diagnosis', 'registration') directly to the EXACT names provided below.
+DO NOT use names that aren't in these lists.
+{schema_block}
+{example_block}
+Now translate this query:
+Question: {query}
+JSON:
+"""
+    messages.append({"role": "user", "content": prompt_3})
+    messages[0] = {
+        "role": "system",
+        "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema.",
+    }
+
+    response_3 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=2000,
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
+    )
+    content = response_3.choices[0].message.content
+    ocpq_json = parse_llm_json(content)
+    if ocpq_json is None:
+        append_failure_log(
+            stage="few_shot_parse_failed",
+            query=query,
+            messages=messages,
+            raw_output=content,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=event_names,
+            allowed_objects=object_names,
+            validation_error="Could not parse model output as JSON",
+        )
+    messages.append({"role": "assistant", "content": content})
+    print("Sub-problem 3 completed: OCPQ JSON generated.")
+
+    if schema_validation:
+        normalized = validate_and_normalize_ocpq_json(ocpq_json)
+        if normalized is not None:
+            ocpq_json = normalized
+        else:
+            # Branch-parity behavior: run a lightweight repair request when output is invalid.
+            prompt = f"""
+The following JSON is invalid or incomplete.
+
+Fix it so that:
+- It follows OCPQ schema
+- It correctly represents the query
+
+Return ONLY fixed JSON.
+
+JSON:
+{ocpq_json}
+"""
+            repair = call_hf_with_retry(
+                model=selected_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a JSON-only API. You must output raw, valid JSON tightly formatted, using double quotes. Strictly follow the OCPQ schema.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=2000,
+                response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
+            )
+            ocpq_json = parse_llm_json(repair.choices[0].message.content)
+            ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+            if ocpq_json is None:
+                raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+    elif ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be parsed.")
+
+    with open(output_file, "w") as f:
+        json.dump(ocpq_json, f, indent=2)
+
+    query_result = None
+    query_result_file_path = None
+    query_stderr = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path,
+            output_file=output_file,
+            query=query,
+            messages=messages,
+            stage="few_shot",
+        )
+
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            prompt_4 = (
+                f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+                "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
+            )
+            messages.append({"role": "user", "content": prompt_4})
+
+            fix_response = call_hf_with_retry(
+                model=selected_model,
+                messages=messages,
+                max_tokens=2000,
+                response_format=None,
+            )
+            fixed_json = parse_llm_json(fix_response.choices[0].message.content)
+            fixed_json = validate_and_normalize_ocpq_json(fixed_json)
+
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path,
+                    output_file=output_file,
+                    query=query,
+                    messages=messages,
+                    stage="few_shot_fix",
+                )
+                ocpq_json = fixed_json
+
+    return None, None, ocpq_json, query_result, query_result_file_path
+
+
+def _run_pipeline_allowed_entities_only(
+    query,
+    dataset,
+    embeddings,
+    output_file="configs/test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+    structure_hint=None,
+    stage_prefix="allowed_entities_only",
+):
+    """Single-shot generation from the schema, optionally given gold's tree shape.
+
+    `structure_hint` serves the ORACLE conditions of the structure ablation and is built by
+    `eval_testset._build_structure_hint`, which owns the gold query; nothing gold-derived is read
+    here. Left at None the prompt and every failure-log stage name are byte-identical to what this
+    function produced before the parameter existed, which `tests/test_structure_hint_prompt.py`
+    asserts -- the ablation's S0 baseline is this same code path, so any drift would silently
+    invalidate the comparison it exists to make.
+
+    Parameterised rather than copied: the verifier stub, the execution-error repair pass and the
+    failure logging below are subtle enough that a second copy would drift out of step with this
+    one, and the two conditions would then differ by more than the hint.
+    """
+    print(f"Starting Allowed-Entities-Only NL to OCPQ pipeline"
+          f"{' (ORACLE: structure given)' if structure_hint else ''}...")
+    selected_model = model_name or hf_model
+    print(f"Using model: {selected_model}")
+
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
+    hint_block = f"\n{structure_hint}\n" if structure_hint else ""
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a JSON-only API. You must output raw, valid OCPQ JSON exactly matching the schema. "
+                "Never invent entities or unsupported filter types."
+            ),
+        }
+    ]
+
+    prompt = f"""
+Convert this natural language query to OCPQ JSON.
+
+Output ONLY valid JSON.
+
+{schema_block}
+{hint_block}
+Rules:
+- The root object MUST contain both "nodes" and "edgeNames".
+- "edgeNames" is an array of [[parent_index, child_index], "label"] pairs, one per parent-child
+  link used in "nodes" (e.g. [[0, 1], "A"]). Do NOT omit it.
+- Basic filters ("TimeBetweenEvents", "NotEqual", "EventAttributeValueFilter",
+  "ObjectAttributeValueFilter", "BasicFilterCEL") must be wrapped as
+  {{"type": "Filter", "filter": {{...}}}} when placed in "constraints".
+- "O2E" and "O2O" belong in the node's "filters" array, never directly in "constraints".
+- Use ONLY event and object names from the allowed lists.
+- Do NOT invent unsupported filter types such as "ExactlyOnce".
+- Represent "exactly once" using supported schema structure, not a custom operator.
+- If a node contains both events and objects, include the required O2E filter(s).
+- Keep all nodes connected in a single tree and avoid empty nodes.
+
+Query:
+{query}
+"""
+    messages.append({"role": "user", "content": prompt})
+
+    response = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=2000,
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
+    )
+    content = response.choices[0].message.content
+    ocpq_json = parse_llm_json(content)
+    if ocpq_json is None:
+        append_failure_log(
+            stage=f"{stage_prefix}_parse_failed",
+            query=query,
+            messages=messages,
+            raw_output=content,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=event_names,
+            allowed_objects=object_names,
+            validation_error="Could not parse model output as JSON",
+        )
+    messages.append({"role": "assistant", "content": content})
+    print("Direct generation completed: OCPQ JSON generated.")
+
+    # Reuse the same message position the verifier expects for allowed-entity extraction.
+    extracted_structure_stub = json.dumps(
+        {
+            "events": [{"event": event_name} for event_name in event_names],
+            "objects": [{"object": object_name} for object_name in object_names],
+        }
+    )
+    verifier_messages = [messages[0], messages[1], {"role": "assistant", "content": extracted_structure_stub}]
+
+    if schema_validation:
+        ocpq_json = verify_ocpq_json(
+            ocpq_json,
+            selected_model,
+            verifier_messages,
+            query=query,
+            schema_enforced=schema_enforced,
+        )
+        if ocpq_json is None:
+            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+
+        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+        if ocpq_json is None:
+            raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+    elif ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be parsed.")
+
+    with open(output_file, "w") as f:
+        json.dump(ocpq_json, f, indent=2)
+
+    query_result = None
+    query_result_file_path = None
+    query_stderr = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path,
+            output_file=output_file,
+            query=query,
+            messages=messages,
+            stage=stage_prefix,
+        )
+
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            prompt_fix = (
+                f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+                "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
+            )
+            fixed_json, fixed_content = schema_fix_with_llm(
+                model_name=selected_model,
+                messages=messages,
+                prompt=prompt_fix,
+                schema_enforced=schema_enforced,
+            )
+
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path,
+                    output_file=output_file,
+                    query=query,
+                    messages=messages,
+                    stage=f"{stage_prefix}_fix",
+                )
+                ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_fix})
+                messages.append({"role": "assistant", "content": fixed_content})
+
+    return None, None, ocpq_json, query_result, query_result_file_path
+
+
+def _run_pipeline_chain_of_thought_plus(
+    query,
+    dataset,
+    embeddings,
+    output_file="configs/test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+):
+    print("Starting Chain-of-Thought-Plus NL to OCPQ pipeline...")
+    selected_model = model_name or hf_model
+    print(f"Using model: {selected_model}")
+
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a process mining expert that converts natural language into Object-Centric Process Queries (OCPQ). You must think step by step and respond concisely according to the prompts.",
+        }
+    ]
+
+    prompt_1 = f"""
+You are extracting the structure of a process query.
+
+Given a natural language query, identify:
+
+1. Events involved
+2. Objects involved
+3. Relationships between events (before, after, etc.)
+4. Cardinality constraints (e.g., exactly once, at least once)
+5. Whether nesting is needed (yes/no)
+
+The events and objects must be chosen from the schema extracted from the log:
+{schema_block}
+
+Return ONLY JSON in this format:
+
+{{
+  "events": [...],
+  "objects": [...],
+  "relations": [...],
+  "constraints": [...],
+  "requires_nesting": true/false
+}}
+
+Query:
+{query}
+"""
+    messages.append({"role": "user", "content": prompt_1})
+    response_1 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "extracted_structure", "schema": EXTRACTED_STRUCTURE_SCHEMA, "strict": True},
+        },
+    )
+    structure_text = response_1.choices[0].message.content
+    messages.append({"role": "assistant", "content": structure_text})
+    print("Sub-problem 1 completed: Entities extracted.")
+
+    prompt_2 = f"""
+You are designing an OCPQ query tree.
+
+Given this extracted structure:
+
+{structure_text}
+
+Decide:
+
+- Number of nodes
+- What each node represents
+- Parent-child relationships
+
+The example below shows the FORMAT ONLY, with 2 nodes and 1 edge. Your actual
+tree may need more or fewer nodes/edges depending on the query — include ALL
+nodes and edges you decided on above, not just this many.
+
+Return ONLY JSON:
+
+{{
+  "nodes": [
+    {{
+      "id": 0,
+      "description": "...",
+      "events": [...],
+      "objects": [...]
+    }},
+    {{
+      "id": 1,
+      "description": "...",
+      "events": [...],
+      "objects": [...]
+    }}
+  ],
+  "edges": [
+    {{"from": 0, "to": 1, "label": "A"}}
+  ]
+}}
+"""
+    messages.append({"role": "user", "content": prompt_2})
+    response_2 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "query_tree", "schema": QUERY_TREE_SCHEMA, "strict": True},
+        },
+    )
+    tree_text = response_2.choices[0].message.content
+    messages.append({"role": "assistant", "content": tree_text})
+    print("Sub-problem 2 completed: Tree structure planned.")
+
+    few_shot_string = build_few_shot_examples(query, dataset, embeddings)
+    prompt_3 = f"""
+You are generating OCPQ JSON.
+
+CRITICAL SCHEMA REQUIREMENT:
+Output ONLY valid JSON matching the exact schema shown in the examples.
+The root object MUST contain exactly two top-level keys: "nodes" and "edgeNames".
+Each node in the "nodes" array MUST be an object with a single key "Box".
+The "Box" value MUST always be an array with exactly TWO elements:
+1. The node data dictionary (containing newEventVars, newObjectVars, filters, sizeFilters, constraints, evVarLabels, obVarLabels).
+2. An array of child node indices (e.g., [], [1]).
+"edgeNames" MUST be an array of [[parent_index, child_index], "label"] pairs, one per parent-child link used in "nodes" (e.g., [[0, 1], "A"]). Do NOT omit this field.
+
+CONSTRAINT SCHEMA:
+The constraints in your JSON MUST ONLY use the following top-level variants:
+"Filter", "SizeFilter", "SAT", "ANY", "NOT", "OR", "AND".
+Basic filter logic like "TimeBetweenEvents", "NotEqual", "EventAttributeValueFilter", "ObjectAttributeValueFilter", "BasicFilterCEL" must be wrapped inside a {{ "type": "Filter", "filter": {{ ... }} }} constraint.
+Do NOT place "O2E" or "O2O" directly in constraints. They belong in the "filters" array of the node.
+If you use "NumChilds" or other size filters in the "sizeFilters" array, place them directly (e.g., {{ "type": "NumChilds", ... }}). Do NOT wrap them in a "SizeFilter" object unless you are placing them inside the "constraints" array.
+
+Here is the logical plan (query tree) for the query.
+LOGICAL PLAN (DO NOT USE THIS AS THE OUTPUT SCHEMA, JUST USE IT TO UNDERSTAND THE LOGIC AND HIERARCHY):
+{tree_text}
+
+EXTRACTED STRUCTURE (USE THESE EXACT EVENTS AND OBJECTS):
+{json.dumps(structure_text, indent=2)}
+
+WARNING: The examples below are from different domains. DO NOT copy their events (like "submit application") or objects (like "candidates"). You MUST map the logic from the examples to the events and objects in the EXTRACTED STRUCTURE above!
+
+Use these examples for the EXACT output schema:
+{few_shot_string}
+
+Now generate the final OCPQ JSON for the exact user query: '{query}'
+ONLY output valid JSON.
+"""
+    messages.append({"role": "user", "content": prompt_3})
+    messages[0] = {
+        "role": "system",
+        "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema.",
+    }
+
+    response_3 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=2000,
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
+    )
+    content = response_3.choices[0].message.content
+    ocpq_json = parse_llm_json(content)
+    if ocpq_json is None:
+        allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+        append_failure_log(
+            stage="chain_of_thought_parse_failed",
+            query=query,
+            messages=messages,
+            raw_output=content,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=allowed_events,
+            allowed_objects=allowed_objects,
+            validation_error="Could not parse model output as JSON",
+        )
+    messages.append({"role": "assistant", "content": content})
+    print("Sub-problem 3 completed: OCPQ JSON generated.")
+
+    if schema_validation:
+        ocpq_json = verify_ocpq_json(
+            ocpq_json,
+            selected_model,
+            messages,
+            query=query,
+            schema_enforced=schema_enforced,
+        )
+        if ocpq_json is None:
+            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+
+        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+        if ocpq_json is None:
+            raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+    elif ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be parsed.")
+
+    with open(output_file, "w") as f:
+        json.dump(ocpq_json, f, indent=2)
+
+    query_result = None
+    query_result_file_path = None
+    query_stderr = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path,
+            output_file=output_file,
+            query=query,
+            messages=messages,
+            stage="chain_of_thought_plus",
+        )
+
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            prompt_4 = (
+                f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+                "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
+            )
+            fixed_json, fixed_content = schema_fix_with_llm(
+                model_name=selected_model,
+                messages=messages,
+                prompt=prompt_4,
+                schema_enforced=schema_enforced,
+            )
+
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path,
+                    output_file=output_file,
+                    query=query,
+                    messages=messages,
+                    stage="chain_of_thought_plus_fix",
+                )
+                ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_4})
+                messages.append({"role": "assistant", "content": fixed_content})
+
+    return structure_text, tree_text, ocpq_json, query_result, query_result_file_path
+
+
+def _run_pipeline_least_to_most(
+    query,
+    dataset,
+    embeddings,
+    output_file="configs/test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+):
+    print("Starting Least-to-Most NL to OCPQ pipeline...")
+    selected_model = model_name or hf_model
+    print(f"Using model: {selected_model}")
+
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a process mining expert that converts natural language into Object-Centric Process Queries (OCPQ). You must think step by step and respond concisely according to the prompts.",
+        }
+    ]
+
+    prompt_1 = f"""
+You are extracting the structure of a process query.
+
+Given a natural language query, identify:
+
+1. Events involved
+2. Objects involved
+3. Relationships between events (before, after, etc.)
+4. Cardinality constraints (e.g., exactly once, at least once)
+5. Whether nesting is needed (yes/no)
+
+The events and objects must be chosen from the schema extracted from the log:
+{schema_block}
+
+Return ONLY JSON in this format:
+
+{{
+  "events": [...],
+  "objects": [...],
+  "relations": [...],
+  "constraints": [...],
+  "requires_nesting": true/false
+}}
+
+Query:
+{query}
+"""
+    messages.append({"role": "user", "content": prompt_1})
+    response_1 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "extracted_structure", "schema": EXTRACTED_STRUCTURE_SCHEMA, "strict": True},
+        },
+    )
+    structure_text = response_1.choices[0].message.content
+    messages.append({"role": "assistant", "content": structure_text})
+    print("Sub-problem 1 completed: Entities extracted.")
+
+    prompt_2 = f"""
+You are formalizing a process query.
+
+Given this extracted structure:
+
+{structure_text}
+
+Convert it into a precise logical representation using simple rules:
+
+- Use variables like e1, e2 for events
+- Use variables like o1 for objects
+- Express relations explicitly:
+  - before(e1, e2)
+  - exists(e1)
+  - count(e1) = 1
+- Link events to objects:
+  - relates(e1, o1)
+
+Return ONLY JSON:
+
+{{
+  "variables": {{
+    "events": {{...}},
+    "objects": {{...}}
+  }},
+  "logic": [
+    ...
+  ]
+}}
+"""
+    messages.append({"role": "user", "content": prompt_2})
+    response_2 = call_hf_with_retry(model=selected_model, messages=messages, max_tokens=1000, response_format=None)
+    formal_tree = response_2.choices[0].message.content
+    messages.append({"role": "assistant", "content": formal_tree})
+    print("Sub-problem 2 completed: Tree structure planned.")
+
+    prompt_3 = f"""
+You are designing an OCPQ query tree.
+
+Given this extracted structure:
+
+{formal_tree}
+
+Decide:
+
+- Number of nodes
+- What each node represents
+- Parent-child relationships
+
+The example below shows the FORMAT ONLY, with 2 nodes and 1 edge. Your actual
+tree may need more or fewer nodes/edges depending on the query — include ALL
+nodes and edges you decided on above, not just this many.
+
+Return ONLY JSON:
+
+{{
+  "nodes": [
+    {{
+      "id": 0,
+      "description": "...",
+      "events": [...],
+      "objects": [...]
+    }},
+    {{
+      "id": 1,
+      "description": "...",
+      "events": [...],
+      "objects": [...]
+    }}
+  ],
+  "edges": [
+    {{"from": 0, "to": 1, "label": "A"}}
+  ]
+}}
+"""
+    messages.append({"role": "user", "content": prompt_3})
+    response_3 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "query_tree", "schema": QUERY_TREE_SCHEMA, "strict": True},
+        },
+    )
+    tree_text = response_3.choices[0].message.content
+    messages.append({"role": "assistant", "content": tree_text})
+    print("Sub-problem 3 completed: Query tree designed.")
+
+    few_shot_string = build_few_shot_examples(query, dataset, embeddings)
+    prompt_4 = f"""
+You are generating OCPQ JSON.
+
+CRITICAL SCHEMA REQUIREMENT:
+Output ONLY valid JSON matching the exact schema shown in the examples.
+The root object MUST contain exactly two top-level keys: "nodes" and "edgeNames".
+Each node in the "nodes" array MUST be an object with a single key "Box".
+The "Box" value MUST always be an array with exactly TWO elements:
+1. The node data dictionary (containing newEventVars, newObjectVars, filters, sizeFilters, constraints, evVarLabels, obVarLabels).
+2. An array of child node indices (e.g., [], [1]).
+"edgeNames" MUST be an array of [[parent_index, child_index], "label"] pairs, one per parent-child link used in "nodes" (e.g., [[0, 1], "A"]). Do NOT omit this field.
+
+CONSTRAINT SCHEMA:
+The constraints in your JSON MUST ONLY use the following top-level variants:
+"Filter", "SizeFilter", "SAT", "ANY", "NOT", "OR", "AND".
+Basic filter logic like "TimeBetweenEvents", "NotEqual", "EventAttributeValueFilter", "ObjectAttributeValueFilter", "BasicFilterCEL" must be wrapped inside a {{ "type": "Filter", "filter": {{ ... }} }} constraint.
+Do NOT place "O2E" or "O2O" directly in constraints. They belong in the "filters" array of the node.
+If you use "NumChilds" or other size filters in the "sizeFilters" array, place them directly (e.g., {{ "type": "NumChilds", ... }}). Do NOT wrap them in a "SizeFilter" object unless you are placing them inside the "constraints" array.
+
+Here is the logical plan (query tree) for the query.
+LOGICAL PLAN (DO NOT USE THIS AS THE OUTPUT SCHEMA, JUST USE IT TO UNDERSTAND THE LOGIC AND HIERARCHY):
+{tree_text}
+
+EXTRACTED STRUCTURE (USE THESE EXACT EVENTS AND OBJECTS):
+{json.dumps(structure_text, indent=2)}
+
+WARNING: The examples below are from different domains. DO NOT copy their events (like "submit application") or objects (like "candidates"). You MUST map the logic from the examples to the events and objects in the EXTRACTED STRUCTURE above!
+
+Use these examples for the EXACT output schema:
+{few_shot_string}
+
+Now generate the final OCPQ JSON for the exact user query: '{query}'
+ONLY output valid JSON.
+"""
+    messages.append({"role": "user", "content": prompt_4})
+    messages[0] = {
+        "role": "system",
+        "content": "You are a JSON-only API. You must output raw, valid JSON perfectly formatting according to the provided schema.",
+    }
+
+    response_4 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=2000,
+        response_format=_build_response_format("ocpq_schema", OCPQ_JSON_SCHEMA, schema_enforced),
+    )
+    content = response_4.choices[0].message.content
+    ocpq_json = parse_llm_json(content)
+    if ocpq_json is None:
+        allowed_events, allowed_objects = _extract_allowed_entities_from_messages(messages)
+        append_failure_log(
+            stage="least_to_most_parse_failed",
+            query=query,
+            messages=messages,
+            raw_output=content,
+            parsed_json=None,
+            normalized_json=None,
+            allowed_events=allowed_events,
+            allowed_objects=allowed_objects,
+            validation_error="Could not parse model output as JSON",
+        )
+    messages.append({"role": "assistant", "content": content})
+    print("Sub-problem 4 completed: OCPQ JSON generated.")
+
+    if schema_validation:
+        ocpq_json = verify_ocpq_json(
+            ocpq_json,
+            selected_model,
+            messages,
+            query=query,
+            schema_enforced=schema_enforced,
+        )
+        if ocpq_json is None:
+            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+
+        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+        if ocpq_json is None:
+            raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+    elif ocpq_json is None:
+        raise ValueError("Generated OCPQ JSON could not be parsed.")
+
+    prompt_5 = f"""
+You are verifying an OCPQ query for correctness and performance.
+
+User query:
+{query}
+
+Generated OCPQ JSON:
+{ocpq_json}
+
+Please refer to the reasoning steps in the following dataset examples to understand how query bounds and constraints are properly established:
+{few_shot_string}
+
+CRITICAL CHECKS TO PREVENT OOM (QUERY EXPLOSION):
+1. Are all events explicitly bound to objects using `O2E` filters in the `filters` array? (Unbound events cause Cartesian explosions).
+2. Are child paths properly bounded by `TimeBetweenEvents`, `SAT`, `ANY`, or size constraints to prevent infinite graph search?
+3. Does the structure match the logical reasoning patterns demonstrated in the examples?
+
+Explain whether the query correctly captures the intent AND safely limits the search space.
+
+If NOT or if it risks a query explosion:
+- explain the mistake in the issues list
+- output a corrected JSON
+
+Return JSON:
+{{
+  "is_correct": true/false,
+  "issues": ["Issue 1...", "Issue 2..."],
+  "fixed_query": {{...}}
+}}
+"""
+    messages.append({"role": "user", "content": prompt_5})
+
+    response_5 = call_hf_with_retry(
+        model=selected_model,
+        messages=messages,
+        max_tokens=1000,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "verification_schema", "schema": VERIFICATION_JSON_SCHEMA, "strict": True},
+        }
+    )
+    verification_text = response_5.choices[0].message.content or ""
+    messages.append({"role": "assistant", "content": verification_text})
+    print("Sub-problem 5 completed: Query tree verified.")
+
+    verification_json = parse_llm_json(verification_text)
+    if not isinstance(verification_json, dict):
+        print("Verification response was not valid JSON; defaulting to generated query.")
+        verification_json = {"is_correct": True, "issues": ["Invalid verifier output"], "fixed_query": ocpq_json}
+
+    if verification_json.get("is_correct", False):
+        with open(output_file, "w") as f:
+            json.dump(ocpq_json, f, indent=2)
+    else:
+        print("LLM indicated the query might be incorrect. Check the verification response for details:\n", verification_json)
+        with open(output_file, "w") as f:
+            json.dump(verification_json.get("fixed_query", ocpq_json), f, indent=2)
+
+    query_result = None
+    query_result_file_path = None
+    query_stderr = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path,
+            output_file=output_file,
+            query=query,
+            messages=messages,
+            stage="least_to_most",
+        )
+
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            prompt_6 = (
+                f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+                "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a markdown code block."
+            )
+            fixed_json, fixed_content = schema_fix_with_llm(
+                model_name=selected_model,
+                messages=messages,
+                prompt=prompt_6,
+                schema_enforced=schema_enforced,
+            )
+
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path,
+                    output_file=output_file,
+                    query=query,
+                    messages=messages,
+                    stage="least_to_most_fix",
+                )
+                ocpq_json = fixed_json
+                messages.append({"role": "user", "content": prompt_6})
+                messages.append({"role": "assistant", "content": fixed_content})
+
+    return structure_text, verification_json, ocpq_json, query_result, query_result_file_path
+
+
+def nl_to_ocpq_pipeline(
+    query,
+    dataset,
+    embeddings,
+    output_file="configs/test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    prompt_strategy=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+    structure_hint=None,
+):
+    """Dispatch to a prompt strategy.
+
+    `structure_hint` is only meaningful for the two `oracle-` strategies, which receive part of the
+    GOLD query and therefore produce ceilings rather than system performance. It is ignored by
+    every other strategy, so passing it cannot silently alter an ordinary condition.
+    """
+    strategy = normalize_prompt_strategy(prompt_strategy)
+    if strategy == "schema-allowed-entities-only":
+        return _run_pipeline_allowed_entities_only(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+        )
+    if strategy in ORACLE_PROMPT_STRATEGIES:
+        # Same code path as the baseline above, so the ablation's three rungs differ by the hint
+        # and by nothing else. A missing hint (malformed gold) degrades to the baseline prompt
+        # rather than failing the case; `structure_hint_level` on the record says which happened.
+        return _run_pipeline_allowed_entities_only(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+            structure_hint=structure_hint,
+            stage_prefix=strategy.replace("-", "_"),
+        )
+    if strategy == "schema-few-shot":
+        return _run_pipeline_few_shot(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+        )
+    if strategy == "schema-chain-of-thought-plus":
+        return _run_pipeline_chain_of_thought_plus(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+        )
+    if strategy == "schema-least-to-most":
+        return _run_pipeline_least_to_most(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+        )
+    if strategy == "schema-grammar-guided":
+        return _run_pipeline_grammar_guided(
+            query,
+            dataset,
+            embeddings,
+            output_file,
+            ocel_path,
+            model_name,
+            schema_enforced=schema_enforced,
+            schema_validation=schema_validation,
+            execute_query=execute_query,
+        )
+
+    raise ValueError(
+        f"Unsupported prompt strategy: {prompt_strategy}. Supported: {', '.join(PROMPT_STRATEGIES)}"
+    )
+
+
+def generate_query_result_summary(result_data, max_rows_per_node=100):
+    """
+    Generate a human-readable summary from the query result JSON.
+    
+    Args:
+        result_data: The parsed JSON result from the query executor (from query_result.json)
+        max_rows_per_node: Maximum situations to include per node in preview
+    
+    Returns:
+        dict with keys: metrics, node_overview, situations_preview
+    """
+    summary = {
+        "metrics": {},
+        "node_overview": [],
+        "situations_preview": {},
+        "status": "error"
+    }
+    
+    if "Err" in result_data:
+        summary["error"] = result_data.get("Err", "Unknown error")
+        return summary
+    
+    if "Ok" not in result_data:
+        summary["error"] = "Unexpected result shape"
+        return summary
+    
+    ok_data = result_data.get("Ok", {})
+    eval_data = ok_data.get("evaluationResults", [])
+    object_ids = ok_data.get("objectIds", [])
+    event_ids = ok_data.get("eventIds", [])
+    bindings_skipped = ok_data.get("bindingsSkipped", False)
+    
+    if not isinstance(eval_data, list):
+        summary["error"] = "No evaluation results in response"
+        return summary
+    
+    # Calculate metrics
+    total_situations = 0
+    total_violations = 0
+    for node in eval_data:
+        count = node.get("situationCount", 0)
+        violated = node.get("situationViolatedCount", 0)
+        total_situations += count
+        total_violations += violated
+    
+    summary["metrics"] = {
+        "nodes": len(eval_data),
+        "total_situations": total_situations,
+        "total_violations": total_violations,
+        "satisfaction_rate": f"{(100.0 * (total_situations - total_violations) / total_situations):.1f}%" if total_situations else "N/A",
+        "bindings_skipped": bindings_skipped,
+    }
+    
+    # Node overview table
+    for idx, node in enumerate(eval_data):
+        count = node.get("situationCount", 0)
+        violated = node.get("situationViolatedCount", 0)
+        summary["node_overview"].append({
+            "node": idx,
+            "situation_count": count,
+            "violated_count": violated,
+            "satisfaction_rate": f"{(100.0 * (count - violated) / count):.1f}%" if count else "N/A",
+        })
+    
+    # Situations preview for each node
+    def _format_violation(violation):
+        if violation is None:
+            return "Satisfied"
+        if isinstance(violation, str):
+            return f"Violated: {violation}"
+        if isinstance(violation, dict) and len(violation) == 1:
+            k, v = next(iter(violation.items()))
+            return f"Violated: {k} ({v})"
+        return f"Violated: {violation}"
+    
+    for idx, node in enumerate(eval_data):
+        node_data = node
+        situations = node_data.get("situations", []) if isinstance(node_data, dict) else []
+        rows = []
+        
+        for i, situation in enumerate(situations[:max_rows_per_node], start=1):
+            if not isinstance(situation, list) or len(situation) != 2:
+                continue
+            binding, violation = situation
+            event_map = binding.get("eventMap", []) if isinstance(binding, dict) else []
+            object_map = binding.get("objectMap", []) if isinstance(binding, dict) else []
+            label_map = binding.get("labelMap", []) if isinstance(binding, dict) else []
+            
+            event_parts = []
+            for ev_var, ev_idx in event_map:
+                ev_name = event_ids[ev_idx] if isinstance(ev_idx, int) and 0 <= ev_idx < len(event_ids) else f"index:{ev_idx}"
+                event_parts.append(f"e{ev_var + 1}={ev_name}")
+            
+            object_parts = []
+            for ob_var, ob_idx in object_map:
+                ob_name = object_ids[ob_idx] if isinstance(ob_idx, int) and 0 <= ob_idx < len(object_ids) else f"index:{ob_idx}"
+                object_parts.append(f"o{ob_var + 1}={ob_name}")
+            
+            label_parts = []
+            for item in label_map:
+                if isinstance(item, list) and len(item) == 2:
+                    label_parts.append(f"{item[0]}={item[1]}")
+            
+            rows.append({
+                "situation": i,
+                "status": _format_violation(violation),
+                "events": ", ".join(event_parts) if event_parts else "-",
+                "objects": ", ".join(object_parts) if object_parts else "-",
+                "labels": ", ".join(label_parts) if label_parts else "-",
+            })
+        
+        summary["situations_preview"][f"node_{idx}"] = {
+            "total_situations": len(situations),
+            "preview_rows": rows,
+            "preview_limit": max_rows_per_node,
+        }
+    
+    summary["status"] = "ok"
+    return summary
