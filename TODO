@@ -1111,3 +1111,126 @@
     8. submit B first (8 GPU-h), then:
        sbatch slurm/submit_eval_array.sh --config configs/eval_config.matrix_v2.json
     9. merge gate: 8112 records, dropped 0, pipeline_consistent AND corpus_consistent true
+
+- OPEN, DECISION (2026-09-21) tag_testset_bb._longest_path measures depth from node 0, not from the
+  structural root, so a tree whose root is not node 0 loses its T5 label. Found while validating dev-set
+  entry 20 (a four-box container chain rooted at node 3), which should carry T5 and carries no T-label
+  at all. The bug can only ever produce FALSE NEGATIVES on T5: depth(0) walks a subpath of the real
+  root's path, so it can understate the depth but never overstate it. T5 is the only label affected --
+  T1/T2/T3 read the node count and T4 reads per-node children, both root-independent.
+  MEASURED BEFORE DECIDING (scratchpad, stubs; the minimal patch is depth(root_node_index(query)),
+  everything else in the function byte-identical):
+    * GOLD IS UNAFFECTED. 3 of 169 testset entries have a non-zero root (35, 36, 135), and all three
+      have exactly 3 nodes, so they cannot reach T5 under either version. data/testset_bb_labels.json,
+      the per-BB slices and the coverage floors do not move, and tag_testset_bb.py need not be re-run
+      over the testset.
+    * PREDICTIONS BARELY MOVE. matrix_v2/merged: 20 of 8112 predictions have a non-zero root, 1 record
+      changes, structural_f1 0.3245 -> 0.3245 (+0.0000). matrix_full: 23 off-root, 3 records change,
+      0.3216 -> 0.3217 (+0.0001). Both are two orders of magnitude below the +-0.03 resolution of
+      notes 37.7, so no published number changes.
+    * NO LLM RE-RUN IS NEEDED IF IT IS FIXED. _recompute_metrics re-derives metrics.structural from
+      each record's own gold_query and prediction via _structural_metrics -> detect_bb_labels, with no
+      GPU and no ocpq_cli; that is what the result store is for. matrix_v2/merged and matrix_full both
+      have a result_store. non_oracle does NOT (per-shard stores only), so it would be recomputed
+      shard by shard.
+    * COST OF FIXING: tag_testset_bb.py is in _PIPELINE_SOURCE_FILES, so pipeline_fingerprint moves and
+      no future shard matches the existing matrix. That is already true post-reorg (notes 38), but it
+      means the fix must not land between shards of one matrix.
+  RECOMMENDATION: fix it AFTER the agentic runs, not during them, and recompute rather than re-run.
+  CLAUDE.md forbids refactoring working code mid-experiment, and a +0.0001 correction does not justify
+  moving the fingerprint while the agentic arm is being measured against the existing arms.
+  SEPARATE AND LARGER, FOUND THE SAME WAY, NOT YET A DECISION: a tolerant _longest_path -- one that
+  skips edges to non-existent nodes and guards against cycles instead of raising -- moves structural_f1
+  by +0.0176 on matrix_v2 and changes 544 records. Today a malformed prediction whose edges cycle or
+  dangle raises inside detect_bb_labels, _structural_metrics catches it and the record scores F1 0 for
+  ALL 42 labels, not just T5. Whether that is a defect or the correct reading of "it expressed nothing"
+  is a genuine question: the tree really is invalid. Decide it separately, and note that at +0.0176 it
+  is half the resolution and therefore worth deciding deliberately rather than by accident.
+
+- DONE (2026-09-21) OCPQ PINNED at branch nlxocpq-pinned, commit 50f60c1 (2c5e0d6 + our two local
+  modifications as a real commit). Upstream had moved to v0.12.1 under us and a `git stash pop` of
+  our modifications conflicted; that conflict was the symptom, not the problem.
+  WHAT v0.12.1 WOULD HAVE COST:
+    * It REPLACES THE WHOLE /ocel/* HTTP API with an /api/call binding registry. Every route
+      src/ocpq_probe.py uses -- /ocel/load, /ocel/check-constraints-box, /ocel/eval-results/page,
+      /ocel/sample-ids, /ocel/get-object, /ocel/get-activity-statistics -- is gone. Stage 1 of the
+      agentic plan would have been dead code.
+    * It renames the crates (ocpq_shared -> ocpq_core / backend_shared), so ocpq_cli and the shared
+      evaluation core both move. ocpq_cli computes every gold and predicted result set in the thesis.
+    * Our local ocpq_cli.exe is from 3 April and had NOT been rebuilt, so every completed run is
+      safe -- but the next `cargo build` on a v0.12.1 tree would have silently replaced the
+      evaluation binary mid-experiment. Nothing would have reported it.
+  WHAT IT WOULD HAVE GIVEN: v0.12.1 implements both halves of our modification 2 independently
+  (OCPQ_PORT and OCPQ_BIND, and no startup OCEL import at all), so that patch becomes redundant on
+  upgrade. Modification 1 (measure_performance = false) is still ours.
+  VERIFIED after pinning: all five probe route families present, and a live ProbeServer answers
+  try_query (1999 Container situations on container_logistics) and activity_stats.
+  UPGRADE DELIBERATELY, AFTER THE AGENTIC RUNS. Re-point src/ocpq_probe.py at /api/call first, then
+  re-run the probe tests and check_probe.py, then rebuild and re-verify ocpq_cli against a known
+  run before any scored evaluation.
+
+- OPEN, DO BEFORE THE AGENTIC RUNS (2026-09-21) RECORD THE OCPQ REVISION IN THE RUN MANIFEST.
+  Nothing in any completed run records which OCPQ built the results. summary.json carries
+  pipeline_fingerprints (the Python source), corpus digests (the logs) and testset_hash (the data),
+  but the BINARY that computes every situation set is unrecorded -- checked matrix_v2/merged and
+  matrix_full. This is the same hole the corpus manifest was created to close for logs after notes
+  35, and the OCPQ upgrade above is exactly the event it would have caught.
+  Proposed, cheap: in _configure_backend or the manifest builder, shell `git -C <OCPQ> rev-parse HEAD`
+  plus `git status --porcelain` for a dirty flag, and record {ocpq_rev, ocpq_dirty, ocpq_cli_sha256,
+  ocpq_cli_mtime}. The binary hash matters more than the rev, because the rev says what the source
+  was and the hash says what actually ran. Anchor the OCPQ path through src/paths.py, never hardcoded.
+  The agentic plan already calls for the web-server patch sha256 and the OCPQ git rev in the run
+  manifest; this generalises it to every run, including ocpq_cli.
+
+- OPEN, QUESTION FOR GOLD (2026-09-21) THREE TESTSET ENTRIES DECLARE AN OUTPUT THE METRIC DOES NOT
+  SCORE. _extract_result_ids reads ONLY the root binding box (src/eval_testset.py:786), keyed by
+  event ids, object ids and the violation flag. evVarLabels / obVarLabels document which variable is
+  the intended answer, but they do not change what is compared. So for a "retrieve the X" question
+  the ROOT must bind X, or the scored answer is a different kind of entity than the question asks for.
+  FOUND while validating the dev-set entry "Retrieve the weighing events of containers that were also
+  rescheduled". MEASURED both forms on the same log: root binds the Weigh event -> 36 EVENT ids,
+  matching the log exactly; root binds Container with the child's Weigh marked INCLUDED (the gold
+  idiom) -> the same count but 36 OBJECT ids, i.e. the containers.
+  THE THREE ENTRIES (8 nodes carry evVarLabels, 22 carry obVarLabels; these 3 mark an EVENT as
+  output on a NON-root node while the root binds no event):
+    * "Retrieve the payment events for all orders that received at least one reminder."  root=0
+      arity (0,1), evVarLabels on node 1 -- the L2 exemplar; its scored answer is orders.
+    * "Which invoice receipts were paid after a two-way match was performed?"  root=0 arity (0,1),
+      evVarLabels on node 1 -- and the same entry again with evVarLabels on node 2.
+  NOT ACTED ON: data/testset.json is read-only (CLAUDE.md 7) and this is a gold-authoring decision,
+  not a bug to fix silently. Note the second NL arguably DOES ask for invoice receipts (objects), in
+  which case only the first is wrong; the first is unambiguous.
+  IF IT IS CHANGED: the gold query changes, so gold result sets must be re-executed -- this is NOT
+  recoverable with --recompute the way the _longest_path fix is, because the stored blobs are keyed
+  by the query. Decide it with the same care as the testset expansion, and not during the agentic runs.
+
+- OPEN, DO BEFORE THE AGENTIC RUNS (2026-09-21) A MALFORMED TREE CRASHES THE OCPQ WEB SERVER, AND
+  THE PROBE DOES NOT SURVIVE IT. Found while testing dev-set variants: a BindingBoxTree whose child
+  index points past the end of `nodes` (here [1] rewritten to two nodes while a child still named
+  index 2) does not return an error document -- the server closes the connection and the process is
+  gone. src/ocpq_probe.py surfaces it as ProbeUnavailable("Remote end closed connection without
+  response") and every later tool call in that run fails, because ProbeServer starts the binary once
+  and never restarts it.
+  WHY THIS MATTERS MORE FOR THE AGENTIC ARM THAN FOR ME: the whole premise of rung A1 is that the
+  model emits a candidate tree and calls try_query on it. An agent WILL emit malformed trees -- that
+  is what the malformed-action rate in the pre-registration is there to measure -- and today the
+  first such tree ends the probe for the rest of the case, and for every case afterwards that shares
+  the server. A crash in the middle of a 169-case shard would silently degrade A1 and A2 into
+  no-tool arms, and the run would still complete, so nothing would flag it.
+  THREE THINGS TO DO, cheapest first:
+    1. VALIDATE BEFORE SENDING. ocpq_schema.structural_defects already detects an out-of-range child
+       (it reported `[unknown_child_name] node 1: size filter NumChilds names child 'B', but node
+       1's children are named []` on an earlier draft). OcpqProbe.try_query should run the existing
+       structural check and return the defect as a tool result instead of posting the tree. That is
+       strictly better feedback for the agent than a dead socket, and it costs nothing.
+    2. SURVIVE ANYWAY. ProbeServer needs a liveness check and a bounded restart: on
+       ProbeUnavailable, restart the binary, re-run ensure_log for the case's log (re-asserting the
+       /ocel/info identity), and retry the call ONCE. Cap restarts per case and per run, and record
+       the count in the run record next to agent_tool_calls -- a silent restart is how a degraded
+       arm would hide.
+    3. RECORD IT. New record field (probe_restarts) and a line in the compliance block of notes 43,
+       beside malformed-action and budget-exhaustion rates.
+  NOT A REASON TO PATCH OCPQ: the server is pinned at nlxocpq-pinned 50f60c1 and the fix belongs on
+  our side of the boundary, where it also produces better agent feedback. Worth reporting upstream
+  separately, since it is a genuine robustness bug in v0.11.x; check whether v0.12.1 still has it
+  before writing that report.

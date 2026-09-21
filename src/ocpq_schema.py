@@ -202,6 +202,25 @@ class RootArity(BaseModel):
     n_event_vars: int = Field(ge=0, le=4)
     n_object_vars: int = Field(ge=0, le=4)
 
+class AgentAction(BaseModel):
+    """One turn of the agentic protocol: look something up in the log, or answer.
+
+    The agentic arm has no native tool-calling to lean on -- the local backend is raw
+    `transformers.generate` with a chat template, and the fine-tuned adapters were trained to emit
+    one JSON object -- so a turn is a JSON object either way, and this is its shape. Constraining
+    generation to it (`LLM.set_constrained_schema`) is what makes a well-formed turn a guarantee
+    rather than a hope, which is the same argument notes 33 made for `RootArity`.
+
+    Exactly one of `tool` or `final_tree` is expected; `LLM._parse_agent_action` enforces that,
+    because a grammar that permits both permits neither to be trusted. `args` is deliberately
+    free-form: each tool documents its own arguments in `ocpq_probe.TOOL_SPECS`, and a wrong
+    argument is a mistake the model should see and correct, not a parse failure.
+    """
+    tool: Optional[str] = None
+    args: Optional[Dict[str, Any]] = None
+    final_tree: Optional[BindingBoxTree] = None
+
+
 class QueryVerification(BaseModel):
     is_correct: bool
     issues: List[str]
@@ -236,6 +255,7 @@ class QueryTree(BaseModel):
 
 OCPQ_JSON_SCHEMA = BindingBoxTree.model_json_schema()
 ROOT_ARITY_SCHEMA = RootArity.model_json_schema()
+AGENT_ACTION_SCHEMA = AgentAction.model_json_schema()
 VERIFICATION_JSON_SCHEMA = QueryVerification.model_json_schema()
 EXTRACTED_STRUCTURE_SCHEMA = ExtractedStructure.model_json_schema()
 QUERY_TREE_SCHEMA = QueryTree.model_json_schema()

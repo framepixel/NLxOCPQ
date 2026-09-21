@@ -22,9 +22,12 @@ from huggingface_hub import InferenceClient
 from pydantic import ValidationError
 
 import paths
-from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
+from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, AGENT_ACTION_SCHEMA, AgentAction, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
 
 from LogEvents import events_and_objects_from_ocel, extract_ocel_schema
+# The agentic arm's tool surface (notes 43). Imported as a module, not as names, so the tool
+# registry the prompt is generated from and the dispatcher the probe runs can never be two lists.
+import ocpq_probe
 
 # In[2]:
 
@@ -159,6 +162,13 @@ _last_structural_report = None
 # by the arity predictor, which asks a narrow question and wants a two-integer answer, not a query.
 # None keeps the OCPQ grammar. See `set_constrained_schema`.
 constrained_schema_override = None
+# The agentic arm (notes 43). `agent_probe` is the log-inspection surface -- an `ocpq_probe.OcpqProbe`
+# owned by `eval_testset`, or None for the compute-matched control that runs the same loop with no
+# tools. `agent_max_turns` caps model turns per case and IS the difference between the A1 and A2
+# rungs. `_last_agent_trajectory` is per case, read back like `_last_structural_report`.
+agent_probe = None
+agent_max_turns = 8
+_last_agent_trajectory = None
 
 LLM_CALL_STATS = []
 QUERY_EXEC_STATS = []
@@ -439,6 +449,51 @@ def get_last_structural_report():
     return _last_structural_report
 
 
+def set_agent_probe(probe):
+    """Hand the agentic strategies their log-inspection surface, or None for no tools.
+
+    **Not an oracle.** `ocpq_probe` reads the log and the model's own candidate trees; it cannot
+    reach gold, which `tests/test_ocpq_probe.py` asserts on the module source. The probe is created
+    and owned by `eval_testset` (it owns a server process), for the same reason gold-derived
+    controls are set there: this module never manages run-level resources.
+
+    None is what makes the compute-matched control possible -- `agentic-self-refine` is the same
+    loop, the same turn budget and the same prompt with the tool surface withheld, so a gain over
+    it is attributable to log access rather than to extra generations (notes 43).
+    """
+    global agent_probe
+    agent_probe = probe
+
+
+def get_agent_probe():
+    return agent_probe
+
+
+def set_agent_max_turns(value):
+    """Cap how many model turns one agentic case may take. This IS the rung.
+
+    A1 and A2 differ in nothing else, so the number is a measured variable and belongs in the
+    config rather than here (CLAUDE.md 4.2). It also has to stay inside `case_timeout_sec`, which
+    CLAUDE.md 6 requires to be identical on every arm being compared.
+    """
+    global agent_max_turns
+    agent_max_turns = max(1, int(value))
+
+
+def get_agent_max_turns():
+    return agent_max_turns
+
+
+def get_last_agent_trajectory():
+    """Every turn of the most recent agentic case, or None when the last case was not agentic.
+
+    Read by `eval_testset` immediately after the pipeline returns, exactly as
+    `get_last_structural_report` is, and recorded on the case record: the trajectory is the
+    mechanism evidence the arm exists to produce, not decoration.
+    """
+    return _last_agent_trajectory
+
+
 def set_generation_token_budget(value):
     """Override every pipeline's `max_tokens`, or None to leave their own values alone.
 
@@ -522,8 +577,15 @@ PROMPT_STRATEGIES = [
     # unmissable in a config, a log line, a run directory name and a config_id.
     "oracle-skeleton-given",
     "oracle-skeleton-and-constraints-given",
+    # The agentic arm (notes 43). NON-ORACLE, both of them: the loop reads the log and its own
+    # candidate trees, never gold. `-self-refine` is the compute-matched control -- the same loop
+    # and the same turn budget with the tool surface withheld -- so that a gain for `-log-tools`
+    # is attributable to log access rather than to spending more generations.
+    "agentic-log-tools",
+    "agentic-self-refine",
 ]
 ORACLE_PROMPT_STRATEGIES = ("oracle-skeleton-given", "oracle-skeleton-and-constraints-given")
+AGENTIC_PROMPT_STRATEGIES = ("agentic-log-tools", "agentic-self-refine")
 DEFAULT_PROMPT_STRATEGY = os.getenv("OCPQ_PROMPT_STRATEGY", "schema-grammar-guided")
 
 
@@ -760,6 +822,11 @@ def normalize_prompt_strategy(prompt_strategy):
         "oracle-skeleton-given": "oracle-skeleton-given",
         "skeleton-and-constraints-given": "oracle-skeleton-and-constraints-given",
         "oracle-skeleton-and-constraints-given": "oracle-skeleton-and-constraints-given",
+        "agentic": "agentic-log-tools",
+        "agentic-log-tools": "agentic-log-tools",
+        "log-tools": "agentic-log-tools",
+        "agentic-self-refine": "agentic-self-refine",
+        "self-refine": "agentic-self-refine",
     }
     return aliases.get(normalized, normalized)
 
@@ -3690,6 +3757,318 @@ Return JSON:
     return structure_text, verification_json, ocpq_json, query_result, query_result_file_path
 
 
+# --- THE AGENTIC ARM (notes 43) -------------------------------------------------------------
+#
+# Every earlier intervention repaired a query BEFORE it ran and left what it answers unchanged
+# (notes 31, 32, 37, 41 -- six times). This loop is the first that can act on what a candidate
+# query SELECTS: the model runs a tree against the log through `ocpq_probe`, sees how many
+# situations each box binds, and revises. The final tree is then executed and scored on exactly
+# the path every other strategy uses, so the arm is comparable rather than a parallel evaluation.
+
+# CLAUDE.md 2.3 wants raw model output recorded before post-processing, and the trajectory is where
+# an agentic turn's raw output lives. Capped because a 12-turn case at A2's budget would otherwise
+# add tens of KB per record to predictions.json.
+_AGENT_RAW_CHAR_CAP = int(os.getenv("OCPQ_AGENT_RAW_CHAR_CAP", "8000"))
+
+AGENT_PROTOCOL_RULES = (
+    "Reply with ONE JSON object per turn and nothing else. Two forms are allowed:\n"
+    "  {\"tool\": \"<name>\", \"args\": {...}}   to look something up in the log\n"
+    "  {\"final_tree\": {...}}                    to answer with the finished OCPQ query\n"
+    "Never put both in one reply. Never write prose around the JSON."
+)
+
+
+class AgentNoFinalAnswer(ValueError):
+    """The loop ended with no usable tree: the budget ran out, or every turn was malformed.
+
+    Its own exception type because `eval_testset._classify_run_status` matches on message text, and
+    a case that never reached execution must NOT be filed as `execution_failed` -- that would move
+    `execution_success_rate`, which CLAUDE.md 6 requires to mean "the query ran".
+    """
+
+
+def _parse_agent_action(content):
+    """Parse one protocol turn. Returns `(AgentAction, None)` or `(None, reason)`.
+
+    Deliberately NOT `parse_llm_json`, which is right for queries and wrong for a control channel:
+    it takes a greedy `{.*}` span, so prose containing braces swallows everything between the first
+    and last one, and it appends a closing `}` to truncated output -- which can turn a cut-off tool
+    call into a DIFFERENT, valid action. A control channel that silently invents an action is worse
+    than one that refuses, because the refusal is measurable (`agent_malformed_actions`) and the
+    invention is not.
+
+    `raw_decode` also stops at the end of the first complete object, so trailing prose after a
+    valid action is tolerated rather than fatal.
+    """
+    if not content or not content.strip():
+        return None, "empty reply"
+    text = content.strip()
+    if text.startswith("```"):                      # a fenced block is common and harmless
+        text = text.split("```", 2)[1] if text.count("```") >= 2 else text[3:]
+        if text.lstrip().lower().startswith("json"):
+            text = text.lstrip()[4:]
+    start = text.find("{")
+    if start < 0:
+        return None, "no JSON object in the reply"
+    try:
+        parsed, _ = json.JSONDecoder().raw_decode(text[start:])
+    except json.JSONDecodeError as exc:
+        return None, f"not valid JSON ({exc.msg}); do not truncate the object"
+    if not isinstance(parsed, dict):
+        return None, "the reply must be a JSON object"
+    has_tool, has_tree = bool(parsed.get("tool")), parsed.get("final_tree") is not None
+    if has_tool and has_tree:
+        return None, "exactly one of `tool` or `final_tree`, not both"
+    if not has_tool and not has_tree:
+        return None, "the object must carry either `tool` or `final_tree`"
+    try:
+        return AgentAction.model_validate(parsed), None
+    except Exception as exc:  # noqa: BLE001 - the model's mistake, reported back to it
+        if has_tree:
+            return None, f"`final_tree` is not a valid BindingBoxTree: {str(exc)[:400]}"
+        return None, f"malformed action: {str(exc)[:300]}"
+
+
+def _agent_tool_block(probe):
+    """The tool list the model is shown, generated from the probe's own registry.
+
+    Generated rather than written out, because a tool described in the prompt but absent from the
+    dispatcher is a silent dead end -- the model spends its budget calling something that can only
+    ever answer "unknown tool".
+    """
+    if probe is None:
+        return ("You have NO tools in this condition. Think it through and answer with "
+                "{\"final_tree\": {...}}.")
+    lines = ["Tools you may call:"]
+    for spec in ocpq_probe.TOOL_SPECS:
+        arguments = ", ".join(f"{name} ({description})" for name, description in spec["args"].items())
+        lines.append(f"- {spec['name']}({arguments}): {spec['description']}")
+    return "\n".join(lines)
+
+
+def _run_pipeline_agentic(
+    query,
+    dataset,
+    embeddings,
+    output_file="configs/test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+    structure_hint=None,
+    stage_prefix="agentic",
+):
+    """Let the model probe the log for up to `agent_max_turns` turns, then score its answer.
+
+    `structure_hint` is accepted and DROPPED, and `nl_to_ocpq_pipeline` does not forward it here in
+    the first place. Two layers because it carries gold's tree shape and this arm is system
+    performance: `tests/test_structure_hint_prompt.py` pins that only the oracle branch forwards
+    gold, and `tests/test_agent_action_protocol.py` pins that a hint passed directly reaches no
+    message and no trajectory entry.
+
+    With `agent_probe` set this is the tool rung; with it None the same loop runs with the tool
+    surface withheld, which is the compute-matched control (A1'). Everything after the loop --
+    verification, normalisation, execution and the single stderr repair -- is the code every other
+    strategy runs, so the rungs differ in the loop and nothing else.
+
+    Raises:
+        AgentNoFinalAnswer: no usable tree was produced. Never raised when any turn yielded a valid
+            tree: the best one so far is finalised instead, and `final_source` records which it was.
+    """
+    global _last_agent_trajectory
+    probe = agent_probe
+    selected_model = model_name or hf_model
+    print(f"Starting agentic NL to OCPQ pipeline "
+          f"({'with tools' if probe is not None else 'NO tools, compute-matched control'}, "
+          f"max {agent_max_turns} turns)...")
+    print(f"Using model: {selected_model}")
+
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
+
+    messages = [{
+        "role": "system",
+        "content": ("You are a JSON-only API that writes OCPQ queries. You answer with exactly one "
+                    "JSON object per turn and never with prose."),
+    }]
+    task = f"""
+Write an OCPQ query answering the question below, using the log to check your work.
+
+{schema_block}
+
+{_agent_tool_block(probe)}
+
+{AGENT_PROTOCOL_RULES}
+
+How to work:
+- A query is a tree of binding boxes. The ROOT box holds the answer rows; child boxes express
+  conditions about them.
+- Use ONLY event and object names from the allowed lists above.
+- Before answering, run your candidate with try_query if you have it: a box that binds 0
+  situations is a box that selects nothing, and the counts tell you which one collapsed.
+- A result of 0 situations is usually wrong. So is a result that selects nearly everything.
+- When you are confident, answer with {{"final_tree": {{...}}}}.
+
+Question:
+{query}
+"""
+    messages.append({"role": "user", "content": task})
+
+    trajectory = []
+    malformed = 0
+    final_tree = None
+    final_source = "none"
+    last_valid_tree = None
+    turns_used = 0
+
+    previous_schema = get_constrained_schema()
+    for turn in range(agent_max_turns):
+        turns_used = turn + 1
+        try:
+            # Constrain to the PROTOCOL, not to a tree. Without this the xgrammar processor masks
+            # every turn to a BindingBoxTree (it is attached on every local generation), and the
+            # model could not emit a tool call at all -- which would read as "small models cannot
+            # do agentic work" when it is a grammar bug.
+            set_constrained_schema(AgentAction)
+            response = call_hf_with_retry(
+                model=selected_model,
+                messages=messages,
+                max_tokens=get_generation_token_budget() or 2000,
+                # A union cannot be expressed in OpenAI strict mode (no root-level anyOf, and a
+                # free-form `args` cannot satisfy additionalProperties:false), so endpoint backends
+                # get plain JSON mode and the schema is enforced on the FINAL tree instead.
+                response_format=_build_response_format("agent_action", AGENT_ACTION_SCHEMA, False),
+            )
+        except PromptTooLongError as exc:
+            # Never retried by design, and the transcript only grows -- so stop and finalise with
+            # whatever the model has already produced rather than losing the case.
+            trajectory.append({"turn": turns_used, "error": f"prompt too long: {exc}"})
+            break
+        finally:
+            set_constrained_schema(previous_schema)
+
+        content = response.choices[0].message.content or ""
+        action, reason = _parse_agent_action(content)
+        entry = {"turn": turns_used, "raw": content[:_AGENT_RAW_CHAR_CAP]}
+
+        if action is None:
+            malformed += 1
+            entry["malformed"] = reason
+            trajectory.append(entry)
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content":
+                             f"That reply could not be used: {reason}. {AGENT_PROTOCOL_RULES}"})
+            continue
+
+        if action.final_tree is not None:
+            final_tree = action.final_tree.model_dump(by_alias=True)
+            entry["action"] = "final_tree"
+            trajectory.append(entry)
+            final_source = "declared"
+            break
+
+        entry["action"] = action.tool
+        if probe is None:
+            # The control rung: the model asked for a tool it was told it does not have.
+            entry["result"] = {"error": "no tools are available in this condition"}
+            trajectory.append(entry)
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content":
+                             "You have no tools here. Answer with {\"final_tree\": {...}}."})
+            continue
+
+        # A candidate passed to try_query is a tree the model committed to; keep the last one that
+        # validates, so a budget-exhausted case still has an answer to score (`last_valid_probe`).
+        if action.tool == "try_query" and isinstance((action.args or {}).get("tree"), dict):
+            candidate = validate_and_normalize_ocpq_json((action.args or {}).get("tree"))
+            if candidate is not None:
+                last_valid_tree = candidate
+
+        try:
+            result = probe.call(action.tool, action.args or {})
+        except ocpq_probe.ProbeBudgetExhausted as exc:
+            entry["result"] = {"error": str(exc)}
+            trajectory.append(entry)
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content":
+                             "Your tool budget is spent. Answer now with {\"final_tree\": {...}}."})
+            continue
+        entry["result"] = result
+        trajectory.append(entry)
+        messages.append({"role": "assistant", "content": content})
+        messages.append({"role": "user", "content": json.dumps(result, default=str)})
+
+    if final_tree is None and last_valid_tree is not None:
+        # PRE-REGISTERED (notes 43): finalise with the best tree the model actually produced.
+        # Without this the tool rungs would lose cases to protocol compliance that the one-shot
+        # rung wins by construction, and the comparison would measure formatting, not capability.
+        final_tree = last_valid_tree
+        final_source = "last_valid_probe"
+
+    _last_agent_trajectory = {
+        "turns": turns_used,
+        "max_turns": agent_max_turns,
+        "malformed_actions": malformed,
+        "tool_calls": 0 if probe is None else probe.tool_calls,
+        "final_source": final_source,
+        "trajectory": trajectory,
+        "tool_trajectory": [] if probe is None else list(probe.trajectory),
+    }
+
+    if final_tree is None:
+        raise AgentNoFinalAnswer(
+            f"the agent produced no usable query in {turns_used} turn(s) "
+            f"({malformed} malformed)")
+
+    ocpq_json = final_tree
+    if schema_validation:
+        ocpq_json = verify_ocpq_json(
+            ocpq_json, selected_model,
+            [messages[0], messages[1], {"role": "assistant", "content": json.dumps(
+                {"events": [{"event": name} for name in event_names],
+                 "objects": [{"object": name} for name in object_names]})}],
+            query=query, schema_enforced=schema_enforced)
+        if ocpq_json is None:
+            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+        if ocpq_json is None:
+            raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+
+    with open(output_file, "w") as f:
+        json.dump(ocpq_json, f, indent=2)
+
+    query_result = None
+    query_result_file_path = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path, output_file=output_file, query=query, messages=messages,
+            stage=stage_prefix)
+
+        # The same single stderr repair every other strategy gets. Kept so that FINALISATION is
+        # identical across all four rungs and only the loop differs; it is counted in the record.
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            prompt_fix = (
+                f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+                "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a "
+                "markdown code block.")
+            fixed_json, fixed_content = schema_fix_with_llm(
+                model_name=selected_model, messages=messages, prompt=prompt_fix,
+                schema_enforced=schema_enforced)
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path, output_file=output_file, query=query, messages=messages,
+                    stage=f"{stage_prefix}_fix")
+                ocpq_json = fixed_json
+                _last_agent_trajectory["post_execution_repair"] = True
+
+    return None, None, ocpq_json, query_result, query_result_file_path
+
+
 def nl_to_ocpq_pipeline(
     query,
     dataset,
@@ -3787,6 +4166,32 @@ def nl_to_ocpq_pipeline(
             schema_validation=schema_validation,
             execute_query=execute_query,
         )
+    if strategy in AGENTIC_PROMPT_STRATEGIES:
+        # Both agentic rungs are the same loop. Which one runs is decided by whether a probe was
+        # handed over (`set_agent_probe`), so the control cannot accidentally acquire tools: the
+        # eval config withholds the surface rather than the prompt asking the model not to use it.
+        probe = agent_probe if strategy == "agentic-log-tools" else None
+        previous_probe = agent_probe
+        set_agent_probe(probe)
+        try:
+            return _run_pipeline_agentic(
+                query,
+                dataset,
+                embeddings,
+                output_file,
+                ocel_path,
+                model_name,
+                schema_enforced=schema_enforced,
+                schema_validation=schema_validation,
+                execute_query=execute_query,
+                # `structure_hint` is deliberately NOT forwarded. It carries gold's tree shape, and
+                # this arm is system performance, so the dispatcher does not hand it over at all --
+                # a stronger guarantee than the pipeline dropping it, and it keeps the invariant
+                # `tests/test_structure_hint_prompt.py` pins: exactly one branch forwards gold.
+                stage_prefix=("agentic_tools" if probe is not None else "agentic_self_refine"),
+            )
+        finally:
+            set_agent_probe(previous_probe)
 
     raise ValueError(
         f"Unsupported prompt strategy: {prompt_strategy}. Supported: {', '.join(PROMPT_STRATEGIES)}"
