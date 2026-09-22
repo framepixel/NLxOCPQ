@@ -1100,15 +1100,14 @@
       "baseline_f1": 0.2215,
       "baseline_precision": 0.2215,
       "baseline_recall": 0.2215,
+      "baseline_f1_flagall": 0.7785,
+      "trivial_floor": 0.7785,
       "baseline_f1_variants": {
         "strict": 0.7785,
         "population": 1.0,
         "violation": 0.875457,
         "kind_projected": 0.7785
       },
-      "duration_sec": 2.647,
-      "baseline_f1_flagall": 0.7785,
-      "trivial_floor": 0.7785,
       "baseline_f1_variants_detail": {
         "strict": {
           "noop": 0.2215,
@@ -1126,7 +1125,8 @@
           "noop": 0.2215,
           "flagall": 0.7785
         }
-      }
+      },
+      "duration_sec": 3.692
     },
     {
       "index": 26,

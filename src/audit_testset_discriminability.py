@@ -655,6 +655,19 @@ def audit(
         for i in _stale:
             del results_by_index[i]
 
+    # A cached row is keyed by index and nl_query, so a gold query CORRECTED under an unchanged
+    # question would keep its old verdict and floor (testset #25, 2026-09-22). The store is
+    # content-addressed by (log, gold query): a row is current only while the store holds a blob
+    # for the gold query the testset has NOW.
+    _regolded = [i for i in results_by_index
+                 if not result_store.blob_path(store, testset[i]["ocel_path"],
+                                               testset[i]["ocpq_query"]).exists()]
+    if _regolded:
+        print(f"resuming: {len(_regolded)} cached entries have a gold query the store has never "
+              f"executed and will be re-executed: {sorted(_regolded)}")
+        for i in _regolded:
+            del results_by_index[i]
+
     for index, entry in enumerate(testset):
         nl_query = entry.get("nl_query", "")
         ocel_path = entry.get("ocel_path")

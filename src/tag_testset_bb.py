@@ -69,7 +69,27 @@ def _longest_path(query: dict) -> int:
         kids = children.get(node, [])
         return 1 + (max(depth(k) for k in kids) if kids else 0)
 
-    return depth(0)
+    # From the STRUCTURAL root, not node 0 (fixed 2026-09-22). A tree may list a child before its
+    # parent, and depth(0) then walks only a subpath -- it can understate depth, never overstate
+    # it, so the old code could only drop T5. Gold is unaffected (its three off-root trees have 3
+    # nodes); on matrix_full 3 records changed, structural_f1 +0.0001. See TODO 2026-09-21.
+    return depth(_root_index(query))
+
+
+def _root_index(query: dict) -> int:
+    """The node that is nobody's child -- the same rule as `eval_testset.root_node_index`, which
+    scores the answer from this node. Mirrored rather than imported because eval_testset imports
+    this module; tests/test_structural_metric_root.py pins that the two agree."""
+    nodes = query.get("nodes", [])
+    referenced = set()
+    for node in nodes:
+        box = node.get("Box") if isinstance(node, dict) else None
+        if isinstance(box, list) and len(box) == 2 and isinstance(box[1], list):
+            referenced.update(c for c in box[1] if isinstance(c, int))
+    for index in range(len(nodes)):
+        if index not in referenced:
+            return index
+    return 0
 
 
 def _has_branching(query: dict) -> bool:

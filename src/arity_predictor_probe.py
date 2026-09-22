@@ -13,7 +13,8 @@ the wrong constraint library (notes 30) and caught a grammar that could not expr
 
 WHAT COUNTS AS PASSING, and why pooled accuracy will not tell you:
 
-    constant "always (0,1)"               107/169 = 63.3%
+    constant "always (0,1)"               107/169 = 63.3%   (106/169 = 62.7% since testset #25's
+                                                             gold was corrected, 2026-09-22)
     the fine-tuned model, while generating 74/169 = 43.8%
 
 The model is already 20 points WORSE than a predictor that ignores the question. But beating 63.3%

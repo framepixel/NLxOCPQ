@@ -1112,7 +1112,10 @@
        sbatch slurm/submit_eval_array.sh --config configs/eval_config.matrix_v2.json
     9. merge gate: 8112 records, dropped 0, pipeline_consistent AND corpus_consistent true
 
-- OPEN, DECISION (2026-09-21) tag_testset_bb._longest_path measures depth from node 0, not from the
+- DONE (2026-09-22, notes 43.2: fixed before the agentic runs -- today's commits had already moved
+  pipeline_fingerprint, so the reason to wait was gone; old runs rescored with --recompute; the
+  TOLERANT variant was NOT adopted, a tree with broken edges keeps scoring structural 0)
+  (was OPEN, DECISION 2026-09-21) tag_testset_bb._longest_path measures depth from node 0, not from the
   structural root, so a tree whose root is not node 0 loses its T5 label. Found while validating dev-set
   entry 20 (a four-box container chain rooted at node 3), which should carry T5 and carries no T-label
   at all. The bug can only ever produce FALSE NEGATIVES on T5: depth(0) walks a subpath of the real
@@ -1213,7 +1216,30 @@
   The agentic plan already calls for the web-server patch sha256 and the OCPQ git rev in the run
   manifest; this generalises it to every run, including ocpq_cli.
 
-- OPEN, QUESTION FOR GOLD (2026-09-21) THREE TESTSET ENTRIES DECLARE AN OUTPUT THE METRIC DOES NOT
+- CORRECTION (2026-09-22) TO THE ENTRY BELOW: IT IS ONE ENTRY, NOT THREE. Re-checked from
+  data/testset.json: only 2 entries carry evVarLabels on a non-root node while the root binds no
+  event, and only ONE is wrong. #25 "Retrieve the payment events for all orders that received at
+  least one reminder." (order-management) -- root binds orders, node 1 marks `pay order` INCLUDED,
+  so the scored answer is orders. #158 "Which invoice receipts were paid after a two-way match
+  was performed?" is CORRECT: its root binds `invoice receipt` with obVarLabels INCLUDED and both
+  child events are marked IGNORED. The "three" counted #158's two nodes as two entries.
+
+- MEASURED (2026-09-22) FOR THE BLOCKING_DEFECT_KINDS DECISION (entry further below). Census over
+  every dict prediction (scratchpad blocking_census.py): matrix_v2/merged 5500 predictions -- 102
+  carry cycle/multiple_parents among their blocking kinds, but in 94 of them another blocking kind
+  is present too (mostly unbound_variable). ONLY 8 have cycle/multiple_parents as their ONLY
+  blocking kinds (7 multiple_parents, 1 cycle): 5 executed successfully, 2 were schema_invalid
+  (never sent), 1 execution_failed. non_oracle: 3 of 664 carry them, 0 as the only kind, and the
+  two structval shards have 0 -- the non-oracle rung's published numbers cannot have been moved by
+  this. SECOND FINDING: structural_defects RAISES TypeError on 2 matrix_v2 predictions (a child
+  name that is a list / a dict: `name not in names` on a set), despite its docstring's "never
+  raises". Both records were schema_invalid, so no scored number is affected, but ocpq_probe.
+  try_query now calls it, where a TypeError would surface as a misleading "bad arguments".
+
+- DONE (2026-09-22, notes 43.2, user-approved: #25's gold re-rooted on the payment event; floors
+  unchanged; old runs rescored with --recompute --gold-from, no LLM re-run. OPEN REMAINDER: the
+  oracle ablations were not rescored -- their #25 case was generated from the old gold)
+  (was OPEN, QUESTION FOR GOLD 2026-09-21) THREE TESTSET ENTRIES DECLARE AN OUTPUT THE METRIC DOES NOT
   SCORE. _extract_result_ids reads ONLY the root binding box (src/eval_testset.py:786), keyed by
   event ids, object ids and the violation flag. evVarLabels / obVarLabels document which variable is
   the intended answer, but they do not change what is compared. So for a "retrieve the X" question
@@ -1274,7 +1300,9 @@
   notes 43. Upstream report: the panic is a genuine robustness bug in v0.11.x; check v0.12.1
   before writing it.
 
-- OPEN, DECISION (2026-09-22) ocpq_schema.BLOCKING_DEFECT_KINDS INCLUDES TWO KINDS THE EVALUATOR
+- DONE (2026-09-22, notes 43.2: measured 8/5500 matrix_v2, 0 in structval; set LEFT AS IS, comment
+  corrected; the TypeError on unhashable names fixed)
+  (was OPEN, DECISION) ocpq_schema.BLOCKING_DEFECT_KINDS INCLUDES TWO KINDS THE EVALUATOR
   DOES NOT BLOCK ON. Its comment says blocking = "it errors or panics", and `cycle` and
   `multiple_parents` are in it -- but MEASURED on one tree each, both evaluate in ocpq_cli (exit 0,
   an `Ok` export; the cycle tree yields 0 situations, the multiple-parents tree evaluates
@@ -1316,3 +1344,51 @@
   our side of the boundary, where it also produces better agent feedback. Worth reporting upstream
   separately, since it is a genuine robustness bug in v0.11.x; check whether v0.12.1 still has it
   before writing that report.
+
+- OPEN, NEXT (2026-09-22) AGENTIC PLAN STAGE 3 -- WIRE THE AGENT INTO src/eval_testset.py. Full plan:
+  ~/.claude/plans/write-all-the-results-greedy-panda.md (Stage 3); refined here with what 2026-09-22
+  found. PRECONDITION: the three pre-agentic fixes (_longest_path root index, structural_defects
+  TypeError, testset #25 + targeted re-score) are committed and the comparison runs recomputed.
+    1. CONFIG + FINGERPRINT. Keys read from the config and recorded in the manifest:
+       agent_max_turns, agent_max_tool_calls, agent_tool_result_char_cap, probe request/load
+       timeouts, probe restart caps. Agentic conditions carry the turn budget in config_id
+       (e.g. `_turns15`) -- A1 and A2 share a strategy and differ only in budget, so without it
+       --merge-shards would collide them (the 2026-08-27 silent de-dup). ocpq_probe.py joins
+       _PIPELINE_SOURCE_FILES. Refuse a config that mixes backends (set_hf_client keeps the previous
+       base_url, so a second model would silently go to the first model's endpoint).
+    2. PROBE LIFECYCLE. One ProbeServer per run, only if an `agentic-log-tools` condition is
+       present; stopped in `finally`. probe.ensure_log(ocel_path) in the case preamble, OUTSIDE
+       _case_time_limit (a ~30 s import is not the case's work). A failed load marks that case's
+       agentic records `probe_unavailable` instead of crashing the run. Cases are NOT reordered.
+    3. PER RECORD. Before the pipeline: probe.reset() and clear LLM._last_agent_trajectory --
+       nothing does either today, so a case that times out mid-loop would hand its trajectory and
+       tool count to the next case. After it (also on exception): read the trajectory and
+       probe.health().
+    4. STATUSES. AgentNoFinalAnswer -> pipeline_status `agent_no_answer`; ProbeUnavailable /
+       LogIdentityError -> `probe_unavailable`. Returned early in _classify_run_status, before the
+       substring matches, like `timeout` (today both fall through to `pipeline_error`). Scoring
+       convention = timeout: strict 0, not executed.
+    5. RECORD FIELDS + SUMMARY. agent_trajectory (capped), agent_turns, agent_tool_calls,
+       agent_malformed_actions, agent_final_source, post_execution_repair, probe_restarts,
+       probe_evaluator_panics, probe_refused_trees, probe_vs_cli_agreement (one UNCHARGED try_query
+       on the final tree after scoring: does the probe's root count equal the CLI's?). Summary: a
+       per-condition compliance block (malformed-action rate, budget exhaustion, final_source mix,
+       restarts), reported before F1.
+    6. TESTS. tests/test_agentic_failure_status.py (statuses classified before the substring
+       matches; timeouts unchanged), tests/test_agentic_no_gold.py (the probe only ever receives
+       ocel_path; per-case reset enforced), plus a harness-level test with a fake pipeline: a
+       timeout mid-loop leaves no stale trajectory.
+    VERIFY: full test suite; --dry-run on the agentic config; a 2-case local run with a stub model.
+    THEN Stage 4 (configs/eval_config.agentic.json, slurm/submit_agentic_rungs.sh, model gate on
+    data/agent_devset.json reading malformed-action rates before any F1).
+
+- OPEN (2026-09-22) RESCORE THE ORACLE ABLATIONS AGAINST THE CORRECTED #25 GOLD. matrix_v2 and the
+  four non_oracle shards were rescored with `--recompute --gold-from data/testset.json` (notes 43.2);
+  the oracle runs were not: eval_runs/arity_ablation, arity_probe, structure_ablation,
+  structural_ablation, decoding_ablation (and their _smoke dirs are not needed). Their #25 case was
+  GENERATED from the old gold (structure hint / gold-derived forced arity), so a rescore will flag it
+  `oracle_input_from_superseded_gold` rather than fix it. Either rescore each with --gold-from (CPU
+  only, minutes) and report the flagged count, or state the one-case caveat wherever those ceilings
+  are quoted. Also: the arity figures of notes 32-33 / 42 other than the constant's (now 62.7%) were
+  measured against #25's old gold and can each shift by at most one case -- re-derive with the arity
+  probe's --rescore if any is quoted to three digits.

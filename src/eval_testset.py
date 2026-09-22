@@ -3127,8 +3127,45 @@ def _report_variants(run_dir):
     print("                 one at ~0.49. Read against that, the model is well below trivial.")
 
 
+def _regold_records(records, testset_path):
+    """Point records at the CURRENT gold of their testset entry. For `--recompute --gold-from`.
+
+    Records carry their own copy of the gold query, so a gold corrected after a run (testset #25,
+    2026-09-22) would otherwise still be scored against the old one. Matched by `nl_query`, the
+    record identity used everywhere else, and checked against the log's basename so an entry cannot
+    be re-pointed at another log's query. The superseded query is kept on the record.
+
+    Returns:
+        `(replaced, oracle_input_stale)`: records re-pointed, and among them those whose PREDICTION
+        was generated from the old gold (a structure hint or a forced root arity) -- their input
+        described a different query, so they are flagged, counted, and never silently rescored.
+    """
+    testset = _read_json(testset_path)
+    current = {row.get("nl_query"): row for row in testset if row.get("nl_query")}
+    replaced = oracle_input_stale = 0
+    for rec in records:
+        row = current.get(rec.get("nl_query"))
+        if row is None or row.get("ocpq_query") == rec.get("gold_query"):
+            continue
+        if (Path(str(row.get("ocel_path")).replace("\\", "/")).name
+                != Path(str(rec.get("ocel_path")).replace("\\", "/")).name):
+            raise ValueError(f"--gold-from: {rec.get('nl_query')!r} names a different log in "
+                             f"{testset_path} than in the run; refusing to re-point it")
+        rec["gold_query_superseded"] = rec.get("gold_query")
+        rec["gold_query"] = row.get("ocpq_query")
+        replaced += 1
+        # `forced_root_arity` is also filled by the NON-oracle constant rung ([0, 0, 1], with
+        # `constant_root_arity` true); only an arity taken from gold is oracle input.
+        gold_arity = rec.get("forced_root_arity") and not rec.get("constant_root_arity")
+        if rec.get("structure_hint_level") or gold_arity:
+            rec["oracle_input_from_superseded_gold"] = True
+            oracle_input_stale += 1
+    return replaced, oracle_input_stale
+
+
 def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
-                       truncation_policy: str = "as-measured"):
+                       truncation_policy: str = "as-measured", gold_from=None,
+                       gold_store_dir=None):
     """Rebuild every metric of a finished run from its stored result sets. No GPU, no ocpq_cli.
 
     The point of the result store: a matrix costs 40-100 GPU-hours, so a metric that turns out
@@ -3150,6 +3187,11 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
         store_dir: Result store to read. Defaults to `<run_dir>/result_store`.
         truncation_policy: How to treat results the backend truncated. Defaults to
             `as-measured`, which changes nothing; see `_apply_truncation_policy`.
+        gold_from: A testset whose CURRENT gold replaces each record's stored gold where they
+            differ (`_regold_records`). None (default) scores against the records' own gold.
+        gold_store_dir: Second store searched for gold result sets the run never executed --
+            a corrected gold's set lives in the discriminability audit's store. Defaults to
+            `eval_runs/_discriminability_store` when `gold_from` is given.
     """
     run_dir = Path(run_dir)
     predictions_path = run_dir / "predictions.json"
@@ -3169,6 +3211,17 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
     records = _read_json(predictions_path)
     stratum_index = _load_stratum_index()
 
+    regold = None
+    if gold_from:
+        gold_store_dir = Path(gold_store_dir) if gold_store_dir else (
+            paths.EVAL_RUNS / "_discriminability_store")
+        replaced, oracle_stale = _regold_records(records, gold_from)
+        testset_ocel = {row.get("nl_query"): row.get("ocel_path")
+                        for row in _read_json(gold_from)}
+        regold = {"gold_from": str(gold_from), "testset_hash": _sha256_file(Path(gold_from)),
+                  "gold_store": str(gold_store_dir), "records_regolded": replaced,
+                  "oracle_input_from_superseded_gold": oracle_stale}
+
     unavailable = {"gold_missing": 0, "prediction_missing": 0}
     changed = 0
     for rec in records:
@@ -3183,6 +3236,13 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
             result_store.load_with_meta(store_dir, ocel_path, gold_query)
             if gold_query else (None, None)
         )
+        if gold_ids is None and gold_query and regold:
+            # The store key uses the testset's own ocel_path spelling; the audit stored it so.
+            for key in (ocel_path, testset_ocel.get(rec.get("nl_query"))):
+                gold_ids, gold_skipped = result_store.load_with_meta(gold_store_dir, key,
+                                                                     gold_query)
+                if gold_ids is not None:
+                    break
         # A prediction that never parsed has nothing to look up; that is a genuine null, not a
         # missing blob, so it must not be counted as unavailable.
         pred_ids, pred_skipped = (
@@ -3245,6 +3305,9 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
     summary["evaluation_phases"] = EVALUATION_PHASES
     summary["recomputed_from"] = str(run_dir)
     summary["recompute_unavailable"] = unavailable
+    # Present only for --gold-from: which testset the gold came from, and how many records moved.
+    if regold:
+        summary["regold"] = regold
     summary["truncation"] = truncation
     summary["status_reclassified_unevaluated"] = reclassified
     summary["result_store"] = dict(result_store.stats(store_dir), dir=str(store_dir))
@@ -3263,6 +3326,10 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
         f"  unavailable: {total_unavailable} "
         f"(gold {unavailable['gold_missing']}, prediction {unavailable['prediction_missing']})"
     )
+    if regold:
+        print(f"  gold from {regold['gold_from']}: {regold['records_regolded']} record(s) "
+              f"re-pointed at a corrected gold; {regold['oracle_input_from_superseded_gold']} of "
+              f"them were generated from the OLD gold (oracle input) and are flagged")
     return output_dir
 
 
@@ -3499,6 +3566,14 @@ def main():
              "over-selecting queries. 'strict-zero' scores a truncated prediction 0 and excludes "
              "entries whose GOLD was truncated, for every model. Run both and report the "
              "difference; it is a sensitivity analysis, not a correction.")
+    parser.add_argument("--gold-from", metavar="TESTSET", default=None,
+        help="With --recompute: score each record against the CURRENT gold of its entry in this "
+             "testset where it differs from the gold the run recorded (a corrected gold). The "
+             "old query is kept on the record; oracle-condition records whose input came from "
+             "the old gold are flagged and counted. Default: the records' own gold.")
+    parser.add_argument("--gold-store", metavar="DIR", default=None,
+        help="With --gold-from: store holding the corrected gold's result set "
+             "(default: eval_runs/_discriminability_store, filled by the audit).")
     args = parser.parse_args()
 
     if args.merge_shards:
@@ -3507,7 +3582,8 @@ def main():
 
     if args.recompute:
         _recompute_metrics(args.recompute, args.recompute_output, args.result_store,
-                           truncation_policy=args.truncation_policy)
+                           truncation_policy=args.truncation_policy,
+                           gold_from=args.gold_from, gold_store_dir=args.gold_store)
         return
 
     if args.variants:

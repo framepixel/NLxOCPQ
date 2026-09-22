@@ -129,8 +129,11 @@ def _gate(rows):
 
 constant = _gate([{"gold": list(gd), "predicted": list(MAJORITY)} for gd in golds])
 check("a constant predictor FAILS the gate", constant["gate_passed"], False)
-check("...even though its pooled accuracy is 63.3%",
-      round(constant["accuracy"], 3), 0.633)
+# 106/169 = 62.7%. It was 107/169 = 63.3% (notes 33, 42) until testset #25's gold was corrected on
+# 2026-09-22: its root now binds the payment EVENT the question asks for, so its arity is no longer
+# (0,1). The gate's verdict does not depend on it.
+check("...even though its pooled accuracy is 62.7%",
+      round(constant["accuracy"], 3), 0.627)
 check("...because its minority recall is zero", constant["minority_recall"], 0.0)
 
 perfect = _gate([{"gold": list(gd), "predicted": list(gd)} for gd in golds])
@@ -244,7 +247,8 @@ for forbidden_pattern in ("wrong:", "mistake to avoid", "should not be"):
           forbidden_pattern in rendered, False)
 
 # The gold arity distribution must not appear, in any of the forms it would naturally be written.
-for forbidden in ("63.3", "63%", "0.633", "107 of", "107/169", "21.3"):
+for forbidden in ("63.3", "63%", "0.633", "107 of", "107/169", "21.3",
+                  "62.7", "0.627", "106 of", "106/169"):
     check(f"the prompt does not quote the gold distribution ({forbidden!r})",
           forbidden in rendered, False)
 

@@ -277,6 +277,13 @@ QUERY_TREE_SCHEMA = QueryTree.model_json_schema()
 #   advisory -- it tolerates them: an optional reference with no value is treated as absent
 #               (`if let Some(..)`), and an edge name nobody walks is never looked up. Reported,
 #               never repaired. On 2026-09-13, 26 trees that evaluated normally carried one.
+# CORRECTION (2026-09-22, measured on the pinned OCPQ, one tree per kind): `cycle` and
+# `multiple_parents` do NOT always block -- ocpq_cli evaluated both (exit 0, an `Ok` export; the
+# cycle tree to 0 situations). They stay in this set deliberately: across matrix_v2 only 8 of 5500
+# predictions carry them as their ONLY blocking kind (3 of which never executed anyway), the
+# non-oracle rung's structval shards carry them 0 times, and a tree whose boxes do not form one tree
+# is broken whatever the evaluator makes of it. `child_out_of_range` panics the evaluator.
+# See TODO (2026-09-22) and ocpq_probe.PROBE_REFUSED_DEFECT_KINDS.
 BLOCKING_DEFECT_KINDS = frozenset({
     "malformed_tree",
     "child_out_of_range",
@@ -301,6 +308,19 @@ def defect_kind(defect: str) -> str:
 def blocking_defects(defects: List[str]) -> List[str]:
     """The defects the evaluator errors on -- the only ones worth spending a repair on."""
     return [defect for defect in defects if defect_kind(defect) in BLOCKING_DEFECT_KINDS]
+
+
+def _unhashable(value: Any) -> bool:
+    """True for a value that cannot be a set member (a list or dict where a name belongs).
+
+    Only these become defects: they are exactly the inputs that used to raise TypeError in
+    `structural_defects`. A missing name (None) keeps its advisory `unknown_child_name` reading.
+    """
+    try:
+        hash(value)
+    except TypeError:
+        return True
+    return False
 
 
 def _is_index(value: Any) -> bool:
@@ -417,6 +437,12 @@ def structural_defects(tree: Any) -> List[str]:
             defects.append(f"[edge_name_out_of_range] edgeNames entry [[{parent!r}, {child!r}], "
                            f"{name!r}] points outside nodes 0..{count - 1}")
             continue
+        if _unhashable(name):
+            # A list or dict here cannot go in the name set below (it used to raise TypeError), and
+            # the evaluator refuses it at deserialisation anyway: edge names are strings.
+            defects.append(f"[malformed_tree] edgeNames entry [[{parent}, {child}], {name!r}]: "
+                           f"an edge name must be a string")
+            continue
         edge_children.setdefault(parent, set()).add(child)
         child_names.setdefault(parent, set()).add(name)
 
@@ -476,6 +502,10 @@ def structural_defects(tree: Any) -> List[str]:
             if size_filter.get("type") != "NumChilds":
                 return
             name = size_filter.get("child_name")
+            if _unhashable(name):
+                defects.append(f"[malformed_tree] node {index}: {where}NumChilds child_name "
+                               f"{name!r} is not a string")
+                return
             if name not in names:
                 defects.append(f"[unknown_child_name] node {index}: {where}NumChilds names child "
                                f"{name!r}, but node {index}'s children are named {shown_names}")
@@ -497,6 +527,10 @@ def structural_defects(tree: Any) -> List[str]:
                 check_child_name(inner, "constraint ")
             elif constraint_type in _CHILD_NAME_CONSTRAINTS:
                 for name in constraint.get("child_names") or []:
+                    if _unhashable(name):
+                        defects.append(f"[malformed_tree] node {index}: {constraint_type} "
+                                       f"child name {name!r} is not a string")
+                        continue
                     if name not in names:
                         defects.append(f"[unknown_child_name] node {index}: {constraint_type} "
                                        f"names child {name!r}, but node {index}'s children are "

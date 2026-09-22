@@ -199,6 +199,32 @@ for garbage in (None, {}, {"nodes": "x"}, {"nodes": [{"NotABox": 1}]},
 check("deterministic", structural_defects(sibling) == structural_defects(copy.deepcopy(sibling)),
       True)
 
+# Two real matrix_v2 predictions raised TypeError here (2026-09-22 census): a child name that is a
+# list or a dict cannot be a set member. They are malformed trees, and are now reported as such.
+unhashable_names = {
+    "a list in SAT child_names": {"nodes": [box(constraints=[{"type": "SAT",
+                                                              "child_names": [["A"]]}],
+                                                children=[1]), box()],
+                                  "edgeNames": [[[0, 1], "A"]]},
+    "a dict as a NumChilds child_name": {"nodes": [box(size=[{"type": "NumChilds",
+                                                              "child_name": {"n": "A"},
+                                                              "min": 1, "max": None}],
+                                                       children=[1]), box()],
+                                         "edgeNames": [[[0, 1], "A"]]},
+    "a list as an edge name": {"nodes": [box(children=[1]), box()],
+                               "edgeNames": [[[0, 1], ["A"]]]},
+}
+for label, tree in unhashable_names.items():
+    try:
+        check(f"{label}: reported as malformed_tree, not raised", "malformed_tree" in kinds(tree),
+              True)
+    except TypeError as exc:
+        check(f"{label}: reported as malformed_tree, not raised", repr(exc), "malformed_tree")
+missing_name = {"nodes": [box(constraints=[{"type": "SAT", "child_names": [None]}], children=[1]),
+                          box()], "edgeNames": [[[0, 1], "A"]]}
+check("a MISSING name keeps its old advisory reading (only the crash inputs changed)",
+      kinds(missing_name), ["unknown_child_name"])
+
 print("\n--- the repair wiring: inert when off, blocking-only when on, kept only if it helps ---")
 import LLM  # noqa: E402
 
