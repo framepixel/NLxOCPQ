@@ -20,7 +20,12 @@ import result_store
 from LogEvents import extract_ocel_schema
 from ocpq_schema import BindingBoxTree
 from tag_testset_bb import detect_bb_labels
-from QueryExecutor import discard_result_file, run_ocpq_query
+from QueryExecutor import (
+    discard_result_file,
+    ocpq_binary_digest,
+    ocpq_provenance,
+    run_ocpq_query,
+)
 try:
     from expand_models import expand_models
 except Exception:
@@ -1837,6 +1842,23 @@ def run_evaluation(config_path_or_config):
         checkpoint_state = {}
         existing_records = []
 
+    # Which OCPQ computes this run's result sets. Builds first if the source is newer than the
+    # binary, so the digest is of what will run. Recorded, never a gate: the checkout's state is a
+    # fact to report, and the merge compares it across shards (`ocpq_consistent`).
+    ocpq = ocpq_provenance(build=True)
+    cli_binary = (ocpq.get("binaries") or {}).get("ocpq_cli") or {}
+    _log_phase("generation", f"ocpq: rev {str(ocpq.get('rev'))[:12]} ({ocpq.get('branch')}), "
+                             f"ocpq_cli sha256 {str(cli_binary.get('sha256'))[:16]}")
+    for problem, present in (("the OCPQ checkout has uncommitted changes to tracked files "
+                              f"{ocpq.get('dirty_files')}", ocpq.get("dirty")),
+                             ("ocpq_cli is older than its source: the next cargo run rebuilds it",
+                              ocpq.get("cli_older_than_source")),
+                             (f"building ocpq_cli failed: {ocpq.get('build_error')}",
+                              ocpq.get("build_error")),
+                             ("no ocpq_cli binary found to fingerprint", not cli_binary)):
+        if present:
+            print(f"*** OCPQ PROVENANCE: {problem} ***")
+
     manifest = {
         "run_id": run_id,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -1869,6 +1891,9 @@ def run_evaluation(config_path_or_config):
         "corpus_check": corpus_check,
         "corpus": corpus_digests,
         "corpus_problems": corpus_problems or None,
+        # The evaluator itself: OCPQ source revision, dirty flag, and the sha256 of the ocpq_cli
+        # (and web-server) binaries. Added 2026-09-22; earlier runs record none of it.
+        "ocpq": ocpq,
         "repeats": repeats,
         # Stated per run, not only in the config, because a timeout rate is meaningless without
         # the budget it was measured against. Also enters `config_fingerprint`, so two shards
@@ -2442,6 +2467,17 @@ def run_evaluation(config_path_or_config):
     summary = _build_summary(records, repeats)
     summary["evaluation_phases"] = EVALUATION_PHASES
     summary["evaluation_phase_trace"] = EVALUATION_PHASES
+    # The binary recorded at the start must still be the one on disk. Array tasks share one OCPQ
+    # checkout, so a rebuild by any other job mid-run would otherwise split this run's records
+    # between two evaluators with nothing saying so.
+    cli_sha_end = (ocpq_binary_digest("ocpq_cli") or {}).get("sha256")
+    summary["ocpq_cli_sha256"] = cli_binary.get("sha256")
+    summary["ocpq_cli_changed_during_run"] = (
+        None if not cli_binary else cli_sha_end != cli_binary.get("sha256"))
+    if summary["ocpq_cli_changed_during_run"]:
+        print(f"\n*** WARNING: ocpq_cli CHANGED DURING THIS RUN "
+              f"({str(cli_binary.get('sha256'))[:16]} -> {str(cli_sha_end)[:16]}). "
+              f"Records may come from two different evaluators. ***\n")
     if result_store_enabled:
         store_stats = result_store.stats(result_store_dir)
         summary["result_store"] = dict(store_stats, dir=str(result_store_dir))
@@ -3239,6 +3275,8 @@ def _merge_shards(shard_dirs, output_dir):
     fingerprints = defaultdict(list)
     corpus_seen = defaultdict(set)
     shards_without_corpus = []
+    cli_seen = defaultdict(list)          # ocpq_cli sha256 -> shards; None = not recorded
+    cli_changed_shards = []
     for shard_dir in shard_dirs:
         shard_path = Path(shard_dir)
         predictions_path = shard_path / "predictions.json"
@@ -3256,8 +3294,14 @@ def _merge_shards(shard_dirs, output_dir):
                 corpus_seen[log_name].add(json.dumps(digest, sort_keys=True))
             if not manifest.get("corpus"):
                 shards_without_corpus.append(shard_path.name)
+            cli = ((manifest.get("ocpq") or {}).get("binaries") or {}).get("ocpq_cli") or {}
+            cli_seen[cli.get("sha256")].append(shard_path.name)
         else:
             shards_without_corpus.append(shard_path.name)
+            cli_seen[None].append(shard_path.name)
+        shard_summary = _load_json_if_exists(shard_path / "summary.json") or {}
+        if shard_summary.get("ocpq_cli_changed_during_run"):
+            cli_changed_shards.append(shard_path.name)
 
     if not all_records:
         print("No records found across shards. Nothing to merge.")
@@ -3341,6 +3385,24 @@ def _merge_shards(shard_dirs, output_dir):
         summary["corpus_consistent"] = True
     summary["corpus_conflicts"] = corpus_conflicts
     summary["corpus_unrecorded_shards"] = len(shards_without_corpus)
+
+    # And for the EVALUATOR: every shard must have run the same ocpq_cli binary, and none may have
+    # seen it change under it. None = cannot be established (a shard from before 2026-09-22).
+    recorded_cli = sorted(sha for sha in cli_seen if sha)
+    if len(recorded_cli) > 1 or cli_changed_shards:
+        print("\n*** WARNING: shards were not all evaluated by ONE ocpq_cli binary ***")
+        for sha in recorded_cli:
+            print(f"  {sha[:16]}: {len(cli_seen[sha])} shard(s) e.g. {cli_seen[sha][:3]}")
+        if cli_changed_shards:
+            print(f"  changed mid-run in: {cli_changed_shards[:5]}")
+        print("  These results are not strictly comparable.\n")
+        summary["ocpq_consistent"] = False
+    elif cli_seen.get(None) or not recorded_cli:
+        summary["ocpq_consistent"] = None
+    else:
+        summary["ocpq_consistent"] = True
+    summary["ocpq_cli_sha256s"] = {sha: sorted(shards) for sha, shards in cli_seen.items() if sha}
+    summary["ocpq_unrecorded_shards"] = len(cli_seen.get(None, []))
 
     # Union every shard's result store into the merged directory, so the merged run can be
     # rescored with `--recompute` on its own. Safe without conflict resolution: the filename is

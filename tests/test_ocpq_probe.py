@@ -233,6 +233,151 @@ check("trajectory is cleared", probe.trajectory, [])
 check("the loaded log survives -- it is per-run state", probe.loaded_ocel_path,
       "/logs/order-management.json")
 
+print("\n--- a malformed tree is feedback for the agent, never the end of the case ---")
+
+
+class FakeProcess:
+    def __init__(self, alive=True):
+        self.alive = alive
+
+    def poll(self):
+        return None if self.alive else 1
+
+
+class FakeServer:
+    """Stands in for ProbeServer: records restarts, and moves to a new port like the real one."""
+
+    def __init__(self, alive=True):
+        self.process = FakeProcess(alive)
+        self.base_url = "http://127.0.0.1:1"
+        self.restarts = 0
+
+    def is_alive(self):
+        return self.process.poll() is None
+
+    def restart(self):
+        self.restarts += 1
+        self.base_url = f"http://127.0.0.1:{1 + self.restarts}"
+        self.process = FakeProcess(True)
+        return self
+
+    def link_log(self, path):
+        return Path(path).name
+
+
+def dropping(cause):
+    """An answer that fails the way urlopen does: ProbeUnavailable wrapping the transport error."""
+    def answer(payload):
+        try:
+            raise cause
+        except OSError as exc:
+            raise ProbeUnavailable(f"probe request failed: {exc}") from exc
+    return answer
+
+
+SERVED = {"event_types": [{"name": "pay"}], "object_types": [{"name": "orders"}]}
+real_schema = ocpq_probe.extract_ocel_schema
+ocpq_probe.extract_ocel_schema = lambda path: {"event_types": ["pay"], "object_types": ["orders"]}
+GOOD_TREE = {"nodes": [{"Box": [{"newObjectVars": {"0": ["orders"]}}, [1]]},
+                       {"Box": [{"newEventVars": {"0": ["pay"]}}, []]}],
+             "edgeNames": [[[0, 1], "A"]]}
+DANGLING = {"nodes": [{"Box": [{}, [1, 2]]}, {"Box": [{}, []]}],
+            "edgeNames": [[[0, 1], "A"], [[0, 2], "B"]]}
+
+probe, transport = probe_with({"check-constraints-box": (200, {"nodeSummaries": []})},
+                              server=FakeServer())
+refused = probe.call("try_query", {"tree": DANGLING})
+check_true("a child index past the end is refused before sending", "not evaluated" in
+           refused["error"])
+check_true("...naming the defect", "child_out_of_range" in refused["defects"][0])
+check("...without touching the server", transport.calls, [])
+check("...charged to the budget like any call", probe.tool_calls, 1)
+check("...and counted", probe.health()["probe_refused_trees"], 1)
+
+probe, transport = probe_with({"check-constraints-box": (400, "Could not get o4")},
+                              server=FakeServer())
+passed = probe.call("try_query", {"tree": {"nodes": [{"Box": [{}, []]}], "edgeNames": [],
+                                           "note": "unbound variables are NOT refused"}})
+check("other defect kinds go to the server, whose own error is the feedback",
+      passed, {"error": "Could not get o4"})
+
+server = FakeServer(alive=True)
+probe, transport = probe_with(
+    {"check-constraints-box": dropping(ConnectionResetError("Remote end closed connection"))},
+    server=server)
+dropped = probe.call("try_query", {"tree": GOOD_TREE})
+check_true("a dropped connection on a LIVE server comes back as an error for the agent",
+           "crashed on this tree" in dropped["error"])
+check("...with no restart, because the server survived it (measured)", server.restarts, 0)
+check("...counted as an evaluator panic", probe.health()["probe_evaluator_panics"], 1)
+
+server = FakeServer(alive=True)
+probe, transport = probe_with({"check-constraints-box": dropping(TimeoutError("timed out")),
+                               "load": (200, SERVED)}, server=server)
+probe.loaded_ocel_path = "/logs/order-management.json"
+slow = probe.call("try_query", {"tree": GOOD_TREE})
+check_true("a timeout tells the agent to narrow the query", "narrow it" in slow["error"])
+check("...and restarts the server, which is still burning CPU on it", server.restarts, 1)
+check("...the log is reloaded on the new server",
+      [path for path, _, _ in transport.calls].count("load"), 1)
+check("...the probe follows the server to its new port", probe.base_url, server.base_url)
+check_true("...and the restart is on the trajectory, not silent",
+           probe.trajectory[-1]["recovery"]["restarted"])
+check("...and in the health counters", probe.health()["probe_restarts"], 1)
+
+server = FakeServer(alive=False)
+probe, transport = probe_with(
+    {"check-constraints-box": dropping(ConnectionResetError("gone")), "load": (200, SERVED)},
+    server=server)
+probe.loaded_ocel_path = "/logs/order-management.json"
+dead = probe.call("try_query", {"tree": GOOD_TREE})
+check_true("a DEAD server is restarted and the agent told", "was restarted" in dead["error"])
+check("...and the tree is NOT resent: it would kill the new process too",
+      [path for path, _, _ in transport.calls].count("check-constraints-box"), 1)
+
+server = FakeServer(alive=False)
+attempts = []
+
+
+def sample_ids(payload):
+    attempts.append(server.restarts)
+    if server.restarts == 0:
+        raise ProbeUnavailable("connection refused")
+    return 200, {"object_ids": [], "event_ids": []}
+
+
+probe, transport = probe_with({"sample-ids": sample_ids, "load": (200, SERVED)}, server=server)
+probe.loaded_ocel_path = "/logs/order-management.json"
+probe.call("sample", {"type": "orders"})
+check("a non-tree tool on a dead server is retried once on the restarted one", attempts, [0, 1])
+
+server = FakeServer(alive=True)
+probe, _ = probe_with({"check-constraints-box": dropping(TimeoutError("timed out")),
+                       "load": (200, SERVED)}, server=server, max_tool_calls=10,
+                      max_restarts_per_case=2)
+probe.loaded_ocel_path = "/logs/order-management.json"
+probe.call("try_query", {"tree": GOOD_TREE})
+probe.call("try_query", {"tree": GOOD_TREE})
+try:
+    probe.call("try_query", {"tree": GOOD_TREE})
+    check("the per-case restart cap stops the case", "no raise", "ProbeUnavailable")
+except ProbeUnavailable as exc:
+    check("the per-case restart cap stops the case", "ProbeUnavailable", "ProbeUnavailable")
+    check_true("...and says which cap", "restart cap reached" in str(exc))
+probe.reset()
+check("reset clears the per-case restarts", probe.health()["probe_restarts"], 0)
+check("...but the run keeps counting toward its own cap", probe.restarts_run, 2)
+
+probe, _ = probe_with({"check-constraints-box": dropping(ConnectionResetError("gone"))})
+try:
+    probe.call("try_query", {"tree": GOOD_TREE})
+    check("without an owned server, a transport failure still raises", "no raise",
+          "ProbeUnavailable")
+except ProbeUnavailable:
+    check("without an owned server, a transport failure still raises", "ProbeUnavailable",
+          "ProbeUnavailable")
+ocpq_probe.extract_ocel_schema = real_schema
+
 print("\n--- SIGALRM safety: the probe must not swallow what it did not expect ---")
 
 

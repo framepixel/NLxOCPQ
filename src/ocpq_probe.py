@@ -67,6 +67,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import paths  # noqa: E402
 from LogEvents import extract_ocel_schema  # noqa: E402
+from ocpq_schema import defect_kind, structural_defects  # noqa: E402
 from QueryExecutor import _find_cargo_command, _terminate_process  # noqa: E402
 
 # Defaults live here; every caller in the evaluation passes them from configs/eval_config.agentic.json
@@ -84,6 +85,23 @@ DEFAULT_RESULT_CHAR_CAP = int(os.getenv("OCPQ_PROBE_RESULT_CHAR_CAP", "4000"))
 # trips one tool call may cost when the requested type is rare or misspelled.
 DEFAULT_SCAN_LIMIT = int(os.getenv("OCPQ_PROBE_SCAN_LIMIT", "400"))
 DEFAULT_MAX_SCAN_FETCHES = int(os.getenv("OCPQ_PROBE_MAX_SCAN_FETCHES", "120"))
+# Bounded self-repair of the server (see `OcpqProbe._recover`). Past either cap the probe raises
+# `ProbeUnavailable`, because an arm that keeps restarting its tool surface is no longer measuring
+# what a working tool surface gives the model.
+DEFAULT_MAX_RESTARTS_PER_CASE = int(os.getenv("OCPQ_PROBE_MAX_RESTARTS_PER_CASE", "2"))
+DEFAULT_MAX_RESTARTS_PER_RUN = int(os.getenv("OCPQ_PROBE_MAX_RESTARTS_PER_RUN", "10"))
+
+# Defect kinds `try_query` refuses to send, because the evaluator PANICS on them rather than
+# answering. MEASURED 2026-09-22 on the pinned server (nlxocpq-pinned 50f60c1) and on the ocpq_cli
+# binary of 2026-08-28, one tree per kind:
+#   child_out_of_range -- panics (structs.rs:784, index out of bounds). The server drops the
+#                         connection but SURVIVES and keeps answering correctly; ocpq_cli exits 101.
+#   unbound_variable   -- 400 "Could not get oN": an error document, passed through.
+#   malformed_tree     -- 422 deserialisation error naming the field: passed through.
+#   cycle, multiple_parents -- EVALUATED by both the server and ocpq_cli (exit 0, an `Ok` export),
+#                         although `ocpq_schema.BLOCKING_DEFECT_KINDS` lists them. Passed through.
+# Refusing more than the crash class would withhold counts for trees the scorer does evaluate.
+PROBE_REFUSED_DEFECT_KINDS = frozenset({"child_out_of_range"})
 
 
 class ProbeError(RuntimeError):
@@ -169,6 +187,8 @@ class ProbeServer:
         self.process = None
         self.log_path = root / "server.log"
         self._log_handle = None
+        self._atexit_registered = False
+        self.restarts = 0
 
     def link_log(self, ocel_path):
         """Expose one log to the server under its basename, and return that name.
@@ -245,14 +265,35 @@ class ProbeServer:
         # Without this the server imports order-management.json at startup -- 25-35 s and several GB
         # for a log we immediately replace. Requires the 2026-09-20 OCPQ modification.
         environment["OCPQ_WEB_SKIP_DEFAULT_OCEL"] = "1"
-        self._log_handle = open(self.log_path, "w", encoding="utf-8")
+        # Appended, not truncated: after a restart the previous process's panic trace is the
+        # evidence for why it was restarted.
+        self._log_handle = open(self.log_path, "a", encoding="utf-8")
         self.process = subprocess.Popen(
             command, cwd=str(self.run_dir), env=environment,
             stdout=self._log_handle, stderr=subprocess.STDOUT,
             start_new_session=True if os.name != "nt" else False)
-        atexit.register(self.stop)
+        if not self._atexit_registered:
+            atexit.register(self.stop)
+            self._atexit_registered = True
         self._wait_until_ready()
         return self
+
+    def is_alive(self):
+        """True while the server process we started is still running."""
+        return self.process is not None and self.process.poll() is None
+
+    def restart(self):
+        """Kill the server and start a fresh one ON A NEW PORT. The caller must reload the log.
+
+        A new port rather than the old one: on Windows a just-closed listening port is not reliably
+        rebindable at once, and a restart that fails to bind would look like a second crash. The new
+        process holds NO log -- `OcpqProbe._recover` reloads it and re-asserts its identity.
+        """
+        self.stop()
+        self.port = _free_port()
+        self.base_url = f"http://127.0.0.1:{self.port}"
+        self.restarts += 1
+        return self.start()
 
     def _wait_until_ready(self):
         deadline = time.time() + self.startup_timeout_sec
@@ -306,7 +347,7 @@ class OcpqProbe:
 
     def __init__(self, base_url, max_tool_calls, server=None, result_char_cap=None,
                  request_timeout_sec=None, load_timeout_sec=None, scan_limit=None,
-                 max_scan_fetches=None):
+                 max_scan_fetches=None, max_restarts_per_case=None, max_restarts_per_run=None):
         self.base_url = base_url.rstrip("/")
         self.max_tool_calls = int(max_tool_calls)
         self.server = server
@@ -315,10 +356,23 @@ class OcpqProbe:
         self.max_scan_fetches = int(max_scan_fetches or DEFAULT_MAX_SCAN_FETCHES)
         self.request_timeout_sec = float(request_timeout_sec or DEFAULT_REQUEST_TIMEOUT_SEC)
         self.load_timeout_sec = float(load_timeout_sec or DEFAULT_LOAD_TIMEOUT_SEC)
+        self.max_restarts_per_case = int(
+            DEFAULT_MAX_RESTARTS_PER_CASE if max_restarts_per_case is None
+            else max_restarts_per_case)
+        self.max_restarts_per_run = int(
+            DEFAULT_MAX_RESTARTS_PER_RUN if max_restarts_per_run is None
+            else max_restarts_per_run)
         self.loaded_ocel_path = None
         self.eval_version = None
         self.tool_calls = 0
         self.trajectory = []
+        # Health counters. Per case: reset by `reset()` and meant for the run record, beside
+        # agent_tool_calls -- a silent restart is how a degraded arm would hide. Per run: the cap.
+        self.restarts_case = 0
+        self.restarts_run = 0
+        self.evaluator_panics = 0
+        self.refused_trees = 0
+        self._recovery_note = None
 
     # ------------------------------------------------------------------ log loading and identity
 
@@ -377,21 +431,75 @@ class OcpqProbe:
                 f"tool-call budget of {self.max_tool_calls} is spent")
         handler = _TOOL_HANDLERS.get(name)
         started = time.time()
+        self._recovery_note = None
         if handler is None:
             result = {"error": f"unknown tool {name!r}; available: {sorted(_TOOL_HANDLERS)}"}
         else:
             self.tool_calls += 1
             try:
-                result = handler(self, dict(args or {}))
+                result = self._run_handler(handler, name, dict(args or {}))
             except TypeError as exc:                       # wrong/missing argument names
                 result = {"error": f"bad arguments for {name}: {exc}"}
-        self.trajectory.append({
+        entry = {
             "tool": name,
             "args": _clip(json.dumps(args, default=str), 1000),
             "result": _clip(json.dumps(result, default=str), self.result_char_cap),
             "duration_sec": round(time.time() - started, 3),
-        })
+        }
+        if self._recovery_note:
+            entry["recovery"] = self._recovery_note
+        self.trajectory.append(entry)
         return result
+
+    def _run_handler(self, handler, name, args):
+        """Run one tool; if the server process died under it, restart, reload, retry ONCE.
+
+        Only a DEAD process is retried here. `try_query` handles its own failures first, because a
+        failure there is usually the model's tree, and resending a tree that broke the evaluator
+        would just break it again. The other tools send no model-authored structure, so a dead
+        server under them is our fault and one retry on a fresh server is the right answer.
+        """
+        try:
+            return handler(self, args)
+        except ProbeUnavailable as exc:
+            if self.server is None or self.server.is_alive():
+                raise
+            self._recover(f"server process died during {name}: {exc}")
+            return handler(self, args)
+
+    def _recover(self, reason):
+        """Restart the owned server, reload the case's log, re-assert its identity.
+
+        Raises `ProbeUnavailable` when there is nothing to recover with (no owned server, or no log
+        was loaded) or a restart cap is spent. Every restart is counted and noted on the trajectory
+        entry of the call that caused it, so it is never silent.
+        """
+        if self.server is None:
+            raise ProbeUnavailable(f"{reason}; no owned server to restart")
+        if (self.restarts_case >= self.max_restarts_per_case
+                or self.restarts_run >= self.max_restarts_per_run):
+            raise ProbeUnavailable(
+                f"{reason}; restart cap reached ({self.restarts_case}/"
+                f"{self.max_restarts_per_case} this case, {self.restarts_run}/"
+                f"{self.max_restarts_per_run} this run)")
+        log_path = self.loaded_ocel_path
+        self.restarts_case += 1
+        self.restarts_run += 1
+        started = time.time()
+        self.server.restart()
+        self.base_url = self.server.base_url.rstrip("/")
+        self.loaded_ocel_path = None
+        self.eval_version = None
+        if log_path:
+            self.ensure_log(log_path)
+        self._recovery_note = {"restarted": True, "reason": _clip(reason, 300),
+                               "restart_sec": round(time.time() - started, 1)}
+
+    def health(self):
+        """Per-case counters for the run record. Zero everywhere is the only healthy answer."""
+        return {"probe_restarts": self.restarts_case,
+                "probe_evaluator_panics": self.evaluator_panics,
+                "probe_refused_trees": self.refused_trees}
 
     def try_query(self, args):
         """Evaluate a candidate tree and report how many situations each box selects.
@@ -402,9 +510,20 @@ class OcpqProbe:
         tree = args.get("tree")
         if not isinstance(tree, dict):
             return {"error": "try_query needs a BindingBoxTree object as `tree`"}
-        status, body = _http_json(f"{self.base_url}/ocel/check-constraints-box",
-                                  {"tree": tree, "measurePerformance": False},
-                                  timeout=self.request_timeout_sec)
+        refused = [defect for defect in structural_defects(tree)
+                   if defect_kind(defect) in PROBE_REFUSED_DEFECT_KINDS]
+        if refused:
+            # The evaluator panics on these instead of answering (see PROBE_REFUSED_DEFECT_KINDS),
+            # so the agent gets the defect -- better feedback than a dropped connection.
+            self.refused_trees += 1
+            return {"error": "not evaluated: the tree is malformed, and the evaluator would crash "
+                             "on it rather than report an error", "defects": refused}
+        try:
+            status, body = _http_json(f"{self.base_url}/ocel/check-constraints-box",
+                                      {"tree": tree, "measurePerformance": False},
+                                      timeout=self.request_timeout_sec)
+        except ProbeUnavailable as exc:
+            return self._try_query_failed(exc)
         if status == 404:
             raise ProbeUnavailable("no OCEL loaded on the probe server")
         if status != 200 or not isinstance(body, dict):
@@ -417,6 +536,34 @@ class OcpqProbe:
                  for index, summary in enumerate(body.get("nodeSummaries") or [])]
         return {"nodes": nodes, "bindingsSkipped": body.get("bindingsSkipped"),
                 "evalVersion": body.get("evalVersion")}
+
+    def _try_query_failed(self, exc):
+        """Turn a transport failure on `try_query` into feedback, recovering the server if needed.
+
+        Three cases, told apart by the process state and the exception, never by guessing:
+          * the request TIMED OUT -- the server is still computing a runaway evaluation, holding CPU
+            and memory for an answer nobody will read. Restart it, then tell the agent.
+          * the process is DEAD -- restart it, then tell the agent. Not retried: the tree is the
+            likely cause, and resending it would kill the new process too.
+          * the process is ALIVE and the connection dropped -- the evaluator panicked on this tree
+            and the server survived it (measured 2026-09-22: three consecutive panics, correct
+            answers after each). Nothing to restart; the tree is the problem, and the agent is told.
+        Without an owned server there is nothing to diagnose with, so the failure propagates.
+        """
+        if self.server is None:
+            raise exc
+        if _is_timeout(exc):
+            self._recover(f"try_query timed out after {self.request_timeout_sec:.0f}s")
+            return {"error": f"the evaluation did not finish within "
+                             f"{self.request_timeout_sec:.0f}s and was stopped; the query likely "
+                             f"binds far too many combinations -- narrow it"}
+        if not self.server.is_alive():
+            self._recover(f"server process died during try_query: {exc}")
+            return {"error": "the evaluator crashed on this tree and was restarted; the tree is "
+                             "probably malformed -- check child indices, edgeNames and variables"}
+        self.evaluator_panics += 1
+        return {"error": "the evaluator crashed on this tree without returning an error; the tree "
+                         "is probably malformed -- check child indices, edgeNames and variables"}
 
     def inspect_situations(self, args):
         """Show rows the LAST evaluated tree actually selected, for one node.
@@ -543,12 +690,24 @@ class OcpqProbe:
     # ------------------------------------------------------------------------------ bookkeeping
 
     def reset(self):
-        """Clear the per-case budget and trajectory. The loaded log is kept -- it is per-run state."""
+        """Clear the per-case budget, trajectory and health counters. The loaded log and the
+        per-run restart count are kept -- they are per-run state."""
         self.tool_calls = 0
         self.trajectory = []
+        self.restarts_case = 0
+        self.evaluator_panics = 0
+        self.refused_trees = 0
 
     def budget_remaining(self):
         return max(0, self.max_tool_calls - self.tool_calls)
+
+
+def _is_timeout(exc):
+    """Whether a `ProbeUnavailable` wraps a socket timeout (`urlopen` raises it bare, or inside a
+    `URLError`). `socket.timeout` is an alias of `TimeoutError` from Python 3.10 on."""
+    cause = exc.__cause__
+    return isinstance(cause, TimeoutError) or isinstance(getattr(cause, "reason", None),
+                                                         TimeoutError)
 
 
 def _camel(snake):

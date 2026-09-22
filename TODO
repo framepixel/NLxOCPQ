@@ -1169,7 +1169,38 @@
   re-run the probe tests and check_probe.py, then rebuild and re-verify ocpq_cli against a known
   run before any scored evaluation.
 
-- OPEN, DO BEFORE THE AGENTIC RUNS (2026-09-21) RECORD THE OCPQ REVISION IN THE RUN MANIFEST.
+- DONE (2026-09-22) OCPQ PROVENANCE IS RECORDED IN EVERY RUN. QueryExecutor.ocpq_provenance()
+  writes config_resolved.json["ocpq"] = {rev, branch, dirty, dirty_files, binaries: {ocpq_cli,
+  ocpq-web-server}: {path, sha256, bytes, mtime}, cli_older_than_source, cli_mode, build_error}.
+  summary.json gets ocpq_cli_sha256 and ocpq_cli_changed_during_run (re-hashed at the end: array
+  tasks share one checkout, so another job's rebuild would otherwise split a run between two
+  evaluators). --merge-shards reports ocpq_consistent (True / False / None = a shard predates
+  this) and ocpq_cli_sha256s. Recorded, never a gate -- it warns loudly on a dirty checkout, a
+  stale binary, a failed build or a missing binary. Never raises. tests/test_ocpq_provenance.py
+  (21 checks, a real throwaway git checkout); it caught a real bug on the way (stdout.strip() ate
+  the leading space of `git status --porcelain`, truncating the first dirty filename).
+  WHY build=True: ocpq_cli runs through `cargo run --release`, which REBUILDS the binary whenever
+  the OCPQ source is newer than it. Hashing first would record the binary cargo is about to
+  replace. So the run triggers the build (the existing _detect_cli_mode call, which every run
+  already made on its first query) and hashes afterwards. Only the timing of that build moves.
+  TWO CORRECTIONS TO MY OWN EARLIER STATEMENTS, found doing this:
+    * The live evaluator was NOT the "3 April binary". The workspace root is OCPQ/, so cargo
+      runs OCPQ/target/release/ocpq_cli.exe, built 2026-08-28 (sha256 192522ea...). The 3 April
+      file is OCPQ/backend/target/release/ocpq_cli.exe, a stale leftover nothing runs.
+    * Restoring the two modified files on 2026-09-21 made them newer than that binary, so the
+      next local `cargo run` would have rebuilt the evaluator silently. HEAD was 2c5e0d6 from
+      2026-08-18 to 2026-09-21, so the 08-28 binary and the pinned 50f60c1 share their ocpq_cli
+      source; a rebuild should be equivalent, but equivalent is a claim, so it was tested (below).
+  REBUILT 2026-09-22 from nlxocpq-pinned 50f60c1: ocpq_cli sha256 0f2ff455..., same size, new
+  hash (Rust builds are not bit-reproducible). EQUIVALENCE VERIFIED: every gold query of the
+  testset, run through QueryExecutor.run_ocpq_query on the rebuilt binary, reproduces the root
+  situation set the previous binary stored in eval_runs/_discriminability_store on 2026-09-02 --
+  159 of 159 IDENTICAL on 10 logs (bpic2017's 10 entries skipped for import time). A first attempt
+  to compare the two binaries directly got 5/5 identical on 3 logs before Windows Defender blocked
+  the backup copy of the old binary in the Temp scratchpad (WinError 225, a heuristic on an
+  unsigned exe in Temp; not circumvented). The stored sets are the stronger reference anyway.
+  Original entry:
+- (was OPEN, 2026-09-21) RECORD THE OCPQ REVISION IN THE RUN MANIFEST.
   Nothing in any completed run records which OCPQ built the results. summary.json carries
   pipeline_fingerprints (the Python source), corpus digests (the logs) and testset_hash (the data),
   but the BINARY that computes every situation set is unrecorded -- checked matrix_v2/merged and
@@ -1204,7 +1235,58 @@
   recoverable with --recompute the way the _longest_path fix is, because the stored blobs are keyed
   by the query. Decide it with the same care as the testset expansion, and not during the agentic runs.
 
-- OPEN, DO BEFORE THE AGENTIC RUNS (2026-09-21) A MALFORMED TREE CRASHES THE OCPQ WEB SERVER, AND
+- DONE (2026-09-22) THE PROBE SURVIVES MALFORMED TREES -- AND THE ORIGINAL DIAGNOSIS BELOW WAS
+  WRONG IN ITS MOST ALARMING PART. MEASURED on the pinned server, one tree per defect kind
+  (scratchpad crash_classes.py / crash_followup.py):
+    * child_out_of_range PANICS (structs.rs:784, index out of bounds) and the connection drops --
+      BUT THE SERVER SURVIVES. Three consecutive panics, and after each one a good tree still
+      answered 3000/3000 and /ocel/info still served. "The process is gone and every later tool
+      call fails" was my inference from a script that died on the first exception, never a
+      measurement. ocpq_cli on the same tree exits 101 with no export.
+    * unbound_variable -> 400 "Could not get oN"; malformed_tree -> 422 naming the bad field.
+      Error documents, no crash.
+    * cycle and multiple_parents are EVALUATED by the server AND by ocpq_cli (exit 0, an `Ok`
+      export) -- see the OPEN entry directly below; ocpq_schema calls them blocking.
+  So the real defect was OURS: the probe turned one dropped connection into ProbeUnavailable, which
+  the plan treats as "this case cannot be measured" -- the agent would have lost the case over its
+  own malformed tree instead of being told what was wrong.
+  WHAT src/ocpq_probe.py DOES NOW:
+    1. try_query REFUSES only PROBE_REFUSED_DEFECT_KINDS = {child_out_of_range}, the measured crash
+       class, and returns the structural_defects message. Everything else goes to the server, whose
+       own error is the feedback -- refusing more would withhold counts for trees the scorer
+       evaluates.
+    2. A failed try_query is told apart by process state, never guessed: TIMEOUT -> restart (the
+       server is still burning CPU/memory on a runaway evaluation), tell the agent to narrow it;
+       DEAD process -> restart, tell the agent, do NOT resend the tree; ALIVE + dropped connection
+       -> evaluator panic, no restart, tell the agent. Other tools on a dead server are retried ONCE
+       on the restarted one (they send no model-authored structure). Restarts move to a new port,
+       reload the log and re-assert its identity. Capped at 2 per case / 10 per run
+       (OCPQ_PROBE_MAX_RESTARTS_PER_CASE / _PER_RUN); past a cap, ProbeUnavailable.
+    3. RECORDED: every restart is on the trajectory entry of the call that caused it, and
+       OcpqProbe.health() returns {probe_restarts, probe_evaluator_panics, probe_refused_trees}
+       per case.
+  VERIFIED LIVE (scratchpad live_recovery.py, live_timeout.py): refusal; a real panic survived;
+  kill -> restart -> reload -> identity -> correct answer; a 3-way Candidate cross product under a
+  2 s timeout -> restart with a new pid, correct answers after. tests/test_ocpq_probe.py extended
+  (the SIGALRM sentinel still propagates: only ProbeUnavailable is caught).
+  LEFT FOR STAGE 3 (it does not exist yet): copy probe.health() into each run record beside
+  agent_tool_calls, and add probe_restarts / probe_evaluator_panics to the compliance block of
+  notes 43. Upstream report: the panic is a genuine robustness bug in v0.11.x; check v0.12.1
+  before writing it.
+
+- OPEN, DECISION (2026-09-22) ocpq_schema.BLOCKING_DEFECT_KINDS INCLUDES TWO KINDS THE EVALUATOR
+  DOES NOT BLOCK ON. Its comment says blocking = "it errors or panics", and `cycle` and
+  `multiple_parents` are in it -- but MEASURED on one tree each, both evaluate in ocpq_cli (exit 0,
+  an `Ok` export; the cycle tree yields 0 situations, the multiple-parents tree evaluates
+  normally in 16 s). WHAT IT AFFECTS: structural_validation (the non-oracle rung, notes 36/41)
+  spends its one repair call only on blocking defects, so a tree with only these kinds gets a
+  repair it may not need, and the repaired tree replaces one that would have executed. Also
+  blocking_defects is what check-only paths count. NOT CHANGED: moving the set changes the
+  non-oracle rung's behaviour and pipeline_fingerprint mid-experiment. BEFORE DECIDING: count how
+  many matrix_v2 / non_oracle predictions carry ONLY these kinds (cheap, from predictions.json),
+  and test more than one tree per kind -- a cycle not involving the root may behave differently.
+
+- (was OPEN, 2026-09-21) A MALFORMED TREE CRASHES THE OCPQ WEB SERVER, AND
   THE PROBE DOES NOT SURVIVE IT. Found while testing dev-set variants: a BindingBoxTree whose child
   index points past the end of `nodes` (here [1] rewritten to two nodes while a child still named
   index 2) does not return an error document -- the server closes the connection and the process is

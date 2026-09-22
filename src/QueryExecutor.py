@@ -2,6 +2,7 @@ import os
 import subprocess
 import shutil
 import glob
+import hashlib
 import json
 import tempfile
 import threading
@@ -539,3 +540,113 @@ def export_query_result_table(
                 backend_proc.wait(timeout=3)
             except Exception:
                 backend_proc.kill()
+
+
+# --- OCPQ PROVENANCE ---
+#
+# Every root result set in the thesis is computed by `ocpq_cli`, and until 2026-09-22 no run
+# recorded WHICH ocpq_cli. `pipeline_fingerprint` covers the Python source, `corpus` the logs,
+# `testset_hash` the data -- the binary was the one input nothing named. It is not a static input
+# either: `_cargo_invocation` goes through `cargo run --release`, which silently REBUILDS the binary
+# whenever the OCPQ source is newer than it. On 2026-09-21 upstream moved to v0.12.1 under this
+# checkout, and the next build would have replaced the evaluator mid-experiment with nothing
+# reporting it (TODO, "OCPQ PINNED"). The source revision says what should have run; the binary's
+# sha256 says what did.
+
+# Built by the workspace at OCPQ/Cargo.toml, so both land in <checkout>/target/release.
+_OCPQ_BINARIES = ("ocpq_cli", "ocpq-web-server")
+# What a rebuild of ocpq_cli reads, for flagging a binary older than its source.
+_OCPQ_CLI_SOURCES = ("backend/ocpq_cli", "backend/shared", "Cargo.toml", "Cargo.lock")
+
+
+def _ocpq_release_dir():
+    """Where cargo puts release binaries: `$CARGO_TARGET_DIR` if set, else the workspace target."""
+    target = os.getenv("CARGO_TARGET_DIR") or os.path.join(paths.OCPQ_CHECKOUT, "target")
+    return os.path.join(target, "release")
+
+
+def ocpq_binary_path(name="ocpq_cli"):
+    """The release binary cargo runs for `name`, whether or not it exists yet."""
+    return os.path.join(_ocpq_release_dir(), name + (".exe" if os.name == "nt" else ""))
+
+
+def _file_digest(path):
+    """`{"path", "sha256", "bytes", "mtime"}` for a file, or None when it does not exist."""
+    if not os.path.isfile(path):
+        return None
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    stat = os.stat(path)
+    return {"path": os.path.abspath(path), "sha256": digest.hexdigest(), "bytes": stat.st_size,
+            "mtime": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_mtime))}
+
+
+def _ocpq_git(*args):
+    """`(stdout, None)` from a git command in the OCPQ checkout, or `(None, reason)`."""
+    try:
+        proc = subprocess.run(["git", "-C", str(paths.OCPQ_CHECKOUT), *args],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"git unavailable: {exc}"
+    if proc.returncode != 0:
+        return None, (proc.stderr or "").strip()[:300]
+    # rstrip only: `status --porcelain` lines start with a significant space (" M path").
+    return proc.stdout.rstrip(), None
+
+
+def _newest_source_mtime():
+    """The latest modification time among the files a rebuild of ocpq_cli would read."""
+    newest = None
+    for relative in _OCPQ_CLI_SOURCES:
+        root = os.path.join(paths.OCPQ_CHECKOUT, relative)
+        candidates = [root] if os.path.isfile(root) else (
+            os.path.join(folder, name) for folder, _dirs, names in os.walk(root)
+            for name in names if name.endswith((".rs", ".toml")))
+        for path in candidates:
+            mtime = os.path.getmtime(path)
+            newest = mtime if newest is None or mtime > newest else newest
+    return newest
+
+
+def ocpq_provenance(build=True):
+    """Which OCPQ this run evaluates with: the source revision and the binaries' digests.
+
+    Args:
+        build: Let cargo bring `ocpq_cli` up to date FIRST, so the digest is of the binary that
+            will actually run. It calls `_detect_cli_mode`, which every run already calls on its
+            first query and which goes through `cargo run --help`; doing it here only moves that
+            build before the digest instead of after it. False reads the binaries as they are.
+
+    Returns:
+        A JSON-serialisable dict. Never raises: a missing git or binary is recorded as such,
+        because provenance that can crash a run would be switched off, and then records nothing.
+    """
+    record = {"repo": str(paths.OCPQ_CHECKOUT), "build_checked": bool(build), "build_error": None}
+    if build:
+        try:
+            record["cli_mode"] = _detect_cli_mode(
+                _find_cargo_command(), os.path.join(paths.OCPQ_CHECKOUT, "backend", "ocpq_cli"))
+        except (OSError, subprocess.SubprocessError) as exc:
+            record["build_error"] = f"{type(exc).__name__}: {exc}"[:300]
+    record["rev"], record["git_error"] = _ocpq_git("rev-parse", "HEAD")
+    record["branch"], _ = _ocpq_git("rev-parse", "--abbrev-ref", "HEAD")
+    status, _ = _ocpq_git("status", "--porcelain", "--untracked-files=no")
+    record["dirty"] = None if status is None else bool(status)
+    record["dirty_files"] = sorted(line[3:] for line in status.splitlines())[:20] if status else []
+    record["binaries"] = {name: _file_digest(ocpq_binary_path(name)) for name in _OCPQ_BINARIES}
+    cli = record["binaries"]["ocpq_cli"]
+    newest = _newest_source_mtime()
+    # True means the recorded binary is NOT what the source would build -- the next `cargo run`
+    # replaces it. After a successful `build`, this should always be False.
+    record["cli_older_than_source"] = (
+        None if cli is None or newest is None
+        else os.path.getmtime(ocpq_binary_path("ocpq_cli")) < newest)
+    return record
+
+
+def ocpq_binary_digest(name="ocpq_cli"):
+    """The current digest of one OCPQ release binary, or None. For re-checking at the end of a run
+    that the binary recorded at its start is still the one on disk."""
+    return _file_digest(ocpq_binary_path(name))
