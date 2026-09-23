@@ -59,6 +59,7 @@ from LLM import (
     AgentNoFinalAnswer,
     set_agent_probe,
     set_agent_max_turns,
+    set_agent_thought,
     get_last_agent_trajectory,
     reset_last_agent_trajectory,
 )
@@ -252,7 +253,38 @@ def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_bu
     return suffix
 
 
-def _agent_suffix(prompt_strategy, max_turns, max_tool_calls):
+DEFAULT_AGENT_MAX_TURNS = 8
+DEFAULT_AGENT_MAX_TOOL_CALLS = 12
+
+
+def _agent_budget(config):
+    """`(max_turns, max_tool_calls, thought)` for an agentic run, read once from the config.
+
+    One reader for the three places that name the condition -- the manifest's `agentic` block,
+    `config_id`, and the shard directory -- so they cannot disagree about what ran.
+    """
+    return (int(config.get("agent_max_turns", DEFAULT_AGENT_MAX_TURNS)),
+            int(config.get("agent_max_tool_calls", DEFAULT_AGENT_MAX_TOOL_CALLS)),
+            bool(config.get("agent_thought", False)))
+
+
+def _agent_shard_suffix(prompt_strategies, config):
+    """The agent part of a shard directory name. Empty when no strategy is agentic.
+
+    A1 and A2 share the model, strategy and schema indices AND the strategy name, so without this
+    they write to the same `shard_m*_s*_e*_...` directory, and `--resume` (which globs the prefix,
+    takes the newest) resumes one rung into the other -- the 2026-09-12 failure, silently. A shard
+    running one strategy gets exactly that strategy's `config_id` suffix; a shard running several
+    gets the tool rung's, the fullest signature of the budget.
+    """
+    agentic = [s for s in prompt_strategies if s in AGENTIC_PROMPT_STRATEGIES]
+    if not agentic:
+        return ""
+    strategy = prompt_strategies[0] if len(prompt_strategies) == 1 else "agentic-log-tools"
+    return _agent_suffix(strategy, *_agent_budget(config))
+
+
+def _agent_suffix(prompt_strategy, max_turns, max_tool_calls, thought=False):
     """The budget of an agentic condition, for its `config_id`. Empty for every other strategy.
 
     Per condition rather than in `_decoding_suffix`, which is run-wide: the one-shot rung A0 runs in
@@ -265,6 +297,9 @@ def _agent_suffix(prompt_strategy, max_turns, max_tool_calls):
     suffix = f"_turns{int(max_turns)}"
     if prompt_strategy == "agentic-log-tools":
         suffix += f"_tools{int(max_tool_calls)}"
+    if thought:
+        # A CONDITION like the budget: A1 with and without it share everything else.
+        suffix += "_thought"
     return suffix
 
 
@@ -1271,6 +1306,10 @@ def _agent_compliance(records) -> dict:
     sources = Counter(str(a.get("final_source")) for _, a in agents)
     exhausted = [1 if (a.get("turns") and a.get("turns") == a.get("max_turns")
                        and a.get("final_source") != "declared") else 0 for _, a in agents]
+    # Thought uptake, over the records whose condition enabled it: an "on" condition in which the
+    # model never writes one is not measuring reasoning, whatever its F1.
+    thought_turns = [t for _, a in agents if a.get("thought_enabled")
+                     for t in (a.get("turn_summary") or [])]
     agreement = [a["probe_vs_cli"]["agree"] for _, a in agents
                  if isinstance(a.get("probe_vs_cli"), dict)
                  and a["probe_vs_cli"].get("agree") is not None]
@@ -1292,6 +1331,10 @@ def _agent_compliance(records) -> dict:
         "probe_refused_trees": sum(int(a.get("probe_refused_trees") or 0) for _, a in agents),
         "probe_cli_agreement_rate": _mean([1 if x else 0 for x in agreement]),
         "probe_cli_agreement_n": len(agreement),
+        "agent_thought_turn_rate": (_mean([1 if t.get("thought_chars") else 0
+                                            for t in thought_turns]) if thought_turns else None),
+        "agent_mean_thought_chars": _mean([t.get("thought_chars") for t in thought_turns
+                                           if t.get("thought_chars")]),
     }
 
 
@@ -1611,6 +1654,9 @@ def _compact_agent_turns(trajectory, cap):
             turn["malformed"] = str(entry["malformed"])[:cap]
         if entry.get("error"):
             turn["error"] = str(entry["error"])[:cap]
+        if entry.get("thought"):
+            # Length only; the text is in agent_trajectories.jsonl. Uptake and cost read this.
+            turn["thought_chars"] = len(str(entry["thought"]))
         result = entry.get("result")
         if isinstance(result, dict):
             if result.get("error"):
@@ -1804,6 +1850,13 @@ def run_evaluation(config_path_or_config):
             config.get("constant_root_arity"),
             config.get("structural_validation"),
         )
+        # After the decoding suffix, matching `config_id`'s order. See `_agent_shard_suffix`.
+        # The strategies are resolved (and the index validated) further down; this reads the same
+        # config and filter, so an out-of-range index falls through here and raises there.
+        _shard_strategies = config.get("prompt_strategies") or DEFAULT_PROMPT_STRATEGIES
+        if strategy_idx_filter is not None and 0 <= strategy_idx_filter < len(_shard_strategies):
+            _shard_strategies = [_shard_strategies[strategy_idx_filter]]
+        shard_tag += _agent_shard_suffix(_shard_strategies, config)
         run_id = f"{shard_tag}_{time.strftime('%Y%m%d_%H%M%S')}"
     else:
         run_id = time.strftime("eval_run_%Y%m%d_%H%M%S")
@@ -1914,10 +1967,13 @@ def run_evaluation(config_path_or_config):
     agent_uses_probe = "agentic-log-tools" in prompt_strategies
     agent_settings = None
     if agentic_strategies:
+        _turns, _tools, _thought = _agent_budget(config)
         agent_settings = {
             "strategies": agentic_strategies,
-            "max_turns": int(config.get("agent_max_turns", 8)),
-            "max_tool_calls": int(config.get("agent_max_tool_calls", 12)),
+            "max_turns": _turns,
+            "max_tool_calls": _tools,
+            # The reasoning condition (notes 43): the action schema gains `thought`.
+            "thought": _thought,
             "tool_result_char_cap": int(config.get("agent_tool_result_char_cap",
                                                    ocpq_probe.DEFAULT_RESULT_CHAR_CAP)),
             "probe_request_timeout_sec": float(config.get(
@@ -1993,6 +2049,8 @@ def run_evaluation(config_path_or_config):
             f"x {len(schema_enforced_values)} schema settings x {repeats} repeats "
             f"= {total_runs} planned runs."
         )
+        # The directory `--resume` globs for; the submit scripts' RUNG_SUFFIX must match it.
+        print(f"Dry run: run directory = {run_dir.name}")
         print(f"Dry run: schema enforcement values = {schema_enforced_values}")
         print(f"Dry run: schema_validation_when_no_schema = {schema_validation_when_no_schema}")
         print(f"Dry run: constrained_decoding = {constrained_decoding}"
@@ -2010,11 +2068,12 @@ def run_evaluation(config_path_or_config):
         if agent_settings:
             print(f"Dry run: agentic = {agent_settings['strategies']} | "
                   f"max_turns={agent_settings['max_turns']} "
-                  f"max_tool_calls={agent_settings['max_tool_calls']} | probe server: "
+                  f"max_tool_calls={agent_settings['max_tool_calls']} "
+                  f"thought={agent_settings['thought']} | probe server: "
                   f"{'yes (started at run start)' if agent_uses_probe else 'no'}")
             for strategy in prompt_strategies:
                 print(f"Dry run:   config_id suffix for {strategy}: "
-                      f"{_agent_suffix(strategy, agent_settings['max_turns'], agent_settings['max_tool_calls']) or '(none)'}")
+                      f"{_agent_suffix(strategy, agent_settings['max_turns'], agent_settings['max_tool_calls'], agent_settings['thought']) or '(none)'}")
         return None
 
     # Before any directory is created or model loaded: a run on the wrong corpus is worthless,
@@ -2153,6 +2212,7 @@ def run_evaluation(config_path_or_config):
     agent_trajectory_log = run_dir / "agent_trajectories.jsonl"
     if agent_settings:
         set_agent_max_turns(agent_settings["max_turns"])
+        set_agent_thought(agent_settings["thought"])
     if agent_uses_probe:
         probe_server = ocpq_probe.ProbeServer().start()
         agent_probe_obj = ocpq_probe.OcpqProbe(
@@ -2301,7 +2361,8 @@ def run_evaluation(config_path_or_config):
                         constrained_decoding, force_root_arity, generation_token_budget,
                         type_aware_filters, constant_root_arity, structural_validation)
                     agent_suffix = (_agent_suffix(prompt_strategy, agent_settings["max_turns"],
-                                                  agent_settings["max_tool_calls"])
+                                                  agent_settings["max_tool_calls"],
+                                                  agent_settings["thought"])
                                     if agent_settings else "")
                     config_id = _slug(
                         f"{resolved_model['label']}_{prompt_strategy}"
@@ -2597,6 +2658,7 @@ def run_evaluation(config_path_or_config):
                                 "post_execution_repair": bool(
                                     agent_state.get("post_execution_repair")),
                                 "probe_load_sec": probe_load_sec,
+                                "thought_enabled": bool(agent_state.get("thought_enabled")),
                                 "turn_summary": _compact_agent_turns(
                                     agent_state.get("trajectory"),
                                     agent_settings["record_turn_char_cap"]),
@@ -3863,6 +3925,16 @@ def main():
         help="Override every pipeline's max_tokens (they hard-code 1000/2000). Truncation is a "
              "failure mode distinct from schema violation, so the budget has to be movable to "
              "tell them apart.")
+    # The agentic rungs (notes 43) differ in these and nothing else, so the submit script selects a
+    # rung by flag, exactly as the decoding rungs are selected -- never by editing the config.
+    parser.add_argument("--agent-max-turns", type=int, default=None,
+        help="Model turns per agentic case. With --agent-max-tool-calls, THIS is the A1/A2 rung.")
+    parser.add_argument("--agent-max-tool-calls", type=int, default=None,
+        help="Probe calls per case for agentic-log-tools.")
+    parser.add_argument("--agent-thought", dest="agent_thought", action="store_true",
+        default=None, help="Allow a short `thought` in each agentic turn (reasoning condition).")
+    parser.add_argument("--no-agent-thought", dest="agent_thought", action="store_false",
+        help="Plain action protocol (the default).")
     parser.add_argument("--schema-idx", type=int, default=None,
         help="0-based index into schema_enforced. Restricts this job to that schema setting only (finer Slurm sharding).")
     parser.add_argument("--case-shard", default=None, metavar="I/N",
@@ -3939,6 +4011,14 @@ def main():
             cfg["structural_validation"] = args.structural_validation
         if args.constant_root_arity is not None:
             cfg["constant_root_arity"] = args.constant_root_arity
+        # Into the config, like the decoding flags, so they reach the manifest's `agentic` block
+        # and `config_fingerprint`: two agentic shards with different budgets must not merge.
+        if args.agent_max_turns is not None:
+            cfg["agent_max_turns"] = args.agent_max_turns
+        if args.agent_max_tool_calls is not None:
+            cfg["agent_max_tool_calls"] = args.agent_max_tool_calls
+        if args.agent_thought is not None:
+            cfg["agent_thought"] = args.agent_thought
         if args.case_shard:
             try:
                 index_str, total_str = str(args.case_shard).split("/")

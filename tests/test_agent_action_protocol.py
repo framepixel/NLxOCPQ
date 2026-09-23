@@ -244,6 +244,42 @@ check("the tool list is generated from the probe's registry, not written out",
       all(spec["name"] in LLM._agent_tool_block(FakeProbe())
           for spec in LLM.ocpq_probe.TOOL_SPECS), True)
 
+print("\n--- the thought condition: reasoning is recorded, never acted on ---")
+from ocpq_schema import AgentActionWithThought  # noqa: E402
+
+LLM.set_agent_thought(False)
+model, outcome, error = run_loop(['{"final_tree": %s}' % json.dumps(TREE)])
+check("off by default: the turn is constrained to the plain schema",
+      model.schema_during_call, [AgentAction])
+check("off: the prompt never mentions a thought",
+      "thought" in json.dumps(model.sent[0]), False)
+action, _ = LLM._parse_agent_action('{"thought": "orders first", "tool": "sample", "args": {}}')
+check("off: a stray thought (free decoding only) is dropped by the plain schema",
+      getattr(action, "thought", None), None)
+
+LLM.set_agent_thought(True)
+model, outcome, error = run_loop([
+    '{"thought": "check the payment count first", "tool": "try_query", "args": {"tree": %s}}'
+    % json.dumps(TREE),
+    '{"thought": "counts look right", "final_tree": %s}' % json.dumps(TREE)],
+    probe=FakeProbe())
+state = LLM.get_last_agent_trajectory()
+check("on: every turn is constrained to the thought schema",
+      set(model.schema_during_call), {AgentActionWithThought})
+check("on: the prompt carries the thought rule",
+      LLM.AGENT_THOUGHT_RULE in model.sent[0][1]["content"], True)
+check("on: a thought beside a tool call leaves the call intact",
+      [t.get("action") for t in state["trajectory"]], ["try_query", "final_tree"])
+check("on: the thought is recorded on its turn",
+      [t.get("thought") for t in state["trajectory"]],
+      ["check the payment count first", "counts look right"])
+check("on: the thought never reaches the final tree", "thought" in json.dumps(outcome[2]), False)
+check("on: the trajectory says the condition was on", state["thought_enabled"], True)
+model, outcome, error = run_loop(['{"thought": "just thinking"}'], max_turns=1)
+check("on: a thought ALONE is not an action -- counted malformed, not executed",
+      (LLM.get_last_agent_trajectory()["malformed_actions"], outcome), (1, None))
+LLM.set_agent_thought(False)
+
 OUTPUT_FILE.unlink(missing_ok=True)
 
 print()

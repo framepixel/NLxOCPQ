@@ -221,6 +221,25 @@ class AgentAction(BaseModel):
     final_tree: Optional[BindingBoxTree] = None
 
 
+class AgentActionWithThought(AgentAction):
+    """`AgentAction` plus a short free-text `thought` -- the agentic arm's reasoning condition.
+
+    A SEPARATE model rather than a field on `AgentAction`, because the grammar is compiled with
+    `strict_mode=True`, which forbids unknown keys: under constrained decoding a model on the plain
+    schema CANNOT emit a thought. That makes the "off" rung clean and byte-identical to the one
+    Stage 3 verified, and makes this model the only difference between the two (notes 43).
+
+    Why a protocol field and not native reasoning: the per-turn grammar masks everything that is not
+    this JSON, so a reasoning model's own thinking tokens can never be emitted here. A field lets
+    EVERY evaluated model reason, inside the grammar, whether or not it has a native mode.
+
+    OPTIONAL, not required, deliberately: xgrammar's `any_order=True` can skip a required property
+    (see `LLM._fill_missing_box_containers`), so "required" would not actually be guaranteed. The
+    uptake -- how many turns carried a thought -- is recorded instead of assumed.
+    """
+    thought: Optional[str] = None
+
+
 class QueryVerification(BaseModel):
     is_correct: bool
     issues: List[str]
@@ -256,6 +275,7 @@ class QueryTree(BaseModel):
 OCPQ_JSON_SCHEMA = BindingBoxTree.model_json_schema()
 ROOT_ARITY_SCHEMA = RootArity.model_json_schema()
 AGENT_ACTION_SCHEMA = AgentAction.model_json_schema()
+AGENT_ACTION_WITH_THOUGHT_SCHEMA = AgentActionWithThought.model_json_schema()
 VERIFICATION_JSON_SCHEMA = QueryVerification.model_json_schema()
 EXTRACTED_STRUCTURE_SCHEMA = ExtractedStructure.model_json_schema()
 QUERY_TREE_SCHEMA = QueryTree.model_json_schema()

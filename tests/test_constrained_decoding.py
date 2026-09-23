@@ -278,6 +278,25 @@ check("the oracle rung is identifiable from its id alone",
       "_arityforced" in arity_ids[2], True)
 check("three distinct merge keys", len({key(c) for c in arity_ids}), 3)
 
+print("\n--- the agent's action grammar: `thought` exists only in the thought condition ---")
+# notes 43 / TODO `thought`. The claim that the plain condition CANNOT emit a thought rests on
+# strict_mode forbidding unknown keys; measured here with the exact flags LLM compiles with.
+from ocpq_schema import AgentAction, AgentActionWithThought  # noqa: E402
+
+plain_g = xgr.Grammar.from_json_schema(AgentAction, any_order=True, strict_mode=True)
+thought_g = xgr.Grammar.from_json_schema(AgentActionWithThought, any_order=True, strict_mode=True)
+TOOL = '{"tool":"sample","args":{"type":"orders"}}'
+THOUGHT_TOOL = '{"thought":"orders first","tool":"sample","args":{"type":"orders"}}'
+check("plain grammar accepts a plain tool call", accepts(plain_g, TOOL), True)
+check("plain grammar REJECTS a thought (strict_mode) -- the off condition is clean",
+      accepts(plain_g, THOUGHT_TOOL), False)
+check("thought grammar accepts a thought beside a tool call",
+      accepts(thought_g, THOUGHT_TOOL), True)
+check("thought grammar still accepts a turn WITHOUT a thought (it is optional)",
+      accepts(thought_g, TOOL), True)
+check("thought grammar accepts a thought after the action (any_order)",
+      accepts(thought_g, '{"tool":"sample","args":{},"thought":"x"}'), True)
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")

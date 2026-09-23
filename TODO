@@ -1451,7 +1451,12 @@
   Native reasoning modes (if any evaluated model has one) stay a separate, model-specific arm,
   reported apart and never as a matrix cell.
 
-- OPEN, IMPLEMENT IN STAGE 4 (2026-09-22) THE `thought` FIELD (decision entry directly above).
+- DONE (2026-09-23, notes 43.4) THE `thought` FIELD, as a SEPARATE schema (AgentActionWithThought),
+  not a field on AgentAction: the grammar's strict_mode forbids unknown keys, so the off rung
+  cannot emit a thought and stays byte-identical to Stage 3. Optional, not required (any_order can
+  skip a required property); uptake is measured instead (agent_thought_turn_rate). Grammar-level
+  proof pending on the cluster (Stage 4 item b above).
+  (was OPEN, IMPLEMENT IN STAGE 4) THE `thought` FIELD (decision entry directly above).
   Concrete work, all additive:
     1. src/ocpq_schema.py: AgentAction gains `thought: Optional[str] = None`, documented as the
        one place a model may reason under the grammar mask. Check it against xgrammar first --
@@ -1469,3 +1474,70 @@
        call and does not reach the final tree; a case that the field is absent by default.
     5. Report: thought-vs-no-thought on rung A1 only, at the SAME turn budget and case_timeout_sec,
        with mean completion chars beside it -- the cost is part of the comparison.
+
+- PARTLY DONE (2026-09-23, notes 43.4) STAGE 4 -- items 1-5 BUILT AND TESTED LOCALLY; items 6-7 NEED
+  THE CLUSTER. Done: --agent-max-turns / --agent-max-tool-calls / --agent-thought flags; shard names
+  carry the agent suffix (verified: five rungs, five directories); configs/eval_config.agentic.json
+  and eval_config.agentic_gate.json; slurm/submit_agentic_rungs.sh (tasks 0-4) and
+  slurm/submit_agentic_gate.sh (tasks 0-7); tests/test_agentic_rungs.py (mutation-checked).
+  --agent-memory NOT added: a flag that does nothing yet would be worse than none; it comes with A3.
+  OPEN, IN ORDER, ON THE CLUSTER:
+    a. sync; build the web server on a login node (command in the submit script header).
+    b. python tests/test_constrained_decoding.py -- its 5 new `thought` grammar checks cannot run
+       locally (xgrammar is stubbed); they are the measurement behind "the off condition cannot
+       emit a thought". Must pass before the gate.
+    c. python tests/test_agentic_rungs.py tests/test_agentic_no_gold.py tests/test_agent_action_protocol.py
+    d. sbatch slurm/submit_agentic_gate.sh -- read compliance and WALL CLOCK PER CASE only.
+    e. size A2 from (d): set A2_TURNS / A2_TOOL_CALLS in submit_agentic_rungs.sh (test_agentic_rungs
+       re-derives the suffix, so nothing else to edit), then export OCPQ_A2_CONFIRMED=1.
+  (was OPEN, NEXT 2026-09-22) AGENTIC PLAN STAGE 4 -- CONFIG, SUBMIT SCRIPT, MODEL GATE. Stage 3 is
+  done (notes 43.3). Plan, in order:
+    1. CLI FLAGS in src/eval_testset.py, mirroring the decoding flags: --agent-max-turns,
+       --agent-max-tool-calls, --agent-thought / --no-agent-thought (the `thought` entry above),
+       and --agent-memory FILE reserved for A3. The rungs must be selectable from the submit
+       script without editing a config, exactly as the non-oracle rungs are.
+    2. SHARD NAMING -- A REAL HAZARD, FOUND READING THE CODE. `shard_tag` (eval_testset.py:1782)
+       is built from model/strategy/schema index plus `_decoding_suffix` only. A1 and A2 share all
+       three indices AND the strategy name, so both land on the same `shard_m*_s*_e*_...` directory
+       and `--resume` (globs the prefix, takes the newest) would resume one rung into the other's
+       directory -- the documented 2026-09-12 failure, silently. FIX: append `_agent_suffix(...)`
+       to shard_tag too, and pin shard_tag == config_id suffix == the script's RUNG_SUFFIX in
+       tests/test_agentic_rungs.py, the way tests/test_forced_arity.py pins the existing three.
+    3. configs/eval_config.agentic.json: output_dir eval_runs/agentic; ONE model; strategies
+       [schema-allowed-entities-only, agentic-log-tools, agentic-self-refine]; schema_enforced
+       [true]; constrained_decoding true; force_root_arity false; NO oracle- strategy;
+       corpus_check error; result_store true; case_timeout_sec 600; the agent_* keys.
+    4. slurm/submit_agentic_rungs.sh: array over the rungs, the standard preamble copied from
+       submit_non_oracle_rungs.sh (project-dir resolution, modules, conda env, HF offline,
+       OCPQ_CLI_SCRATCH_DIR, schema token budget, resume glob including RUNG_SUFFIX, --case-shard
+       passthrough), plus `python src/check_probe.py` in the preflight and node/GPU echo. No CR
+       characters. Rungs: 0 A0 one-shot / 1 A1 tools / 2 A1' self-refine (same turns, no tools) /
+       3 A2 large budget / 4 A1+thought.
+       PREBUILD THE WEB SERVER on a login node before the first job: the first release build takes
+       several minutes and would otherwise happen inside a GPU job's preflight.
+    5. tests/test_agentic_rungs.py: structural clone of tests/test_non_oracle_rungs.py -- script
+       exists, no CR, array size matches the rung table, every RUNG_SUFFIX equals what
+       _agent_suffix/_decoding_suffix produce, the config carries no oracle strategy and a
+       case_timeout_sec, and every strategy named is registered in LLM.PROMPT_STRATEGIES.
+    6. MODEL GATE ON THE DEV SET, before any matrix time. data/agent_devset.json has the same shape
+       as the testset (nl_query, ocel_path, ocpq_query), so it runs through run_evaluation with
+       `testset_path` pointed at it -- no new runner. configs/eval_config.agentic_gate.json +
+       a small submit script. READ BEFORE ANY F1: malformed-action rate, budget-exhaustion rate,
+       no-answer rate, mean turns, mean tool calls, probe restarts, and WALL-CLOCK PER CASE.
+       Candidates: Llama 3.1 8B fine-tuned (same base as the fine-tuned arm), Qwen3 8B/14B,
+       Ministral 3 14B. A model that cannot hold the protocol is not measurable -- that is a
+       finding, not a failure. The gate also measures the `thought` variable (item above).
+       NOTE: dev entries are absent from eval_runs/testset_discriminability.json, so floors and
+       skill are undefined there (_STRATUM_MISS). That is fine -- the gate reads compliance and
+       cost, never F1 -- but do not quote a dev-set F1 anywhere.
+    7. THE BUDGET MUST FIT THE CAP. case_timeout_sec is 600 and CLAUDE.md 6 requires the same cap
+       on every compared arm. A2's turn budget must be sized from the gate's measured per-turn
+       cost so a 169-case run does not turn into a timeout study; if it cannot fit, the cap has to
+       rise for EVERY arm (A0, A1, A1', A2) and they all re-run. Decide from the gate's numbers,
+       not by guessing.
+    PRE-REGISTRATION for the submit-script header: oracle_conditions == [] in every manifest;
+    compliance block reported before any F1; A1-A1' is the tool effect, A1-A0 mixes tools with
+    compute, A2-A1 is budget; paired bootstrap over per-case F1 on the same 135 discriminating
+    cases; skill reported beside F1.
+    THEN Stage 5: tune on the dev set only, freeze and hash the prompt, 2-case probe-only run,
+    4-case slice across rungs, src/smoke_check.py, then the full run; notes 43.4.

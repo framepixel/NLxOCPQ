@@ -1,0 +1,86 @@
+{
+  "note": "THE AGENTIC ARM -- Thesis/notes/11-evaluation-readiness.md 43. Rungs are selected by FLAGS in slurm/submit_agentic_rungs.sh (--strategy-idx, --agent-max-turns, --agent-max-tool-calls, --agent-thought), never by editing this file. Every rung is SYSTEM PERFORMANCE: no oracle- strategy, force_root_arity false, and the probe cannot reach gold (tests/test_ocpq_probe.py, tests/test_agentic_no_gold.py). DEVIATION from CLAUDE.md 4.5 (new strategies go in eval_config.json): the agentic strategies are registered in LLM.PROMPT_STRATEGIES but NOT added to the main matrix config, which would silently add 16 cells to it.",
+  "testset_path": "data/testset.json",
+  "output_dir": "eval_runs/agentic",
+  "backend": "local-gpu",
+  "local_device": "cuda",
+  "local_dtype": "auto",
+  "local_quantization": "4bit",
+  "temperature": 0.0,
+  "repeats": 1,
+  "limit": 0,
+  "seed": 3407,
+  "few_shot_k": 3,
+  "keep_result_files": false,
+  "result_store": true,
+  "result_store_max_situations": 200000,
+  "shuffle": false,
+  "auto_expand_finetuned": true,
+  "case_timeout_sec": 600,
+  "max_result_file_gb": 4,
+  "fine_tune_map": {
+    "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit": {
+      "name": "models/adapters/llama31-8b-fine-tuned-quantized",
+      "label": "llama31-8b-finetuned"
+    },
+    "unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit": {
+      "name": "models/adapters/ministral3-14b-fine-tuned-quantized",
+      "label": "ministral3-14b-finetuned"
+    },
+    "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit": {
+      "name": "models/adapters/ministral3-3b-fine-tuned-quantized",
+      "label": "ministral3-3b-finetuned"
+    },
+    "models/adapters/gemma3-4b-base-16bit": {
+      "name": "models/adapters/gemma3-4b-merged-16bit",
+      "label": "gemma3-4b-finetuned"
+    }
+  },
+  "models": [
+    {
+      "name": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
+      "label": "llama31-8b-base"
+    },
+    {
+      "name": "unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit",
+      "label": "ministral3-14b-base"
+    },
+    {
+      "name": "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit",
+      "label": "ministral3-3b-base"
+    },
+    {
+      "name": "models/adapters/gemma3-4b-base-16bit",
+      "label": "gemma3-4b-base"
+    }
+  ],
+  "schema_enforced": [
+    true
+  ],
+  "schema_validation": true,
+  "schema_validation_when_no_schema": false,
+  "prompt_strategies": [
+    "schema-allowed-entities-only",
+    "agentic-log-tools",
+    "agentic-self-refine"
+  ],
+  "prompt_strategies_note": "Index 0 = A0 (one-shot), 1 = A1/A2/A1+thought (tools), 2 = A1' (self-refine, same loop, no tools).",
+  "constrained_decoding": true,
+  "generation_token_budget": 4000,
+  "decoding_note": "A0 is then exactly the non-oracle B0 condition (notes 41), re-measured in this job. For the agentic rungs the grammar is AgentAction per turn, which is what makes a well-formed action a guarantee (notes 43, Stage 2).",
+  "force_root_arity": false,
+  "type_aware_filters": false,
+  "structural_validation": false,
+  "constant_root_arity": false,
+  "corpus_check": "error",
+  "agent_max_turns": 8,
+  "agent_max_tool_calls": 12,
+  "agent_thought": false,
+  "agent_budget_note": "Defaults = A1. A2's budget is passed by flag and must be SIZED FROM THE MODEL GATE's measured per-case wall clock so it fits case_timeout_sec (600), which CLAUDE.md 6 requires to be the same on every compared arm. See TODO, Stage 4 item 7.",
+  "agent_tool_result_char_cap": 4000,
+  "agent_probe_request_timeout_sec": 30,
+  "agent_probe_load_timeout_sec": 300,
+  "agent_probe_max_restarts_per_case": 2,
+  "agent_probe_max_restarts_per_run": 10,
+  "agent_record_turn_char_cap": 600
+}

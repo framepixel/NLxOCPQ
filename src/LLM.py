@@ -22,7 +22,7 @@ from huggingface_hub import InferenceClient
 from pydantic import ValidationError
 
 import paths
-from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, AGENT_ACTION_SCHEMA, AgentAction, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
+from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, AGENT_ACTION_SCHEMA, AgentAction, AGENT_ACTION_WITH_THOUGHT_SCHEMA, AgentActionWithThought, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
 
 from LogEvents import events_and_objects_from_ocel, extract_ocel_schema
 # The agentic arm's tool surface (notes 43). Imported as a module, not as names, so the tool
@@ -168,6 +168,9 @@ constrained_schema_override = None
 # rungs. `_last_agent_trajectory` is per case, read back like `_last_structural_report`.
 agent_probe = None
 agent_max_turns = 8
+# Whether agentic turns may carry a short `thought` (notes 43, the reasoning condition). Off by
+# default, which is exactly the protocol every run before 2026-09-23 used.
+agent_thought = False
 _last_agent_trajectory = None
 
 LLM_CALL_STATS = []
@@ -482,6 +485,22 @@ def set_agent_max_turns(value):
 
 def get_agent_max_turns():
     return agent_max_turns
+
+
+def set_agent_thought(value):
+    """Let agentic turns carry a `thought` -- a CONDITION, crossed on the tool rung only.
+
+    Switches both the action schema (`AgentActionWithThought`, which the grammar needs because
+    `strict_mode` forbids unknown keys) and one line of the protocol rules, so the rungs differ in
+    exactly those two things. See `ocpq_schema.AgentActionWithThought` for why a protocol field and
+    not native reasoning.
+    """
+    global agent_thought
+    agent_thought = bool(value)
+
+
+def get_agent_thought():
+    return agent_thought
 
 
 def get_last_agent_trajectory():
@@ -3786,6 +3805,23 @@ AGENT_PROTOCOL_RULES = (
     "  {\"final_tree\": {...}}                    to answer with the finished OCPQ query\n"
     "Never put both in one reply. Never write prose around the JSON."
 )
+# Appended to the rules ONLY under `agent_thought`, so the reasoning condition differs from the
+# plain one in this line and in the action schema, and in nothing else. Asks for brevity because a
+# thought costs tokens every turn against the same turn budget and case_timeout_sec (notes 43).
+AGENT_THOUGHT_RULE = (
+    "You may add \"thought\": \"...\" to either form -- one or two sentences on what you expect "
+    "and why -- written before you commit to the action."
+)
+
+
+def _agent_protocol_rules():
+    """The protocol rules for the current condition: the plain rules, plus the thought line."""
+    return AGENT_PROTOCOL_RULES + ("\n" + AGENT_THOUGHT_RULE if agent_thought else "")
+
+
+def _agent_action_model():
+    """The action schema for the current condition -- also what the grammar is compiled from."""
+    return AgentActionWithThought if agent_thought else AgentAction
 
 
 class AgentNoFinalAnswer(ValueError):
@@ -3797,8 +3833,12 @@ class AgentNoFinalAnswer(ValueError):
     """
 
 
-def _parse_agent_action(content):
-    """Parse one protocol turn. Returns `(AgentAction, None)` or `(None, reason)`.
+def _parse_agent_action(content, action_model=AgentAction):
+    """Parse one protocol turn. Returns `(action, None)` or `(None, reason)`.
+
+    `action_model` is the condition's schema (`_agent_action_model`). With the plain `AgentAction`
+    a stray `thought` key -- possible only without constrained decoding -- is ignored by Pydantic,
+    so it can never leak into the plain condition as anything but raw text.
 
     Deliberately NOT `parse_llm_json`, which is right for queries and wrong for a control channel:
     it takes a greedy `{.*}` span, so prose containing braces swallows everything between the first
@@ -3832,7 +3872,7 @@ def _parse_agent_action(content):
     if not has_tool and not has_tree:
         return None, "the object must carry either `tool` or `final_tree`"
     try:
-        return AgentAction.model_validate(parsed), None
+        return action_model.model_validate(parsed), None
     except Exception as exc:  # noqa: BLE001 - the model's mistake, reported back to it
         if has_tree:
             return None, f"`final_tree` is not a valid BindingBoxTree: {str(exc)[:400]}"
@@ -3910,7 +3950,7 @@ Write an OCPQ query answering the question below, using the log to check your wo
 
 {_agent_tool_block(probe)}
 
-{AGENT_PROTOCOL_RULES}
+{_agent_protocol_rules()}
 
 How to work:
 - A query is a tree of binding boxes. The ROOT box holds the answer rows; child boxes express
@@ -3947,6 +3987,13 @@ Question:
         "tool_trajectory": [] if probe is None else probe.trajectory,
     }
 
+    # The condition's schema, fixed for the whole case: the grammar is compiled from it and the
+    # parser validates against it, so the two cannot disagree mid-case.
+    action_model = _agent_action_model()
+    action_schema = (AGENT_ACTION_WITH_THOUGHT_SCHEMA if action_model is AgentActionWithThought
+                     else AGENT_ACTION_SCHEMA)
+    _last_agent_trajectory["thought_enabled"] = agent_thought
+
     previous_schema = get_constrained_schema()
     for turn in range(agent_max_turns):
         turns_used = turn + 1
@@ -3958,7 +4005,7 @@ Question:
             # every turn to a BindingBoxTree (it is attached on every local generation), and the
             # model could not emit a tool call at all -- which would read as "small models cannot
             # do agentic work" when it is a grammar bug.
-            set_constrained_schema(AgentAction)
+            set_constrained_schema(action_model)
             response = call_hf_with_retry(
                 model=selected_model,
                 messages=messages,
@@ -3966,7 +4013,7 @@ Question:
                 # A union cannot be expressed in OpenAI strict mode (no root-level anyOf, and a
                 # free-form `args` cannot satisfy additionalProperties:false), so endpoint backends
                 # get plain JSON mode and the schema is enforced on the FINAL tree instead.
-                response_format=_build_response_format("agent_action", AGENT_ACTION_SCHEMA, False),
+                response_format=_build_response_format("agent_action", action_schema, False),
             )
         except PromptTooLongError as exc:
             # Never retried by design, and the transcript only grows -- so stop and finalise with
@@ -3977,8 +4024,12 @@ Question:
             set_constrained_schema(previous_schema)
 
         content = response.choices[0].message.content or ""
-        action, reason = _parse_agent_action(content)
+        action, reason = _parse_agent_action(content, action_model)
         entry = {"turn": turns_used, "raw": content[:_AGENT_RAW_CHAR_CAP]}
+        thought = getattr(action, "thought", None) if action is not None else None
+        if thought:
+            # Mechanism evidence: the text goes to the trajectory JSONL, its length to the record.
+            entry["thought"] = str(thought)[:_AGENT_RAW_CHAR_CAP]
 
         if action is None:
             malformed += 1
@@ -3986,7 +4037,7 @@ Question:
             trajectory.append(entry)
             messages.append({"role": "assistant", "content": content})
             messages.append({"role": "user", "content":
-                             f"That reply could not be used: {reason}. {AGENT_PROTOCOL_RULES}"})
+                             f"That reply could not be used: {reason}. {_agent_protocol_rules()}"})
             continue
 
         if action.final_tree is not None:
