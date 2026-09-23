@@ -1308,6 +1308,7 @@ def _agent_compliance(records) -> dict:
                        and a.get("final_source") != "declared") else 0 for _, a in agents]
     # Thought uptake, over the records whose condition enabled it: an "on" condition in which the
     # model never writes one is not measuring reasoning, whatever its F1.
+    all_turns = [t for _, a in agents for t in (a.get("turn_summary") or [])]
     thought_turns = [t for _, a in agents if a.get("thought_enabled")
                      for t in (a.get("turn_summary") or [])]
     agreement = [a["probe_vs_cli"]["agree"] for _, a in agents
@@ -1331,6 +1332,10 @@ def _agent_compliance(records) -> dict:
         "probe_refused_trees": sum(int(a.get("probe_refused_trees") or 0) for _, a in agents),
         "probe_cli_agreement_rate": _mean([1 if x else 0 for x in agreement]),
         "probe_cli_agreement_n": len(agreement),
+        # Turns whose tree needed the container repair every other arm also gets -- visible, not
+        # silent, because it is the harness doing work the model did not do.
+        "agent_repaired_turn_rate": (_mean([1 if t.get("repaired") else 0 for t in all_turns])
+                                     if all_turns else None),
         "agent_thought_turn_rate": (_mean([1 if t.get("thought_chars") else 0
                                             for t in thought_turns]) if thought_turns else None),
         "agent_mean_thought_chars": _mean([t.get("thought_chars") for t in thought_turns
@@ -1657,6 +1662,9 @@ def _compact_agent_turns(trajectory, cap):
         if entry.get("thought"):
             # Length only; the text is in agent_trajectories.jsonl. Uptake and cost read this.
             turn["thought_chars"] = len(str(entry["thought"]))
+        if entry.get("normalized"):
+            # Containers the harness filled in the turn's tree (LLM._repair_agent_tree).
+            turn["repaired"] = len(entry["normalized"])
         result = entry.get("result")
         if isinstance(result, dict):
             if result.get("error"):

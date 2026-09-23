@@ -1553,3 +1553,23 @@
     cases; skill reported beside F1.
     THEN Stage 5: tune on the dev set only, freeze and hash the prompt, 2-case probe-only run,
     4-case slice across rungs, src/smoke_check.py, then the full run; notes 43.4.
+
+- DONE LOCALLY (2026-09-23, notes 43.5) THE GATE SMOKE FOUND THREE HARNESS DEFECTS; FIXED, NOT YET
+  RE-RUN. Smoke: eval_runs/agentic_gate_smoke (llama31-8b-finetuned, A1 thought off/on, dev slice
+  0/8, 5 cases each). Harness side clean (pinned OCPQ, probe/CLI agree, 0 restarts); model side
+  showed 0/10 declared final trees, ~50% malformed turns, 2/5 timeouts, 0% thought uptake. Causes:
+    1. final_tree rejected for a missing `filters` -- the any_order artefact the one-shot pipeline
+       repairs (_fill_missing_box_containers) and the agent parser did not. FIX: _repair_agent_tree
+       applies the same repair to final and try_query trees; counted (agent_repaired_turn_rate).
+    2. sample / attribute_values DENIED REAL TYPES (DiagnosticEquipment, LabTechnician in
+       04_hospital.xml): a 400-id untyped prefix scan. FIX: typed lookup by a one-box evaluation
+       paged from the server; unknown names get the log's real type lists; the agent's own last
+       evaluation is re-run (uncharged) if inspect_situations needs it. Verified on a live server.
+    3. The action grammar was too loose (all-optional fields, args: Dict[str, Any]): the model wrote
+       final_tree AND args.tree in one object to the 4000-token limit (~180 s/turn) -> both
+       timeouts; try_query trees were unconstrained. FIX: AgentTurn / AgentTurnWithThought, a union
+       of one typed variant per tool + a final answer; the parser validates the named variant.
+  NEXT, ON THE CLUSTER: pull; python tests/test_constrained_decoding.py (13 turn-grammar checks --
+  the union must compile in xgrammar and refuse the smoke's runaway shape; cannot run locally);
+  then the SAME smoke again (sbatch --array=2,3 slurm/submit_agentic_gate.sh --case-shard 0/8) and
+  compare against the numbers above before the full gate. Thought uptake is re-read after (3).

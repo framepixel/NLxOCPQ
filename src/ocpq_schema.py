@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, RootModel
 from typing import List, Dict, Optional, Union, Literal, Any, Tuple
 
 try:
@@ -240,6 +240,116 @@ class AgentActionWithThought(AgentAction):
     thought: Optional[str] = None
 
 
+# --- THE STRICT TURN GRAMMAR (2026-09-23) ------------------------------------------------------
+#
+# `AgentAction` / `AgentActionWithThought` above are what a PARSED turn becomes. The models below
+# are what the GRAMMAR is compiled from, and they are much tighter. The gate smoke of 2026-09-23
+# (eval_runs/agentic_gate_smoke, 10 cases) showed why a single all-optional object is not enough:
+#   * every field optional + `args: Dict[str, Any]` let the model write a `final_tree` AND an
+#     `args.tree` in ONE object, run on to the 4000-token limit, and be cut off mid-JSON -- about
+#     180 s a turn; three such turns spent the whole 600 s case cap (2 of 5 cases timed out);
+#   * the tree inside `try_query` was free-form JSON, so its shape went unconstrained
+#     (`edgeNames[0][0]: invalid type`, undeclared references) while `final_tree` was checked.
+# A union of one variant per tool plus one final-answer variant lets the grammar admit exactly one
+# well-formed action per turn, with typed arguments and a real BindingBoxTree wherever a tree goes.
+# The tool names here must match `ocpq_probe.TOOL_SPECS`; tests/test_agent_action_protocol.py
+# asserts they do.
+
+
+class TryQueryArgs(BaseModel):
+    tree: BindingBoxTree
+
+
+class InspectSituationsArgs(BaseModel):
+    node: int = 0
+    n: int = 5
+    violated: Optional[bool] = None
+
+
+class SampleArgs(BaseModel):
+    type: str
+    n: int = 5
+
+
+class AttributeValuesArgs(BaseModel):
+    type: str
+    attribute: str
+    n: int = 10
+
+
+class ActivityStatsArgs(BaseModel):
+    type: str
+
+
+class TryQueryCall(BaseModel):
+    tool: Literal["try_query"]
+    args: TryQueryArgs
+
+
+class InspectSituationsCall(BaseModel):
+    tool: Literal["inspect_situations"]
+    args: InspectSituationsArgs
+
+
+class SampleCall(BaseModel):
+    tool: Literal["sample"]
+    args: SampleArgs
+
+
+class AttributeValuesCall(BaseModel):
+    tool: Literal["attribute_values"]
+    args: AttributeValuesArgs
+
+
+class ActivityStatsCall(BaseModel):
+    tool: Literal["activity_stats"]
+    args: ActivityStatsArgs
+
+
+class FinalAnswer(BaseModel):
+    final_tree: BindingBoxTree
+
+
+class TryQueryCallWithThought(TryQueryCall):
+    thought: Optional[str] = None
+
+
+class InspectSituationsCallWithThought(InspectSituationsCall):
+    thought: Optional[str] = None
+
+
+class SampleCallWithThought(SampleCall):
+    thought: Optional[str] = None
+
+
+class AttributeValuesCallWithThought(AttributeValuesCall):
+    thought: Optional[str] = None
+
+
+class ActivityStatsCallWithThought(ActivityStatsCall):
+    thought: Optional[str] = None
+
+
+class FinalAnswerWithThought(FinalAnswer):
+    thought: Optional[str] = None
+
+
+AGENT_TOOL_CALLS = (TryQueryCall, InspectSituationsCall, SampleCall, AttributeValuesCall,
+                    ActivityStatsCall)
+
+
+class AgentTurn(RootModel[Union[TryQueryCall, InspectSituationsCall, SampleCall,
+                                AttributeValuesCall, ActivityStatsCall, FinalAnswer]]):
+    """One agent turn, as the grammar admits it: exactly one tool call or one final answer."""
+
+
+class AgentTurnWithThought(RootModel[Union[
+        TryQueryCallWithThought, InspectSituationsCallWithThought, SampleCallWithThought,
+        AttributeValuesCallWithThought, ActivityStatsCallWithThought, FinalAnswerWithThought]]):
+    """`AgentTurn` for the reasoning condition: every variant may carry a `thought`. A separate
+    class NAME, because the grammar cache (LLM._ocpq_logits_processor) is keyed by it."""
+
+
 class QueryVerification(BaseModel):
     is_correct: bool
     issues: List[str]
@@ -276,6 +386,8 @@ OCPQ_JSON_SCHEMA = BindingBoxTree.model_json_schema()
 ROOT_ARITY_SCHEMA = RootArity.model_json_schema()
 AGENT_ACTION_SCHEMA = AgentAction.model_json_schema()
 AGENT_ACTION_WITH_THOUGHT_SCHEMA = AgentActionWithThought.model_json_schema()
+AGENT_TURN_SCHEMA = AgentTurn.model_json_schema()
+AGENT_TURN_WITH_THOUGHT_SCHEMA = AgentTurnWithThought.model_json_schema()
 VERIFICATION_JSON_SCHEMA = QueryVerification.model_json_schema()
 EXTRACTED_STRUCTURE_SCHEMA = ExtractedStructure.model_json_schema()
 QUERY_TREE_SCHEMA = QueryTree.model_json_schema()

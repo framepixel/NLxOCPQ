@@ -28,7 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 import LLM  # noqa: E402
-from ocpq_schema import AgentAction  # noqa: E402
+import typing  # noqa: E402
+
+from ocpq_schema import AGENT_TOOL_CALLS, AgentAction, AgentTurn  # noqa: E402
 
 failures = []
 
@@ -118,14 +120,44 @@ OUTPUT_FILE = Path(ROOT / "eval_runs" / "_agent_protocol_test_query.json")
 OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 print("--- the parser refuses rather than invents ---")
-action, reason = LLM._parse_agent_action('{"tool": "try_query", "args": {"tree": {}}}')
+action, reason = LLM._parse_agent_action('{"tool": "try_query", "args": {"tree": %s}}'
+                                        % json.dumps(TREE))
 check("a plain action parses", action.tool, "try_query")
 action, reason = LLM._parse_agent_action(
     'Sure thing {"tool": "sample", "args": {"type": "orders"}} -- let me know {if} that helps')
 check("prose on both sides does not swallow the object (parse_llm_json would)",
-      (action.tool, action.args), ("sample", {"type": "orders"}))
-action, reason = LLM._parse_agent_action('```json\n{"tool": "sample", "args": {}}\n```')
+      (action.tool, action.args["type"]), ("sample", "orders"))
+action, reason = LLM._parse_agent_action('```json\n{"tool": "sample", "args": {"type": "o"}}\n```')
 check("a fenced block parses", action.tool, "sample")
+
+print("\n--- the strict turn schema: each tool has typed arguments (gate smoke, 2026-09-23) ---")
+action, reason = LLM._parse_agent_action('{"tool": "try_query", "args": {"tree": {}}}')
+check("a try_query tree must be a real BindingBoxTree", action, None)
+check_true("...and the reason names the call", "malformed try_query call" in reason)
+action, reason = LLM._parse_agent_action('{"tool": "sample", "args": {}}')
+check("a missing required argument is refused", action, None)
+check_true("...naming the variant, not six union branches", "SampleCall" in reason)
+action, reason = LLM._parse_agent_action('{"tool": "summon_gold", "args": {}}')
+check_true("an unknown tool is refused at parse time, with the real list",
+           action is None and "try_query" in reason)
+action, reason = LLM._parse_agent_action('{"tool": "inspect_situations", "args": {}}')
+check("optional arguments take their documented defaults", action.args,
+      {"node": 0, "n": 5, "violated": None})
+check("the grammar's tool variants are exactly the probe's tools",
+      sorted(typing.get_args(c.model_fields["tool"].annotation)[0] for c in AGENT_TOOL_CALLS),
+      sorted(spec["name"] for spec in LLM.ocpq_probe.TOOL_SPECS))
+
+print("\n--- trees get the same container repair every other arm gets ---")
+NO_FILTERS = {"nodes": [{"Box": [{"newEventVars": {}, "newObjectVars": {"0": ["orders"]},
+                                  "sizeFilters": [], "constraints": [], "evVarLabels": {},
+                                  "obVarLabels": {}}, []]}], "edgeNames": []}
+action, reason = LLM._parse_agent_action('{"final_tree": %s}' % json.dumps(NO_FILTERS))
+check("a final tree missing `filters` (an any_order artefact) is repaired, not rejected",
+      (action is not None, list(LLM._last_agent_parse_normalized)), (True, ["nodes[0].filters"]))
+action, reason = LLM._parse_agent_action('{"tool": "try_query", "args": {"tree": %s}}'
+                                        % json.dumps(NO_FILTERS))
+check("...and so is a try_query tree", action.args["tree"]["nodes"][0]["Box"][0]["filters"], [])
+check("the case's own normalisation record is untouched", LLM.get_last_normalized_fields(), [])
 action, reason = LLM._parse_agent_action('{"tool": "sample", "args": {"type": "ord')
 check("a truncated action is REFUSED, not auto-healed", action, None)
 check_true("...with a reason the model can act on", "truncate" in reason)
@@ -143,7 +175,8 @@ check("the parsed tree round-trips", action.final_tree.model_dump(by_alias=True)
 print("\n--- the grammar is the PROTOCOL during a turn, and restored afterwards ---")
 LLM.set_constrained_schema(None)
 model, outcome, error = run_loop(['{"final_tree": %s}' % json.dumps(TREE)])
-check("the turn was constrained to AgentAction", model.schema_during_call, [AgentAction])
+check("the turn was constrained to the strict AgentTurn union", model.schema_during_call,
+      [AgentTurn])
 check("the override is cleared afterwards", LLM.get_constrained_schema(), None)
 
 LLM.set_constrained_schema(None)
@@ -192,7 +225,7 @@ check_true("the tool result reached the model",
 print("\n--- the control rung has no tools, and cannot acquire them ---")
 probe = FakeProbe()
 model, outcome, error = run_loop(
-    ['{"tool": "try_query", "args": {"tree": {}}}',
+    ['{"tool": "try_query", "args": {"tree": %s}}' % json.dumps(TREE),
      '{"final_tree": %s}' % json.dumps(TREE)], probe=None)
 check("no tool was executed", probe.calls, [])
 check_true("the model is told it has none",
@@ -245,12 +278,12 @@ check("the tool list is generated from the probe's registry, not written out",
           for spec in LLM.ocpq_probe.TOOL_SPECS), True)
 
 print("\n--- the thought condition: reasoning is recorded, never acted on ---")
-from ocpq_schema import AgentActionWithThought  # noqa: E402
+from ocpq_schema import AgentTurnWithThought  # noqa: E402
 
 LLM.set_agent_thought(False)
 model, outcome, error = run_loop(['{"final_tree": %s}' % json.dumps(TREE)])
-check("off by default: the turn is constrained to the plain schema",
-      model.schema_during_call, [AgentAction])
+check("off by default: the turn is constrained to the plain turn grammar",
+      model.schema_during_call, [AgentTurn])
 check("off: the prompt never mentions a thought",
       "thought" in json.dumps(model.sent[0]), False)
 action, _ = LLM._parse_agent_action('{"thought": "orders first", "tool": "sample", "args": {}}')
@@ -264,8 +297,8 @@ model, outcome, error = run_loop([
     '{"thought": "counts look right", "final_tree": %s}' % json.dumps(TREE)],
     probe=FakeProbe())
 state = LLM.get_last_agent_trajectory()
-check("on: every turn is constrained to the thought schema",
-      set(model.schema_during_call), {AgentActionWithThought})
+check("on: every turn is constrained to the thought turn grammar",
+      set(model.schema_during_call), {AgentTurnWithThought})
 check("on: the prompt carries the thought rule",
       LLM.AGENT_THOUGHT_RULE in model.sent[0][1]["content"], True)
 check("on: a thought beside a tool call leaves the call intact",

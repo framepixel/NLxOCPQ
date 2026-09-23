@@ -169,36 +169,93 @@ check("a stale evaluation asks for a fresh try_query rather than failing the cas
       "expired" in expired["error"], True)
 check("...and forgets the dead version", probe.eval_version, None)
 
-print("\n--- sample / attribute_values filter by type themselves, because sample-ids does not ---")
+print("\n--- sample / attribute_values look a type up EXACTLY, wherever it sits in the log ---")
+# Until 2026-09-23 they scanned the first 400 ids of ANY type and answered "no entities, check the
+# spelling" for real types that appear late in a log -- DiagnosticEquipment in 04_hospital.xml, in
+# the gate smoke. Now they evaluate a one-box query binding the type and page its rows.
 entities = {
     "o1": {"object": {"id": "o1", "type": "orders",
                       "attributes": [{"name": "status", "value": "open"}]}},
-    "o2": {"object": {"id": "o2", "type": "items",
-                      "attributes": [{"name": "status", "value": "shipped"}]}},
     "o3": {"object": {"id": "o3", "type": "orders",
                       "attributes": [{"name": "status", "value": "closed"}]}},
+    "e9": {"event": {"id": "e9", "type": "pay order", "attributes": []}},
 }
-answers = {
-    "sample-ids": (200, {"object_ids": ["o1", "o2", "o3"], "event_ids": []}),
-    "get-object": lambda payload: (200, entities.get(payload.get("id"))),
-    "get-event": (404, None),
-}
-probe, transport = probe_with(answers)
-sampled = probe.call("sample", {"type": "orders", "n": 5})
-check("only entities of the requested type come back",
-      [entity["id"] for entity in sampled["entities"]], ["o1", "o3"])
-check_true("the result admits the sample is log-ordered", "not a uniform" in sampled["sampled_from"])
-check("the untyped id request asks for the scan limit, not n",
-      transport.calls[0][1], {"limit": probe.scan_limit})
 
-probe, _ = probe_with(answers)
+
+def lookup_answers():
+    evaluated = []
+
+    def check_box(payload):
+        evaluated.append(payload["tree"])
+        return 200, {"nodeSummaries": [{"situationCount": 2, "situationViolatedCount": 0}],
+                     "evalVersion": len(evaluated)}
+
+    return evaluated, {
+        "check-constraints-box": check_box,
+        "eval-results/page": lambda payload: (200, {"rows": [
+            {"objects": [[0, "o1"]], "events": []},
+            {"objects": [[0, "o3"]], "events": []}], "filteredCount": 2}),
+        "get-object": lambda payload: (200, entities.get(payload.get("id"))),
+        "get-event": lambda payload: (200, entities.get(payload.get("id"))),
+    }
+
+
+def typed_probe(**kwargs):
+    evaluated, answers = lookup_answers()
+    probe, transport = probe_with(answers, **kwargs)
+    probe.object_types, probe.event_types = ["items", "orders"], ["pay order"]
+    return probe, transport, evaluated
+
+
+probe, transport, evaluated = typed_probe()
+sampled = probe.call("sample", {"type": "orders", "n": 5})
+check("the entities of the requested type come back", [e["id"] for e in sampled["entities"]],
+      ["o1", "o3"])
+check("...found by evaluating a one-box query that binds exactly that type",
+      evaluated[0]["nodes"][0]["Box"][0]["newObjectVars"], {"0": ["orders"]})
+check("...and never through the untyped id route",
+      [path for path, _, _ in transport.calls if path == "sample-ids"], [])
+check_true("the result admits the order is not uniform", "not a uniform" in sampled["sampled_from"])
+
+probe, _, evaluated = typed_probe()
+probe.call("sample", {"type": "pay order"})
+check("an EVENT type is bound as an event variable",
+      evaluated[0]["nodes"][0]["Box"][0]["newEventVars"], {"0": ["pay order"]})
+
+probe, transport, _ = typed_probe()
+unknown = probe.call("sample", {"type": "DiagnosticEquipmnt"})
+check_true("a name that is not a type says so", "not an object or event type" in unknown["error"])
+check("...and lists the real ones, instead of 'check the spelling'",
+      (unknown["object_types"], unknown["event_types"]), (["items", "orders"], ["pay order"]))
+check("...without evaluating anything", transport.calls, [])
+
+probe, _, _ = typed_probe()
 values = probe.call("attribute_values", {"type": "orders", "attribute": "status"})
-check("distinct values are read off the sampled entities",
-      values["distinct_values"], ["closed", "open"])
-probe, _ = probe_with(answers)
+check("distinct values are read off the looked-up entities", values["distinct_values"],
+      ["closed", "open"])
+probe, _, _ = typed_probe()
 missing = probe.call("attribute_values", {"type": "orders", "attribute": "nope"})
 check("an unknown attribute lists what IS there instead of returning nothing",
       missing["attributes_present"], ["status"])
+
+print("\n--- a lookup must not cost the agent its own evaluation ---")
+probe, transport, evaluated = typed_probe()
+AGENT_TREE = {"nodes": [{"Box": [{"newObjectVars": {"0": ["items"]}}, []]}], "edgeNames": []}
+probe.call("try_query", {"tree": AGENT_TREE})
+probe.call("sample", {"type": "orders"})                 # replaces the server's evaluation
+check("the lookup replaced the server's evaluation", len(evaluated), 2)
+paged = probe.call("inspect_situations", {"node": 0})
+check("paging afterwards re-evaluates the AGENT's tree first, not the lookup's",
+      evaluated[-1], AGENT_TREE)
+check_true("...and returns rows", paged.get("rows"))
+check("...without charging the agent for the re-evaluation", probe.tool_calls, 3)
+before = len(evaluated)
+probe.call("inspect_situations", {"node": 0})
+check("a second page does not re-evaluate again", len(evaluated), before)
+probe.reset()
+check("reset forgets the previous case's evaluation, so it cannot be paged from the next case",
+      (probe.eval_version, probe.call("inspect_situations", {})["error"].startswith("call try_query")),
+      (None, True))
 
 print("\n--- activity_stats posts a bare JSON string (Json<String> in main.rs) ---")
 probe, transport = probe_with({"get-activity-statistics": (200, {"meanSec": 42})})
@@ -339,16 +396,17 @@ server = FakeServer(alive=False)
 attempts = []
 
 
-def sample_ids(payload):
+def activity_statistics(payload):
     attempts.append(server.restarts)
     if server.restarts == 0:
         raise ProbeUnavailable("connection refused")
-    return 200, {"object_ids": [], "event_ids": []}
+    return 200, {"meanSec": 1}
 
 
-probe, transport = probe_with({"sample-ids": sample_ids, "load": (200, SERVED)}, server=server)
+probe, transport = probe_with({"get-activity-statistics": activity_statistics,
+                               "load": (200, SERVED)}, server=server)
 probe.loaded_ocel_path = "/logs/order-management.json"
-probe.call("sample", {"type": "orders"})
+probe.call("activity_stats", {"type": "pay"})
 check("a non-tree tool on a dead server is retried once on the restarted one", attempts, [0, 1])
 
 server = FakeServer(alive=True)

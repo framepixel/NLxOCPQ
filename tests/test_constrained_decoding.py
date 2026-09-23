@@ -278,24 +278,44 @@ check("the oracle rung is identifiable from its id alone",
       "_arityforced" in arity_ids[2], True)
 check("three distinct merge keys", len({key(c) for c in arity_ids}), 3)
 
-print("\n--- the agent's action grammar: `thought` exists only in the thought condition ---")
-# notes 43 / TODO `thought`. The claim that the plain condition CANNOT emit a thought rests on
-# strict_mode forbidding unknown keys; measured here with the exact flags LLM compiles with.
-from ocpq_schema import AgentAction, AgentActionWithThought  # noqa: E402
+print("\n--- the agent's TURN grammar: exactly one well-formed action per turn ---")
+# notes 43.5. The loop compiles AgentTurn / AgentTurnWithThought (a union: one variant per tool plus
+# a final answer), with the exact flags LLM uses. The gate smoke of 2026-09-23 showed what the
+# earlier all-optional AgentAction grammar admitted: a final_tree AND a free-form args.tree in one
+# object, running to the 4000-token limit -- the cause of both timeouts. Each claim is measured here.
+from ocpq_schema import AgentTurn, AgentTurnWithThought  # noqa: E402
 
-plain_g = xgr.Grammar.from_json_schema(AgentAction, any_order=True, strict_mode=True)
-thought_g = xgr.Grammar.from_json_schema(AgentActionWithThought, any_order=True, strict_mode=True)
+turn_g = xgr.Grammar.from_json_schema(AgentTurn, any_order=True, strict_mode=True)
+thought_g = xgr.Grammar.from_json_schema(AgentTurnWithThought, any_order=True, strict_mode=True)
+ONE_BOX = ('{"nodes":[{"Box":[{"newEventVars":{},"newObjectVars":{"0":["orders"]},"filters":[],'
+           '"sizeFilters":[],"constraints":[],"evVarLabels":{},"obVarLabels":{}},[]]}],'
+           '"edgeNames":[]}')
 TOOL = '{"tool":"sample","args":{"type":"orders"}}'
 THOUGHT_TOOL = '{"thought":"orders first","tool":"sample","args":{"type":"orders"}}'
-check("plain grammar accepts a plain tool call", accepts(plain_g, TOOL), True)
-check("plain grammar REJECTS a thought (strict_mode) -- the off condition is clean",
-      accepts(plain_g, THOUGHT_TOOL), False)
-check("thought grammar accepts a thought beside a tool call",
-      accepts(thought_g, THOUGHT_TOOL), True)
-check("thought grammar still accepts a turn WITHOUT a thought (it is optional)",
+check("accepts a typed tool call", accepts(turn_g, TOOL), True)
+check("accepts a try_query carrying a real tree",
+      accepts(turn_g, '{"tool":"try_query","args":{"tree":' + ONE_BOX + '}}'), True)
+check("accepts a final answer", accepts(turn_g, '{"final_tree":' + ONE_BOX + '}'), True)
+check("accepts optional arguments left out",
+      accepts(turn_g, '{"tool":"inspect_situations","args":{}}'), True)
+check("REJECTS a final_tree and a tool call in one object (the smoke's runaway shape)",
+      accepts(turn_g, '{"final_tree":' + ONE_BOX + ',"tool":"try_query","args":{"tree":'
+              + ONE_BOX + '}}'), False)
+check("REJECTS free-form arguments (args was Dict[str, Any])",
+      accepts(turn_g, '{"tool":"sample","args":{"type":"orders","tree":{"nodes":[]}}}'), False)
+check("REJECTS a try_query tree that is not a BindingBoxTree",
+      accepts(turn_g, '{"tool":"try_query","args":{"tree":{"nodes":"x"}}}'), False)
+check("REJECTS an unknown tool name", accepts(turn_g, '{"tool":"summon","args":{}}'), False)
+check("REJECTS a sample without its required type",
+      accepts(turn_g, '{"tool":"sample","args":{}}'), False)
+check("the plain grammar REJECTS a thought (strict_mode) -- the off condition stays clean",
+      accepts(turn_g, THOUGHT_TOOL), False)
+check("the thought grammar accepts a thought beside a tool call", accepts(thought_g, THOUGHT_TOOL),
+      True)
+check("the thought grammar still accepts a turn without one (it is optional)",
       accepts(thought_g, TOOL), True)
-check("thought grammar accepts a thought after the action (any_order)",
-      accepts(thought_g, '{"tool":"sample","args":{},"thought":"x"}'), True)
+check("the thought grammar accepts a thought after the action (any_order)",
+      accepts(thought_g, '{"tool":"sample","args":{"type":"o"},"thought":"x"}'), True)
 
 print()
 if failures:

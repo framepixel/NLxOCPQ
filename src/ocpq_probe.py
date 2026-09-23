@@ -80,11 +80,6 @@ DEFAULT_STARTUP_TIMEOUT_SEC = float(os.getenv("OCPQ_PROBE_STARTUP_TIMEOUT_SEC", 
 # (`LLM._clamp_message_history`), which would cut a result mid-JSON and hand the model something it
 # reads as content; cap here instead, with an explicit marker saying what was dropped.
 DEFAULT_RESULT_CHAR_CAP = int(os.getenv("OCPQ_PROBE_RESULT_CHAR_CAP", "4000"))
-# `/ocel/sample-ids` is untyped, so `sample` and `attribute_values` scan a prefix of the log and
-# filter by type themselves. The scan is how many ids to ask for; the fetch cap bounds the round
-# trips one tool call may cost when the requested type is rare or misspelled.
-DEFAULT_SCAN_LIMIT = int(os.getenv("OCPQ_PROBE_SCAN_LIMIT", "400"))
-DEFAULT_MAX_SCAN_FETCHES = int(os.getenv("OCPQ_PROBE_MAX_SCAN_FETCHES", "120"))
 # Bounded self-repair of the server (see `OcpqProbe._recover`). Past either cap the probe raises
 # `ProbeUnavailable`, because an arm that keeps restarting its tool surface is no longer measuring
 # what a working tool surface gives the model.
@@ -346,14 +341,12 @@ class OcpqProbe:
     """
 
     def __init__(self, base_url, max_tool_calls, server=None, result_char_cap=None,
-                 request_timeout_sec=None, load_timeout_sec=None, scan_limit=None,
-                 max_scan_fetches=None, max_restarts_per_case=None, max_restarts_per_run=None):
+                 request_timeout_sec=None, load_timeout_sec=None,
+                 max_restarts_per_case=None, max_restarts_per_run=None):
         self.base_url = base_url.rstrip("/")
         self.max_tool_calls = int(max_tool_calls)
         self.server = server
         self.result_char_cap = int(result_char_cap or DEFAULT_RESULT_CHAR_CAP)
-        self.scan_limit = int(scan_limit or DEFAULT_SCAN_LIMIT)
-        self.max_scan_fetches = int(max_scan_fetches or DEFAULT_MAX_SCAN_FETCHES)
         self.request_timeout_sec = float(request_timeout_sec or DEFAULT_REQUEST_TIMEOUT_SEC)
         self.load_timeout_sec = float(load_timeout_sec or DEFAULT_LOAD_TIMEOUT_SEC)
         self.max_restarts_per_case = int(
@@ -364,6 +357,14 @@ class OcpqProbe:
             else max_restarts_per_run)
         self.loaded_ocel_path = None
         self.eval_version = None
+        # The loaded log's type names, from the server's own /ocel/load answer. They are what the
+        # typed lookup binds and what an unknown-type error lists.
+        self.object_types = []
+        self.event_types = []
+        # The agent's last evaluated tree, and whether the server still holds ITS evaluation: the
+        # typed lookup in `_scan_entities` evaluates a one-box query of its own, which replaces it.
+        self._agent_tree = None
+        self._agent_eval_current = False
         self.tool_calls = 0
         self.trajectory = []
         # Health counters. Per case: reset by `reset()` and meant for the run record, beside
@@ -397,6 +398,11 @@ class OcpqProbe:
         self._assert_identity(resolved, body)
         self.loaded_ocel_path = resolved
         self.eval_version = None
+        self._agent_tree, self._agent_eval_current = None, False
+        self.object_types = sorted(_type_names(body.get("object_types") or body.get("objectTypes")
+                                               or []))
+        self.event_types = sorted(_type_names(body.get("event_types") or body.get("eventTypes")
+                                              or []))
         return True
 
     def _assert_identity(self, ocel_path, info):
@@ -530,6 +536,7 @@ class OcpqProbe:
             # The evaluation refused the tree. This is the agent's problem to fix, not ours.
             return {"error": _clip(str(body), 800)}
         self.eval_version = body.get("evalVersion")
+        self._agent_tree, self._agent_eval_current = tree, True
         nodes = [{"node": index,
                   "situations": summary.get("situationCount"),
                   "violations": summary.get("situationViolatedCount")}
@@ -573,6 +580,17 @@ class OcpqProbe:
         """
         if self.eval_version is None:
             return {"error": "call try_query first; there is no evaluation to page through"}
+        if not self._agent_eval_current and self._agent_tree is not None:
+            # A `sample` / `attribute_values` lookup evaluated its own one-box query since, so the
+            # server no longer holds the agent's evaluation. Re-run the agent's tree -- not charged,
+            # not on the trajectory: the agent asked to page ITS result, and that is what it gets.
+            status, body = _http_json(f"{self.base_url}/ocel/check-constraints-box",
+                                      {"tree": self._agent_tree, "measurePerformance": False},
+                                      timeout=self.request_timeout_sec)
+            if status != 200 or not isinstance(body, dict):
+                return {"error": "your last try_query could not be re-evaluated; call it again"}
+            self.eval_version = body.get("evalVersion")
+            self._agent_eval_current = True
         node = int(args.get("node", 0) or 0)
         limit = max(1, min(int(args.get("n", 5) or 5), 20))
         violated = args.get("violated")
@@ -594,16 +612,17 @@ class OcpqProbe:
         if not type_name:
             return {"error": "sample needs a `type`"}
         limit = max(1, min(int(args.get("n", 5) or 5), 20))
-        found = self._scan_entities(type_name, limit)
-        if not found:
-            return {"error": f"no entities of type {type_name!r} in the scanned prefix; check the "
-                             f"spelling against the schema, or bind the type in a one-box "
-                             f"try_query and page it with inspect_situations"}
-        return {"type": type_name, "kind": found[0][0],
+        kind, found = self._scan_entities(type_name, limit)
+        if kind is None:
+            return self._unknown_type(type_name)
+        if found is None:
+            return {"error": f"looking up {type_name!r} failed; try again, or bind it in try_query"}
+        return {"type": type_name, "kind": kind,
                 "entities": [{"id": entity.get("id"),
-                              "attributes": entity.get("attributes")} for _, entity in found],
-                "sampled_from": f"the first {self.scan_limit} entities in log order, not a uniform "
-                                f"sample"}
+                              "attributes": entity.get("attributes")} for entity in found],
+                "sampled_from": (f"the first {limit} {kind}s of this type in evaluation order, not "
+                                 f"a uniform sample") if found
+                else f"this {kind} type has no entities"}
 
     def attribute_values(self, args):
         """The values one attribute actually takes, read off sampled entities.
@@ -615,22 +634,23 @@ class OcpqProbe:
         if not type_name or not attribute:
             return {"error": "attribute_values needs a `type` and an `attribute`"}
         limit = max(1, min(int(args.get("n", 10) or 10), 25))
-        found = self._scan_entities(type_name, limit)
-        if not found:
-            return {"error": f"no entities of type {type_name!r} in the scanned prefix; "
-                             f"check the spelling against the schema"}
-        values = [entry.get("value") for _, entity in found
+        kind, found = self._scan_entities(type_name, limit)
+        if kind is None:
+            return self._unknown_type(type_name)
+        if found is None:
+            return {"error": f"looking up {type_name!r} failed; try again, or bind it in try_query"}
+        values = [entry.get("value") for entity in found
                   for entry in (entity.get("attributes") or [])
                   if entry.get("name") == attribute and entry.get("value") is not None]
         if not values:
-            present = sorted({entry.get("name") for _, entity in found
+            present = sorted({entry.get("name") for entity in found
                               for entry in (entity.get("attributes") or [])} - {None})
             return {"type": type_name, "attribute": attribute, "sampled": 0,
                     "distinct_values": [], "attributes_present": present[:25]}
         return {"type": type_name, "attribute": attribute, "sampled": len(values),
                 "distinct_values": sorted({str(value) for value in values})[:25],
-                "sampled_from": f"the first {self.scan_limit} entities in log order, not a uniform "
-                                f"sample"}
+                "sampled_from": f"the first {limit} {kind}s of this type in evaluation order, not "
+                                f"a uniform sample"}
 
     def activity_stats(self, args):
         """Timing statistics for an activity -- the one grounding fact absent from the schema block.
@@ -647,45 +667,66 @@ class OcpqProbe:
             return {"error": _clip(str(body), 500)}
         return {"activity": activity, "statistics": body}
 
-    def _scan_entities(self, type_name, want):
-        """Up to `want` entities of `type_name`, found by scanning a prefix of the log.
+    def _unknown_type(self, type_name):
+        """An honest answer for a name that is not a type of this log: say so, and list the real
+        ones. (Until 2026-09-23 a prefix scan answered "no entities, check the spelling" for REAL
+        types that happened to appear late in the log -- DiagnosticEquipment in 04_hospital.xml.)"""
+        return {"error": f"{type_name!r} is not an object or event type of this log",
+                "object_types": self.object_types, "event_types": self.event_types}
 
-        `/ocel/sample-ids` is UNTYPED -- it returns the first N object ids and the first N event
-        ids with no type filter (`SampleIdsRequest` carries only `limit`) -- so the type filter
-        happens here, by fetching entities until enough match. Two consequences, which the tool
-        results state openly rather than hiding: the sample is in log ORDER, not uniform, and a type
-        that appears only late in a large log may not be found at all. The exact alternative is
-        available to the agent itself: a one-box `try_query` binding that type, paged with
-        `inspect_situations`.
+    def _scan_entities(self, type_name, want):
+        """Up to `want` real entities of `type_name`, exactly, wherever they sit in the log.
+
+        The server has no typed id route (`/ocel/sample-ids` returns the first N ids of ANY type),
+        so the lookup evaluates a one-box query binding the type and pages its rows -- the same
+        evaluator every other answer comes from. That replaces the server's current evaluation, so
+        `_agent_eval_current` is cleared and `inspect_situations` re-runs the agent's own tree if it
+        needs it.
 
         Returns:
-            A list of `(kind, entity)` pairs, where kind is "object" or "event"; empty if nothing
-            of that type turned up within the scan.
+            `(kind, entities)`: kind is "object" / "event", or None when the name is not a type of
+            this log; entities is a list (possibly empty), or None when the lookup itself failed.
         """
-        status, body = _http_json(f"{self.base_url}/ocel/sample-ids",
-                                  {"limit": self.scan_limit},
-                                  timeout=self.request_timeout_sec)
+        if type_name in self.object_types:
+            kind, declared = "object", "newObjectVars"
+        elif type_name in self.event_types:
+            kind, declared = "event", "newEventVars"
+        else:
+            return None, []
+        box = {"newEventVars": {}, "newObjectVars": {}, "filters": [], "sizeFilters": [],
+               "constraints": [], "evVarLabels": {}, "obVarLabels": {}}
+        box[declared] = {"0": [type_name]}
+        try:
+            status, body = _http_json(f"{self.base_url}/ocel/check-constraints-box",
+                                      {"tree": {"nodes": [{"Box": [box, []]}], "edgeNames": []},
+                                       "measurePerformance": False},
+                                      timeout=self.request_timeout_sec)
+        except ProbeUnavailable as exc:
+            if self.server is not None and _is_timeout(exc):
+                self._recover(f"type lookup for {type_name!r} timed out")
+                return kind, None
+            raise
         if status == 404:
             raise ProbeUnavailable("no OCEL loaded on the probe server")
+        self._agent_eval_current = False
         if status != 200 or not isinstance(body, dict):
-            return []
-        found, fetches = [], 0
-        for kind, id_field, route in (("object", "object_ids", "get-object"),
-                                      ("event", "event_ids", "get-event")):
-            for entity_id in body.get(id_field) or []:
-                if len(found) >= want or fetches >= self.max_scan_fetches:
-                    break
-                fetches += 1
-                status, payload = _http_json(f"{self.base_url}/ocel/{route}", {"id": entity_id},
-                                             timeout=self.request_timeout_sec)
-                if status != 200 or not isinstance(payload, dict):
-                    continue
-                entity = payload.get(kind) or {}
-                if entity.get("type") == type_name:
-                    found.append((kind, entity))
-            if found:
-                break
-        return found
+            return kind, None
+        status, page = _http_json(f"{self.base_url}/ocel/eval-results/page",
+                                  {"evalVersion": body.get("evalVersion"), "nodeIndex": 0,
+                                   "offset": 0, "limit": want, "violated": None},
+                                  timeout=self.request_timeout_sec)
+        if status != 200 or not isinstance(page, dict):
+            return kind, None
+        ids = [pair[1] for row in page.get("rows") or [] for pair in row.get(kind + "s") or []
+               if isinstance(pair, (list, tuple)) and len(pair) == 2][:want]
+        route = "get-object" if kind == "object" else "get-event"
+        found = []
+        for entity_id in ids:
+            status, payload = _http_json(f"{self.base_url}/ocel/{route}", {"id": entity_id},
+                                         timeout=self.request_timeout_sec)
+            if status == 200 and isinstance(payload, dict) and isinstance(payload.get(kind), dict):
+                found.append(payload[kind])
+        return kind, found
 
     # ------------------------------------------------------------------------------ bookkeeping
 
@@ -694,6 +735,9 @@ class OcpqProbe:
         per-run restart count are kept -- they are per-run state."""
         self.tool_calls = 0
         self.trajectory = []
+        # The previous case's evaluation must not be pageable from the next case.
+        self.eval_version = None
+        self._agent_tree, self._agent_eval_current = None, False
         self.restarts_case = 0
         self.evaluator_panics = 0
         self.refused_trees = 0
@@ -753,9 +797,9 @@ TOOL_SPECS = [
                     "matched, not just how much."},
     {"name": "sample",
      "args": {"type": "an event or object type name", "n": "how many entities, max 20"},
-     "description": "Real entities of one type with their attributes, to confirm the type name "
-                    "exists and to see what its data looks like. Sampled in log order, not "
-                    "uniformly."},
+     "description": "Real entities of one type with their attributes, to see what its data looks "
+                    "like. The first n of that type, not a uniform sample. A name that is not a "
+                    "type of this log is answered with the list of real types."},
     {"name": "attribute_values",
      "args": {"type": "an event or object type name", "attribute": "an attribute name",
               "n": "how many entities to sample"},

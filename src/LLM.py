@@ -5,6 +5,7 @@
 
 
 import copy
+import typing
 import hashlib
 import json
 import numpy as np
@@ -22,6 +23,7 @@ from huggingface_hub import InferenceClient
 from pydantic import ValidationError
 
 import paths
+from ocpq_schema import AGENT_TOOL_CALLS, AGENT_TURN_SCHEMA, AGENT_TURN_WITH_THOUGHT_SCHEMA, AgentTurn, AgentTurnWithThought  # noqa: E402
 from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, AGENT_ACTION_SCHEMA, AgentAction, AGENT_ACTION_WITH_THOUGHT_SCHEMA, AgentActionWithThought, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
 
 from LogEvents import events_and_objects_from_ocel, extract_ocel_schema
@@ -3820,7 +3822,8 @@ def _agent_protocol_rules():
 
 
 def _agent_action_model():
-    """The action schema for the current condition -- also what the grammar is compiled from."""
+    """The PARSED-turn model for the current condition. The grammar is compiled from the stricter
+    `AgentTurn` / `AgentTurnWithThought` union instead (see `_run_pipeline_agentic`)."""
     return AgentActionWithThought if agent_thought else AgentAction
 
 
@@ -3871,12 +3874,64 @@ def _parse_agent_action(content, action_model=AgentAction):
         return None, "exactly one of `tool` or `final_tree`, not both"
     if not has_tool and not has_tree:
         return None, "the object must carry either `tool` or `final_tree`"
-    try:
-        return action_model.model_validate(parsed), None
-    except Exception as exc:  # noqa: BLE001 - the model's mistake, reported back to it
-        if has_tree:
+
+    # Validated against the ONE variant the turn names, not the whole union: a union error lists
+    # every branch's complaint, which tells the model nothing. And every tree first gets the repair
+    # every other arm gets before validation (`_repair_agent_tree`) -- without it, trees the
+    # one-shot pipeline accepts were rejected here, 0 of 10 gate cases declared an answer.
+    del _last_agent_parse_normalized[:]
+    if has_tree:
+        tree, normalized = _repair_agent_tree(parsed.get("final_tree"))
+        try:
+            fields = {"final_tree": BindingBoxTree.model_validate(tree)}
+        except Exception as exc:  # noqa: BLE001 - the model's mistake, reported back to it
             return None, f"`final_tree` is not a valid BindingBoxTree: {str(exc)[:400]}"
-        return None, f"malformed action: {str(exc)[:300]}"
+    else:
+        tool = parsed.get("tool")
+        variant = _AGENT_TOOL_CALL_BY_NAME.get(tool)
+        if variant is None:
+            return None, (f"unknown tool {tool!r}; the tools are "
+                          f"{sorted(_AGENT_TOOL_CALL_BY_NAME)}")
+        args = parsed.get("args")
+        normalized = []
+        if tool == "try_query" and isinstance(args, dict) and isinstance(args.get("tree"), dict):
+            repaired, normalized = _repair_agent_tree(args["tree"])
+            args = dict(args, tree=repaired)
+        try:
+            call = variant.model_validate({"tool": tool, "args": {} if args is None else args})
+        except Exception as exc:  # noqa: BLE001 - the model's mistake, reported back to it
+            return None, f"malformed {tool} call: {str(exc)[:300]}"
+        fields = {"tool": tool, "args": call.args.model_dump(by_alias=True)}
+    if action_model is AgentActionWithThought and parsed.get("thought") is not None:
+        fields["thought"] = str(parsed["thought"])
+    _last_agent_parse_normalized.extend(normalized)
+    return action_model(**fields), None
+
+
+# Container fields the repair filled on the most recent parsed turn. Recorded per turn: the harness
+# doing work the model did not do has to be visible (`normalized_fields` on every other arm).
+_last_agent_parse_normalized = []
+
+_AGENT_TOOL_CALL_BY_NAME = {
+    typing.get_args(call.model_fields["tool"].annotation)[0]: call for call in AGENT_TOOL_CALLS}
+
+
+def _repair_agent_tree(tree):
+    """The one-shot pipeline's narrow container repair, applied to an agent's tree. Returns
+    `(tree, fields_filled)`.
+
+    `validate_and_normalize_ocpq_json` runs `_fill_missing_box_containers` before strict validation
+    on every other arm: xgrammar's `any_order=True` lets a required container (`filters`, ...) be
+    skipped, and an absent container is empty under OCPQ semantics. Applied to a COPY, and the
+    global normalisation record is left as it was, so the case's own record is not disturbed.
+    """
+    if not isinstance(tree, dict):
+        return tree, []
+    before = len(_last_normalized_fields)
+    repaired = _fill_missing_box_containers(copy.deepcopy(tree))
+    filled = list(_last_normalized_fields[before:])
+    del _last_normalized_fields[before:]
+    return repaired, filled
 
 
 def _agent_tool_block(probe):
@@ -3990,8 +4045,11 @@ Question:
     # The condition's schema, fixed for the whole case: the grammar is compiled from it and the
     # parser validates against it, so the two cannot disagree mid-case.
     action_model = _agent_action_model()
-    action_schema = (AGENT_ACTION_WITH_THOUGHT_SCHEMA if action_model is AgentActionWithThought
-                     else AGENT_ACTION_SCHEMA)
+    # The GRAMMAR is the strict union (one variant per tool + a final answer); the parsed turn is
+    # the flat `action_model`. See ocpq_schema, "THE STRICT TURN GRAMMAR".
+    turn_model = AgentTurnWithThought if action_model is AgentActionWithThought else AgentTurn
+    action_schema = (AGENT_TURN_WITH_THOUGHT_SCHEMA if turn_model is AgentTurnWithThought
+                     else AGENT_TURN_SCHEMA)
     _last_agent_trajectory["thought_enabled"] = agent_thought
 
     previous_schema = get_constrained_schema()
@@ -4005,7 +4063,7 @@ Question:
             # every turn to a BindingBoxTree (it is attached on every local generation), and the
             # model could not emit a tool call at all -- which would read as "small models cannot
             # do agentic work" when it is a grammar bug.
-            set_constrained_schema(action_model)
+            set_constrained_schema(turn_model)
             response = call_hf_with_retry(
                 model=selected_model,
                 messages=messages,
@@ -4026,6 +4084,8 @@ Question:
         content = response.choices[0].message.content or ""
         action, reason = _parse_agent_action(content, action_model)
         entry = {"turn": turns_used, "raw": content[:_AGENT_RAW_CHAR_CAP]}
+        if action is not None and _last_agent_parse_normalized:
+            entry["normalized"] = list(_last_agent_parse_normalized)
         thought = getattr(action, "thought", None) if action is not None else None
         if thought:
             # Mechanism evidence: the text goes to the trajectory JSONL, its length to the record.
