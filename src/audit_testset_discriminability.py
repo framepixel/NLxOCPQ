@@ -659,9 +659,14 @@ def audit(
     # question would keep its old verdict and floor (testset #25, 2026-09-22). The store is
     # content-addressed by (log, gold query): a row is current only while the store holds a blob
     # for the gold query the testset has NOW.
+    # Only rows this run will RE-EXECUTE may be dropped: with --log-filter, a row outside the filter
+    # is carried over, not recomputed, so invalidating it would delete it from the summary (found
+    # 2026-09-23 before it ran: a machine whose store lacked the blobs would have lost every other
+    # log's row). A stale row outside the filter stays, and the next unfiltered run replaces it.
     _regolded = [i for i in results_by_index
-                 if not result_store.blob_path(store, testset[i]["ocel_path"],
-                                               testset[i]["ocpq_query"]).exists()]
+                 if (not log_filter or _log_selected(str(testset[i]["ocel_path"]), log_filter))
+                 and not result_store.blob_path(store, testset[i]["ocel_path"],
+                                                testset[i]["ocpq_query"]).exists()]
     if _regolded:
         print(f"resuming: {len(_regolded)} cached entries have a gold query the store has never "
               f"executed and will be re-executed: {sorted(_regolded)}")

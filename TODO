@@ -1399,6 +1399,12 @@
   are quoted. Also: the arity figures of notes 32-33 / 42 other than the constant's (now 62.7%) were
   measured against #25's old gold and can each shift by at most one case -- re-derive with the arity
   probe's --rescore if any is quoted to three digits.
+  CORRECTION (2026-09-23): the arity probe's --rescore CANNOT do that -- it re-prices the stored
+  rows, and each row stores gold's arity from the testset of the day it ran, so #25 keeps its old
+  (0,1). Needs a small option that refreshes row["gold"] from --testset before re-pricing. Also:
+  on the cluster, run `audit_testset_discriminability.py --log-filter order-management --resume`
+  BEFORE any --gold-from rescore -- the corrected #25 gold's result set exists only in the
+  laptop's (untracked) eval_runs/_discriminability_store.
 
 - OPEN, DESIGN (2026-09-22, user-approved: A3 as a SEPARATE rung) A3 = A1 + A FROZEN LESSON MEMORY
   BUILT ON THE DEV SET. Origin: over a long session of hand-modelling queries the assistant got
