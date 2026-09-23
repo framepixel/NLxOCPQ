@@ -1483,6 +1483,12 @@
   --agent-memory NOT added: a flag that does nothing yet would be worse than none; it comes with A3.
   OPEN, IN ORDER, ON THE CLUSTER:
     a. sync; build the web server on a login node (command in the submit script header).
+       FOUND 2026-09-23: the cluster's OCPQ very likely LACKS the web-server patch the probe needs
+       (OCPQ_WEB_PORT, OCPQ_WEB_SKIP_DEFAULT_OCEL): the only OCPQ patch that ever existed as a
+       file, docs/ocpq-local-modifications.patch (untracked, 2026-08-18), holds the ocpq_cli change
+       only. Ship docs/ocpq-nlxocpq-pinned.patch (git format-patch of 50f60c1; verified to apply
+       onto upstream 2c5e0d6 and reproduce 50f60c1 byte for byte) and `git am` it there on a
+       branch nlxocpq-pinned. Never `git pull` upstream there (v0.12.1 removes /ocel/*).
     b. DONE (2026-09-23, reported by the user from the cluster): tests/test_constrained_decoding.py
        PASSES, including the 5 `thought` grammar checks -- the plain grammar rejects a thought
        (strict_mode), the thought grammar accepts one before/after the action or none.

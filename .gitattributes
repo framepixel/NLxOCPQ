@@ -4,3 +4,5 @@ data/testset.json filter=lfs diff=lfs merge=lfs -text
 data/ocpq_dataset.json filter=lfs diff=lfs merge=lfs -text
 # Shell scripts run on the Linux cluster: a CR makes bash fail there, and tests assert none.
 *.sh text eol=lf
+# Patches are applied with `git am` on another machine: keep their bytes exactly (CRs included).
+*.patch -text

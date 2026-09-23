@@ -1,0 +1,103 @@
+From 50f60c1aec72956276a8a608cfe81e2a350ea1a0 Mon Sep 17 00:00:00 2001
+From: Ayoub <youba2001@hotmail.fr>
+Date: Mon, 21 Sep 2026 15:51:21 +0200
+Subject: [PATCH] NLxOCPQ local modifications, pinned for the thesis evaluation
+
+Two changes the NLxOCPQ pipeline depends on, kept on this branch so the
+evaluation binary is reproducible and never drifts with upstream.
+
+1. ocpq_cli: pass measure_performance = false to evaluate_box_tree. When
+   true the CLI runs every query 10 extra times to benchmark it, discards
+   all of those results, and writes a -tree.json and -durations.json per
+   invocation that nothing reads. Results are bit-identical either way.
+   Aligns the CLI with web-server and tauri, which both pass false.
+   See Thesis/notes/11-evaluation-readiness.md 16.
+
+2. web-server: OCPQ_WEB_SKIP_DEFAULT_OCEL=1 skips the unconditional
+   startup import, and OCPQ_WEB_PORT overrides the hardcoded port 3000.
+   The server holds one global OCEL with no sessions, so two jobs on one
+   node would otherwise evaluate each other's log rather than fail.
+   Unset values keep the original behaviour exactly.
+
+Pinned at 2c5e0d6 (pre-v0.12.0). Upstream v0.12.1 implements both parts
+of modification 2 (OCPQ_PORT/OCPQ_BIND, no startup import) but replaces
+the whole /ocel/* HTTP API with an /api/call binding registry, which
+src/ocpq_probe.py is written against. Upgrade deliberately, after the
+agentic runs, not mid-experiment.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ backend/ocpq_cli/src/main.rs   | 15 ++++++++++++++-
+ backend/web-server/src/main.rs | 23 ++++++++++++++++++++---
+ 2 files changed, 34 insertions(+), 4 deletions(-)
+
+diff --git a/backend/ocpq_cli/src/main.rs b/backend/ocpq_cli/src/main.rs
+index b1dd051..da52c2d 100644
+--- a/backend/ocpq_cli/src/main.rs
++++ b/backend/ocpq_cli/src/main.rs
+@@ -151,7 +151,20 @@ fn run_evaluate(args: EvaluateArgs) {
+     let index_linked_ocel =
+         SlimLinkedOCEL::import_from_path(args.ocel).expect("Could not import OCEL 2.0 file");
+     println!("Imported OCEL 2.0 in {:?}", now.elapsed());
+-    let res = evaluate_box_tree(bbox_tree, &index_linked_ocel, true);
++    // `measure_performance = false`. When true, `evaluate_box_tree` runs the query **10 extra
++    // times** to benchmark it, discards every one of those results, and only then evaluates it
++    // once for real -- plus writes a `-tree.json` and a `-durations.json` per invocation via
++    // `File::create(..).unwrap()`. Nothing in the NLxOCPQ pipeline reads any of that.
++    //
++    // Measured in eval job 3039375: across 19 ordinary executions the wasted work totalled 2.9
++    // seconds, but the single over-selecting query cost ~21.5 s per evaluation, i.e. ~3.6 minutes
++    // thrown away on each of its two runs. The waste is therefore concentrated precisely in the
++    // queries that are already slow, which is where a 14-hour shard limit is at risk.
++    //
++    // This aligns the CLI with every other caller in the project: web-server/src/main.rs:316 and
++    // tauri/src-tauri/src/main.rs:177 both pass `measure_performance.unwrap_or(false)`.
++    // The results are bit-identical either way -- the benchmark loop's output is discarded.
++    let res = evaluate_box_tree(bbox_tree, &index_linked_ocel, false);
+ 
+     let now = Instant::now();
+     // Avoid colons in the timestamp -- Windows treats them as illegal path
+diff --git a/backend/web-server/src/main.rs b/backend/web-server/src/main.rs
+index 51e99fc..e3a8518 100644
+--- a/backend/web-server/src/main.rs
++++ b/backend/web-server/src/main.rs
+@@ -94,7 +94,14 @@ async fn main() {
+     // .allow_headers([CONTENT_TYPE])
+     // .allow_origin(tower_http::cors::Any);
+ 
+-    load_ocel_file_to_state(DEFAULT_OCEL_FILE, &state, true);
++    // LOCAL MODIFICATION 2 (NLxOCPQ, 2026-09-20; see Thesis/notes 16 for modification 1).
++    // Skip the unconditional startup import when OCPQ_WEB_SKIP_DEFAULT_OCEL=1. The NLxOCPQ probe
++    // starts one server per job and loads the log it actually needs via POST /ocel/load, so the
++    // default import is 25-35 s and a few GB of resident memory spent on a log that is then
++    // replaced. Unset or any other value keeps the original behaviour exactly.
++    if std::env::var("OCPQ_WEB_SKIP_DEFAULT_OCEL").as_deref() != Ok("1") {
++        load_ocel_file_to_state(DEFAULT_OCEL_FILE, &state, true);
++    }
+ 
+     let app = Router::new()
+         .route("/ocel/load", post(load_ocel_file_req))
+@@ -171,8 +178,18 @@ async fn main() {
+         .with_state(state)
+         .route("/", get(|| async { "Hello, Aaron!" }))
+         .layer(cors);
+-    // run it with hyper on localhost:3000
+-    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
++    // run it with hyper on localhost:3000, or on $OCPQ_WEB_PORT when set.
++    //
++    // LOCAL MODIFICATION 2 (NLxOCPQ, 2026-09-20). The port was hardcoded, and the server holds ONE
++    // global OCEL with no sessions -- so two jobs on one cluster node would silently evaluate each
++    // other's log rather than fail. A configurable port lets each job own its own server. An unset
++    // or unparseable value keeps 3000, so every existing caller is unaffected.
++    let port: u16 = std::env::var("OCPQ_WEB_PORT")
++        .ok()
++        .and_then(|value| value.parse().ok())
++        .unwrap_or(3000);
++    let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await.unwrap();
++    println!("ocpq-web-server listening on 0.0.0.0:{port}");
+     axum::serve(listener, app.into_make_service())
+         .await
+         .unwrap();
+-- 
+2.44.0.windows.1
+
