@@ -494,6 +494,16 @@ def get_last_agent_trajectory():
     return _last_agent_trajectory
 
 
+def reset_last_agent_trajectory():
+    """Forget the previous case's trajectory. Called by `eval_testset` before every agentic case.
+
+    Without it a case that dies before the loop starts (a probe that failed to load, an exception
+    in schema extraction) would read back the PREVIOUS case's trajectory and record it as its own.
+    """
+    global _last_agent_trajectory
+    _last_agent_trajectory = None
+
+
 def set_generation_token_budget(value):
     """Override every pipeline's `max_tokens`, or None to leave their own values alone.
 
@@ -3923,9 +3933,26 @@ Question:
     last_valid_tree = None
     turns_used = 0
 
+    # Published BEFORE the loop and updated every turn, so a case the per-case cap kills mid-loop
+    # still leaves the turns it took. Those are exactly the cases whose mechanism matters most, and
+    # assigning the record only after the loop recorded nothing for them. `complete` says which.
+    _last_agent_trajectory = {
+        "turns": 0,
+        "max_turns": agent_max_turns,
+        "malformed_actions": 0,
+        "tool_calls": 0,
+        "final_source": "none",
+        "complete": False,
+        "trajectory": trajectory,
+        "tool_trajectory": [] if probe is None else probe.trajectory,
+    }
+
     previous_schema = get_constrained_schema()
     for turn in range(agent_max_turns):
         turns_used = turn + 1
+        _last_agent_trajectory["turns"] = turns_used
+        _last_agent_trajectory["malformed_actions"] = malformed
+        _last_agent_trajectory["tool_calls"] = 0 if probe is None else probe.tool_calls
         try:
             # Constrain to the PROTOCOL, not to a tree. Without this the xgrammar processor masks
             # every turn to a BindingBoxTree (it is attached on every local generation), and the
@@ -4007,15 +4034,14 @@ Question:
         final_tree = last_valid_tree
         final_source = "last_valid_probe"
 
-    _last_agent_trajectory = {
+    _last_agent_trajectory.update({
         "turns": turns_used,
-        "max_turns": agent_max_turns,
         "malformed_actions": malformed,
         "tool_calls": 0 if probe is None else probe.tool_calls,
         "final_source": final_source,
-        "trajectory": trajectory,
+        "complete": True,
         "tool_trajectory": [] if probe is None else list(probe.trajectory),
-    }
+    })
 
     if final_tree is None:
         raise AgentNoFinalAnswer(

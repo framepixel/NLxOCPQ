@@ -10,7 +10,7 @@ import re
 import signal
 import time
 import traceback
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Optional
 
@@ -55,7 +55,14 @@ from LLM import (
     reset_query_exec_stats,
     get_query_exec_stats,
     get_hf_backend_description,
+    AGENTIC_PROMPT_STRATEGIES,
+    AgentNoFinalAnswer,
+    set_agent_probe,
+    set_agent_max_turns,
+    get_last_agent_trajectory,
+    reset_last_agent_trajectory,
 )
+import ocpq_probe
 
 
 UNSUPPORTED_FILTER_TYPES = {"ExactlyOnce"}
@@ -242,6 +249,22 @@ def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_bu
         suffix += "_arityconst"
     if generation_token_budget is not None:
         suffix += f"_tok{int(generation_token_budget)}"
+    return suffix
+
+
+def _agent_suffix(prompt_strategy, max_turns, max_tool_calls):
+    """The budget of an agentic condition, for its `config_id`. Empty for every other strategy.
+
+    Per condition rather than in `_decoding_suffix`, which is run-wide: the one-shot rung A0 runs in
+    the same job and must keep its ordinary id. The budget IS the difference between A1 and A2
+    (same strategy, same prompt), so without it the two would share a `config_id`, and
+    `--merge-shards` would de-duplicate one rung away silently -- the 2026-08-27 failure.
+    """
+    if prompt_strategy not in AGENTIC_PROMPT_STRATEGIES:
+        return ""
+    suffix = f"_turns{int(max_turns)}"
+    if prompt_strategy == "agentic-log-tools":
+        suffix += f"_tools{int(max_tool_calls)}"
     return suffix
 
 
@@ -462,6 +485,8 @@ _PIPELINE_SOURCE_FILES = (
     "eval_testset.py", "LLM.py", "QueryExecutor.py", "ocpq_schema.py",
     "LogEvents.py", "result_store.py", "expand_models.py", "tag_testset_bb.py",
     "paths.py", "corpus_manifest.py",
+    # What the probe shows the agent is part of what an agentic run produces (notes 43).
+    "ocpq_probe.py",
 )
 
 
@@ -1222,6 +1247,54 @@ def _truncation_counts(records) -> dict:
     }
 
 
+def _agent_compliance(records) -> dict:
+    """The agentic arm's compliance block -- PRE-REGISTERED to be reported before any F1 (notes 43).
+
+    A tool-using model that cannot hold the protocol, exhausts its budget, or runs against a
+    restarting probe is not being measured on what the arm is about, whatever its F1. Empty for a
+    condition with no agentic records, so no non-agentic summary changes shape.
+
+    Rates are over the agentic records; `agent_n` is the denominator.
+      * `agent_malformed_action_rate` -- malformed turns / turns taken.
+      * `agent_no_answer_rate` -- cases with no usable tree at all (status `agent_no_answer`).
+      * `agent_budget_exhausted_rate` -- used every turn and never DECLARED a final tree.
+      * `agent_final_source` -- declared / last_valid_probe / none, as counts.
+      * `probe_unavailable_n`, `probe_restarts`, `probe_evaluator_panics`, `probe_refused_trees`.
+      * `probe_cli_agreement_rate` over the cases where both counts exist; below 1.0 is a harness
+        defect (the two share `evaluate_box_tree`), unless `cli_bindings_skipped` explains it.
+    """
+    agents = [(r, r.get("agent")) for r in records if isinstance(r.get("agent"), dict)]
+    if not agents:
+        return {}
+    turns = sum(int(a.get("turns") or 0) for _, a in agents)
+    malformed = sum(int(a.get("malformed_actions") or 0) for _, a in agents)
+    sources = Counter(str(a.get("final_source")) for _, a in agents)
+    exhausted = [1 if (a.get("turns") and a.get("turns") == a.get("max_turns")
+                       and a.get("final_source") != "declared") else 0 for _, a in agents]
+    agreement = [a["probe_vs_cli"]["agree"] for _, a in agents
+                 if isinstance(a.get("probe_vs_cli"), dict)
+                 and a["probe_vs_cli"].get("agree") is not None]
+    return {
+        "agent_n": len(agents),
+        "agent_mean_turns": _mean([a.get("turns") for _, a in agents]),
+        "agent_mean_tool_calls": _mean([a.get("tool_calls") for _, a in agents]),
+        "agent_malformed_action_rate": (malformed / turns) if turns else None,
+        "agent_no_answer_rate": _mean([1 if r.get("status") == "agent_no_answer" else 0
+                                       for r, _ in agents]),
+        "agent_budget_exhausted_rate": _mean(exhausted),
+        "agent_final_source": dict(sources),
+        "agent_post_execution_repair_rate": _mean(
+            [1 if a.get("post_execution_repair") else 0 for _, a in agents]),
+        "probe_unavailable_n": sum(1 for r, _ in agents if r.get("status") == "probe_unavailable"),
+        "probe_restarts": sum(int(a.get("probe_restarts") or 0) for _, a in agents),
+        "probe_evaluator_panics": sum(int(a.get("probe_evaluator_panics") or 0)
+                                      for _, a in agents),
+        "probe_refused_trees": sum(int(a.get("probe_refused_trees") or 0) for _, a in agents),
+        "probe_cli_agreement_rate": _mean([1 if x else 0 for x in agreement]),
+        "probe_cli_agreement_n": len(agreement),
+    }
+
+
 def _timeout_counts(records) -> dict:
     """How many cases hit the per-case wall-clock cap, over every attempted record.
 
@@ -1360,11 +1433,39 @@ def _configure_backend(model_cfg, global_cfg):
             quantization=local_quantization,
         )
     else:
+        # `base_url` selects an OpenAI-compatible endpoint (the frontier arm, notes 43). No config
+        # before 2026-09-22 sets it, so this passes None for every recorded run, exactly as before.
         set_hf_client(
             token=hf_token or None,
             provider=hf_provider or None,
             model_name=model_cfg["name"],
+            base_url=model_cfg.get("base_url") or global_cfg.get("base_url") or None,
         )
+
+
+def _check_backends_consistent(models, global_cfg):
+    """Refuse a config whose models would silently share one model's endpoint.
+
+    `set_hf_client` keeps the PREVIOUS `base_url` when it is given none
+    (`selected_base_url = base_url or hf_base_url`), so an endpoint model followed by a provider
+    model would send the second model's requests to the first model's endpoint -- a wrong-model
+    run with nothing in the record saying so. Local-GPU models reset the endpoint and are safe.
+
+    Raises:
+        ValueError: When one model sets a `base_url` and another non-local model sets a different
+            one, or none.
+    """
+    endpoints = set()
+    for model_cfg in models:
+        resolved = _resolve_model_config(model_cfg, global_cfg)
+        if (resolved.get("backend") or global_cfg.get("backend")) == "local-gpu":
+            continue
+        endpoints.add(resolved.get("base_url") or None)
+    if len(endpoints) > 1 and any(endpoints):
+        raise ValueError(
+            f"models use different endpoints {sorted(map(str, endpoints))}: set_hf_client keeps "
+            f"the previous base_url, so a later model would be sent to an earlier model's "
+            f"endpoint. Run endpoint models in their own config.")
 
 
 def _resolve_model_config(model_cfg, global_cfg):
@@ -1494,6 +1595,74 @@ def _reclassify_unevaluated(records: list) -> int:
     return changed
 
 
+def _compact_agent_turns(trajectory, cap):
+    """The trajectory as it goes ON THE RECORD: what each turn did and what it saw, clipped.
+
+    The full turns (raw content up to `LLM._AGENT_RAW_CHAR_CAP`, every tool result) go to
+    `agent_trajectories.jsonl`; inline they would put ~10 KB per turn into predictions.json. What
+    stays here is what the pre-registered mechanism analysis reads: the action, a malformed reason,
+    and for `try_query` the per-node counts -- whether a revision moved the POPULATION or only the
+    syntax is read off those counts, turn by turn.
+    """
+    compact = []
+    for entry in trajectory or []:
+        turn = {"turn": entry.get("turn"), "action": entry.get("action")}
+        if entry.get("malformed"):
+            turn["malformed"] = str(entry["malformed"])[:cap]
+        if entry.get("error"):
+            turn["error"] = str(entry["error"])[:cap]
+        result = entry.get("result")
+        if isinstance(result, dict):
+            if result.get("error"):
+                turn["result_error"] = str(result["error"])[:cap]
+            elif entry.get("action") == "try_query":
+                turn["nodes"] = result.get("nodes")
+        compact.append(turn)
+    return compact
+
+
+def _probe_cli_agreement(probe, tree, pred_ids, pred_bindings_skipped):
+    """Does the probe count the final tree's root situations the way ocpq_cli did?
+
+    The agent revised against the probe's counts and is scored by the CLI's, so the two must agree
+    or A1's revisions were steered by a different evaluator than the one grading them. They share
+    `evaluate_box_tree`, so disagreement means a harness defect, not a model one. The probe call is
+    NOT charged to the agent's budget and not added to its trajectory.
+
+    Returns:
+        None when there is nothing to compare (no probe, no tree, nothing executed), else a dict
+        with `agree` (None when the probe could not answer) and both counts.
+    """
+    if probe is None or not isinstance(tree, dict) or pred_ids is None:
+        return None
+    cli_count = len(pred_ids[2])
+    try:
+        result = probe.try_query({"tree": tree})
+    except ocpq_probe.ProbeError as exc:
+        return {"agree": None, "reason": f"probe: {exc}"[:300], "cli_root_situations": cli_count}
+    if result.get("error"):
+        return {"agree": None, "reason": str(result["error"])[:300],
+                "cli_root_situations": cli_count}
+    root = root_node_index(tree)
+    probe_count = next((n.get("situations") for n in result.get("nodes") or []
+                        if n.get("node") == root), None)
+    return {"agree": probe_count == cli_count, "probe_root_situations": probe_count,
+            "cli_root_situations": cli_count,
+            # A truncated CLI result can legitimately count fewer; read `agree` with this.
+            "cli_bindings_skipped": bool(pred_bindings_skipped)}
+
+
+def _append_agent_trajectory(path, record_key, config_id, case_id, nl_query, state):
+    """Append one case's full trajectory to the run's JSONL. Never fails the record."""
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"record_key": record_key, "config_id": config_id,
+                                     "case_id": case_id, "nl_query": nl_query,
+                                     "agent": state}, default=str) + "\n")
+    except (OSError, TypeError, ValueError) as exc:
+        _log_phase("error", f"case {case_id:03d} | agent trajectory not written: {exc}")
+
+
 def _classify_run_status(status, error, schema_valid, exec_stats, query_result_file,
                          query_stdout, result_too_large=False, cli_error=None):
     if status != "ok":
@@ -1504,6 +1673,11 @@ def _classify_run_status(status, error, schema_valid, exec_stats, query_result_f
         # the cap -- "ran out of budget" and "produced a broken query" are different failures.
         if status == "timeout":
             return "timeout"
+        # The agentic arm's two outcomes that never reached execution (notes 43). Returned before
+        # the substring matches for the timeout's reason: their messages mention "query", and a
+        # future wording mentioning "execute" would silently turn them into `execution_failed`.
+        if status in ("agent_no_answer", "probe_unavailable"):
+            return status
         if "validated against the schema" in lowered or "strict pydantic" in lowered:
             return "schema_invalid"
         if "parsed" in lowered or "json" in lowered and "parse" in lowered:
@@ -1733,6 +1907,33 @@ def run_evaluation(config_path_or_config):
             f"corpus_check must be one of {CORPUS_CHECK_POLICIES}, got {corpus_check!r}")
     _budget = config.get("generation_token_budget")
     generation_token_budget = None if _budget is None else int(_budget)
+    # THE AGENTIC ARM (notes 43). Read only when a condition uses it; every value is recorded in the
+    # manifest's `agentic` block. `agent_max_turns` and `agent_max_tool_calls` are the rung: A1 and
+    # A2 differ in them and in nothing else, which is why they also enter `config_id`.
+    agentic_strategies = [s for s in prompt_strategies if s in AGENTIC_PROMPT_STRATEGIES]
+    agent_uses_probe = "agentic-log-tools" in prompt_strategies
+    agent_settings = None
+    if agentic_strategies:
+        agent_settings = {
+            "strategies": agentic_strategies,
+            "max_turns": int(config.get("agent_max_turns", 8)),
+            "max_tool_calls": int(config.get("agent_max_tool_calls", 12)),
+            "tool_result_char_cap": int(config.get("agent_tool_result_char_cap",
+                                                   ocpq_probe.DEFAULT_RESULT_CHAR_CAP)),
+            "probe_request_timeout_sec": float(config.get(
+                "agent_probe_request_timeout_sec", ocpq_probe.DEFAULT_REQUEST_TIMEOUT_SEC)),
+            "probe_load_timeout_sec": float(config.get(
+                "agent_probe_load_timeout_sec", ocpq_probe.DEFAULT_LOAD_TIMEOUT_SEC)),
+            "probe_max_restarts_per_case": int(config.get(
+                "agent_probe_max_restarts_per_case", ocpq_probe.DEFAULT_MAX_RESTARTS_PER_CASE)),
+            "probe_max_restarts_per_run": int(config.get(
+                "agent_probe_max_restarts_per_run", ocpq_probe.DEFAULT_MAX_RESTARTS_PER_RUN)),
+            # Per-turn raw content and per-call results kept ON THE RECORD; the full trajectory
+            # goes to <run_dir>/agent_trajectories.jsonl, so predictions.json stays loadable.
+            "record_turn_char_cap": int(config.get("agent_record_turn_char_cap", 600)),
+            "uses_probe": agent_uses_probe,
+        }
+    _check_backends_consistent(models, global_cfg)
     repeats = int(config.get("repeats", 1))
     limit = int(config.get("limit", 0))
     seed = int(config.get("seed", 3407))
@@ -1806,6 +2007,14 @@ def run_evaluation(config_path_or_config):
               f"{'   *** ORACLE CONDITION -- ceiling, never system performance ***' if force_root_arity else ''}")
         print(f"Dry run: generation_token_budget = "
               f"{generation_token_budget if generation_token_budget is not None else 'per-pipeline default (1000/2000)'}")
+        if agent_settings:
+            print(f"Dry run: agentic = {agent_settings['strategies']} | "
+                  f"max_turns={agent_settings['max_turns']} "
+                  f"max_tool_calls={agent_settings['max_tool_calls']} | probe server: "
+                  f"{'yes (started at run start)' if agent_uses_probe else 'no'}")
+            for strategy in prompt_strategies:
+                print(f"Dry run:   config_id suffix for {strategy}: "
+                      f"{_agent_suffix(strategy, agent_settings['max_turns'], agent_settings['max_tool_calls']) or '(none)'}")
         return None
 
     # Before any directory is created or model loaded: a run on the wrong corpus is worthless,
@@ -1886,6 +2095,8 @@ def run_evaluation(config_path_or_config):
         "type_aware_filters": type_aware_filters,
         "constant_root_arity": constant_root_arity,
         "structural_validation": structural_validation,
+        # The agentic arm's budgets and probe settings, or None for a run without it (notes 43).
+        "agentic": agent_settings,
         # The logs this run read, by size and sha256 (notes 35). `pipeline_fingerprint` covers
         # only code; merges compare these per log.
         "corpus_check": corpus_check,
@@ -1932,6 +2143,33 @@ def run_evaluation(config_path_or_config):
     result_store_dir = run_dir / "result_store"
     if result_store_enabled:
         _log_phase("generation", f"result store enabled at {result_store_dir}")
+
+    # THE AGENT'S TOOL SURFACE: one OCPQ web server per run, owned by this process on its own port,
+    # stopped after the case loop and by `atexit` on any other exit. Started only when a condition
+    # uses tools. A server that cannot start fails the run HERE, before any GPU time is spent --
+    # an agentic arm without its tools is not a measurement of that arm.
+    probe_server = None
+    agent_probe_obj = None
+    agent_trajectory_log = run_dir / "agent_trajectories.jsonl"
+    if agent_settings:
+        set_agent_max_turns(agent_settings["max_turns"])
+    if agent_uses_probe:
+        probe_server = ocpq_probe.ProbeServer().start()
+        agent_probe_obj = ocpq_probe.OcpqProbe(
+            probe_server.base_url,
+            max_tool_calls=agent_settings["max_tool_calls"],
+            server=probe_server,
+            result_char_cap=agent_settings["tool_result_char_cap"],
+            request_timeout_sec=agent_settings["probe_request_timeout_sec"],
+            load_timeout_sec=agent_settings["probe_load_timeout_sec"],
+            max_restarts_per_case=agent_settings["probe_max_restarts_per_case"],
+            max_restarts_per_run=agent_settings["probe_max_restarts_per_run"],
+        )
+        _log_phase("generation", f"agent probe server up at {probe_server.base_url} "
+                                 f"(log: {probe_server.log_path})")
+    # Handed over once; `nl_to_ocpq_pipeline` withholds it from every strategy but
+    # `agentic-log-tools`, so the compute-matched control cannot acquire tools.
+    set_agent_probe(agent_probe_obj)
 
     ground_truth_cache = {}
     records = list(existing_records)
@@ -2062,9 +2300,13 @@ def run_evaluation(config_path_or_config):
                     decoding_suffix = _decoding_suffix(
                         constrained_decoding, force_root_arity, generation_token_budget,
                         type_aware_filters, constant_root_arity, structural_validation)
+                    agent_suffix = (_agent_suffix(prompt_strategy, agent_settings["max_turns"],
+                                                  agent_settings["max_tool_calls"])
+                                    if agent_settings else "")
                     config_id = _slug(
                         f"{resolved_model['label']}_{prompt_strategy}"
                         f"_schema-{'on' if schema_enforced else 'off'}{decoding_suffix}"
+                        f"{agent_suffix}"
                     )
 
                     for repeat_idx in range(1, repeats + 1):
@@ -2134,7 +2376,29 @@ def run_evaluation(config_path_or_config):
                         structural_report = None
                         normalized_fields = []
 
+                        # AGENTIC PREAMBLE (notes 43). Both resets are per record: without them a
+                        # case that dies early would report the previous case's turns and tool
+                        # calls as its own. The log is loaded OUTSIDE the case time limit -- a
+                        # ~30 s import is not the case's work, and the case loop is outermost, so
+                        # consecutive conditions of one case never reload it.
+                        is_agentic = prompt_strategy in AGENTIC_PROMPT_STRATEGIES
+                        uses_tools = prompt_strategy == "agentic-log-tools"
+                        probe_failure = None
+                        probe_load_sec = None
+                        if is_agentic:
+                            reset_last_agent_trajectory()
+                        if uses_tools:
+                            agent_probe_obj.reset()
+                            _load_started = time.time()
+                            try:
+                                agent_probe_obj.ensure_log(ocel_path)
+                            except ocpq_probe.ProbeError as exc:
+                                probe_failure = exc
+                            probe_load_sec = round(time.time() - _load_started, 3)
+
                         try:
+                            if probe_failure is not None:
+                                raise probe_failure     # classified by its handler below
                             with _case_time_limit(case_timeout_sec):
                                 _, _, ocpq_json, query_stdout, query_result_file = nl_to_ocpq_pipeline(
                                     query=nl_query,
@@ -2161,6 +2425,19 @@ def run_evaluation(config_path_or_config):
                             error = str(exc)
                             trace = None  # A deadline is not a defect; a traceback says nothing.
                             _log_phase("timeout", f"case {case_idx:03d} | {exc}")
+                        # Both before the general handler, for the reason the timeout is: each is
+                        # its own outcome, and "error" would hide which. Neither reached execution,
+                        # so neither may count against `execution_success_rate` as a failed query.
+                        except AgentNoFinalAnswer as exc:
+                            pipeline_status = "agent_no_answer"
+                            error = str(exc)
+                            trace = None  # the trajectory on the record is the explanation
+                            _log_phase("error", f"case {case_idx:03d} | agent: {exc}")
+                        except ocpq_probe.ProbeError as exc:
+                            pipeline_status = "probe_unavailable"
+                            error = f"{type(exc).__name__}: {exc}"
+                            trace = traceback.format_exc()
+                            _log_phase("error", f"case {case_idx:03d} | probe: {exc}")
                         except Exception as exc:
                             pipeline_status = "error"
                             error = str(exc)
@@ -2302,6 +2579,36 @@ def run_evaluation(config_path_or_config):
                         skill_value = _skill_score(
                             0.0 if _strict_f1 is None else _strict_f1, _trivial_floor)
 
+                        # THE AGENT'S RECORD (notes 43). Health is read BEFORE the agreement
+                        # probe, so a restart that check might trigger is never charged to the
+                        # agent. The full trajectory goes to agent_trajectories.jsonl.
+                        agent_block = None
+                        if is_agentic:
+                            agent_state = get_last_agent_trajectory() or {}
+                            agent_block = {
+                                "turns": agent_state.get("turns"),
+                                "max_turns": agent_state.get("max_turns"),
+                                "malformed_actions": agent_state.get("malformed_actions"),
+                                "tool_calls": (agent_probe_obj.tool_calls if uses_tools
+                                               else agent_state.get("tool_calls")),
+                                "final_source": agent_state.get("final_source"),
+                                # False when the case ended mid-loop (timeout, probe failure).
+                                "loop_complete": bool(agent_state.get("complete")),
+                                "post_execution_repair": bool(
+                                    agent_state.get("post_execution_repair")),
+                                "probe_load_sec": probe_load_sec,
+                                "turn_summary": _compact_agent_turns(
+                                    agent_state.get("trajectory"),
+                                    agent_settings["record_turn_char_cap"]),
+                            }
+                            if uses_tools:
+                                agent_block.update(agent_probe_obj.health())
+                                agent_block["probe_vs_cli"] = _probe_cli_agreement(
+                                    agent_probe_obj, ocpq_json, pred_ids, pred_bindings_skipped)
+                            _append_agent_trajectory(
+                                agent_trajectory_log, current_key, config_id, case_idx,
+                                nl_query, agent_state)
+
                         record = {
                             "case_id": case_idx,
                             "nl_query": nl_query,
@@ -2352,6 +2659,8 @@ def run_evaluation(config_path_or_config):
                             # NON-ORACLE repair switch, and what its check found and did here.
                             "structural_validation": structural_validation,
                             "structural_report": structural_report,
+                            # None for every non-agentic condition.
+                            "agent": agent_block,
                             # What the harness filled in that the model did not produce. A
                             # normalisation flatters the model; the count has to be visible.
                             "normalized_fields": normalized_fields,
@@ -2464,9 +2773,19 @@ def run_evaluation(config_path_or_config):
         },
     )
 
+    # The probe outlives every case but not the run. `atexit` covers any exit that skips this.
+    probe_run = None
+    if probe_server is not None:
+        probe_run = {"restarts_run": agent_probe_obj.restarts_run,
+                     "server_log": str(probe_server.log_path)}
+        probe_server.stop()
+        set_agent_probe(None)
+
     summary = _build_summary(records, repeats)
     summary["evaluation_phases"] = EVALUATION_PHASES
     summary["evaluation_phase_trace"] = EVALUATION_PHASES
+    if probe_run is not None:
+        summary["agent_probe"] = probe_run
     # The binary recorded at the start must still be the one on disk. Array tasks share one OCPQ
     # checkout, so a rebuild by any other job mid-run would otherwise split this run's records
     # between two evaluators with nothing saying so.
@@ -2494,24 +2813,25 @@ def run_evaluation(config_path_or_config):
     return run_dir
 
 
-def _merge_failure_logs(shard_dirs, output_dir: Path) -> None:
+def _merge_failure_logs(shard_dirs, output_dir: Path, name: str = "failure_log.jsonl") -> None:
     """Concatenate the shards' raw-output failure logs into the merged run.
 
     Each shard writes its own `failure_log.jsonl` (one writer per file), so merging is a
     plain concatenation. Keeps the merged directory as self-contained as its predictions.
+    `name` selects the log; `agent_trajectories.jsonl` (notes 43) is merged the same way.
     """
     lines = []
     for shard_dir in shard_dirs:
-        log_path = Path(shard_dir) / "failure_log.jsonl"
+        log_path = Path(shard_dir) / name
         if not log_path.exists():
             continue
         with open(log_path, encoding="utf-8") as f:
             lines.extend(line for line in f if line.strip())
     if not lines:
         return
-    with open(output_dir / "failure_log.jsonl", "w", encoding="utf-8") as f:
+    with open(output_dir / name, "w", encoding="utf-8") as f:
         f.writelines(line if line.endswith("\n") else line + "\n" for line in lines)
-    print(f"Merged {len(lines)} failure-log entries from {len(shard_dirs)} shard(s).")
+    print(f"Merged {len(lines)} {name} entries from {len(shard_dirs)} shard(s).")
 
 
 def _run_divergence_analysis(run_dir: Path) -> None:
@@ -2719,6 +3039,7 @@ def _build_summary(records, repeats):
             # `_timeout_counts`. Must be added to the by_config block below as well.
             **_timeout_counts(recs),
             **_oversized_counts(recs),
+            **_agent_compliance(recs),
         }
 
     # Leakage split: seen vs unseen domains, overall and per model. If the fine-tuning gain
@@ -2943,6 +3264,7 @@ def _build_summary(records, repeats):
                 **_truncation_counts(recs),
                 **_timeout_counts(recs),
                 **_oversized_counts(recs),
+                **_agent_compliance(recs),
             },
         }
 
@@ -3489,6 +3811,7 @@ def _merge_shards(shard_dirs, output_dir):
     _run_bb_analysis(output_dir)
     _run_divergence_analysis(output_dir)
     _merge_failure_logs(shard_dirs, output_dir)
+    _merge_failure_logs(shard_dirs, output_dir, "agent_trajectories.jsonl")
     print(f"Merged {len(all_records)} records from {len(shard_dirs)} shard(s) into {output_dir}")
 
 

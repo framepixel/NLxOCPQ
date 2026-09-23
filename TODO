@@ -1345,7 +1345,14 @@
   separately, since it is a genuine robustness bug in v0.11.x; check whether v0.12.1 still has it
   before writing that report.
 
-- OPEN, NEXT (2026-09-22) AGENTIC PLAN STAGE 3 -- WIRE THE AGENT INTO src/eval_testset.py. Full plan:
+- DONE (2026-09-22, notes 43.3) STAGE 3 WIRED. All six items below implemented; tests
+  test_agentic_failure_status.py + test_agentic_no_gold.py; --dry-run and a 2-case x {A0, tools,
+  self-refine} run through run_evaluation with a stub model (real gold, probe, CLI, store): all
+  records success, probe-vs-CLI 2/2 agree, compliance block on agentic conditions only. Two
+  additions beyond the plan: the trajectory is published live (a case killed mid-loop keeps its
+  turns, `loop_complete: false`), and full trajectories go to <run_dir>/agent_trajectories.jsonl
+  (merged by --merge-shards) with a compact turn_summary on the record. NEXT: Stage 4.
+  (was OPEN, NEXT) AGENTIC PLAN STAGE 3 -- WIRE THE AGENT INTO src/eval_testset.py. Full plan:
   ~/.claude/plans/write-all-the-results-greedy-panda.md (Stage 3); refined here with what 2026-09-22
   found. PRECONDITION: the three pre-agentic fixes (_longest_path root index, structural_defects
   TypeError, testset #25 + targeted re-score) are committed and the comparison runs recomputed.
@@ -1392,3 +1399,73 @@
   are quoted. Also: the arity figures of notes 32-33 / 42 other than the constant's (now 62.7%) were
   measured against #25's old gold and can each shift by at most one case -- re-derive with the arity
   probe's --rescore if any is quoted to three digits.
+
+- OPEN, DESIGN (2026-09-22, user-approved: A3 as a SEPARATE rung) A3 = A1 + A FROZEN LESSON MEMORY
+  BUILT ON THE DEV SET. Origin: over a long session of hand-modelling queries the assistant got
+  steadily better, and the transferable part of that was accumulated LESSONS (SAT/AND pass
+  vacuously on an empty child; only the root box is scored; declared-type traps; O2O qualifiers),
+  not an accumulated transcript. The models reset per case today -- _run_pipeline_agentic builds a
+  fresh message list every case -- and that is correct for A0-A2.
+  WHY NOT CHAIN THE TESTSET CASES: (1) case 80 would learn from cases 1-79, which is a different,
+  online protocol and no longer comparable to the one-shot arms; (2) the score would depend on case
+  ORDER and on where --case-shard splits, and every shard starts empty; (3) the agent has no
+  correctness signal on the testset -- only probe counts -- so carried lessons harden right or
+  wrong alike; (4) a 15-turn case already fills much of a small model's usable window
+  (PromptTooLongError ends the loop), so raw cross-case history overflows within a few cases.
+  THE DESIGN: run the agent over data/agent_devset.json (38 entries, NEVER scored in the thesis, so
+  its gold is legitimately usable -- the same standing as training data), show it its score and the
+  gold after each entry, and have IT write short lessons. Distil to a cap (~1-1.5k tokens, so small
+  models can hold it), FREEZE and hash into the manifest before any scored run, and inject into
+  every testset case as prompt text. Cases stay independent: order stops mattering and sharding
+  stays safe.
+  CONSTRAINTS: the MODEL writes the lessons, not us -- human-written lessons (our dev-set notes)
+  are expertise injected into the prompt, a separate "expert notes" ablation, never system
+  performance. The lessons may never be tuned on testset results, same freeze rule as the prompt.
+  ATTRIBUTION: A3 - A1 is learning-from-experience; keep A2 - A1 as budget alone, so A2 stays
+  budget-only and does NOT get the memory.
+  THE UNLEASHED ARM: if an "anything goes" number is wanted (the supervisor's second evaluation),
+  make it A4 = tools + large budget + memory, and report it as a SYSTEM CEILING whose components
+  are already decomposed by A1/A2/A3 -- not as an attributable effect. Budget-gated, like the
+  frontier arm.
+  COST: one extra pass over 38 dev entries per model, then the same 169 cases as A1.
+
+- OPEN, DESIGN (2026-09-22) IS "THINKING" A MATRIX VARIABLE FOR THE AGENTIC ARM? Raised because
+  Claude Code reasons before acting and several evaluated models have no reasoning mode.
+  THE BLOCKER, checked in the code: the agentic loop constrains EVERY turn to AgentAction
+  (LLM._run_pipeline_agentic) and the xgrammar processor is attached whenever constrained_decoding
+  is on (LLM._ocpq_logits_processor, :1561). A native reasoning model therefore CANNOT emit its
+  thinking tokens under our protocol -- the grammar masks everything that is not the action JSON.
+  With constrained decoding off it could, but _parse_agent_action takes the first `{`, so a think
+  block containing braces becomes a malformed action. Native reasoning is thus not a clean
+  crossable factor: it is available to some models only, and it fights the protocol.
+  PROPOSAL: make reasoning a PROTOCOL-LEVEL variable instead -- add an optional `thought: str` to
+  AgentAction and a line to AGENT_PROTOCOL_RULES. Every model can then reason, inside the grammar,
+  whether or not it has a native mode, and the variable is crossable and comparable. It is the
+  agentic analogue of schema-chain-of-thought-plus in the non-agentic matrix.
+  SCOPE, because every binary factor DOUBLES the GPU cells: cross `thought` on the tool rung A1
+  only (2 cells per model), not on every rung. Measure it first on the dev set in the Stage 4 model
+  gate -- malformed-action rate, turns used, tool calls -- before spending matrix time; a model
+  that cannot hold the protocol WITH a thought field is a finding on its own.
+  CAVEATS to record: a thought costs tokens every turn, so A1-with-thought and A1-without must
+  share the same turn budget and case_timeout_sec, and the comparison then includes that cost.
+  Native reasoning modes (if any evaluated model has one) stay a separate, model-specific arm,
+  reported apart and never as a matrix cell.
+
+- OPEN, IMPLEMENT IN STAGE 4 (2026-09-22) THE `thought` FIELD (decision entry directly above).
+  Concrete work, all additive:
+    1. src/ocpq_schema.py: AgentAction gains `thought: Optional[str] = None`, documented as the
+       one place a model may reason under the grammar mask. Check it against xgrammar first --
+       notes 31 / tests/test_constrained_decoding.py record that an optional property interacts
+       with `any_order=True`, so add a case to that test rather than assuming.
+    2. src/LLM.py: one line in AGENT_PROTOCOL_RULES ("you may add \"thought\": \"...\" with one or
+       two sentences of reasoning before the action"), gated by a config flag so the rungs differ
+       in exactly that line; `_parse_agent_action` already ignores unknown/extra keys, so a model
+       that omits it is unaffected. Record the thought per turn in the trajectory JSONL and its
+       LENGTH (chars) in the record's turn_summary -- the raw text is mechanism evidence, the
+       length is what a cost comparison needs.
+    3. src/eval_testset.py: config key `agent_thought` (default false), into the manifest and into
+       config_id as `_thought` (it is a CONDITION, like the turn budget).
+    4. tests: a case in tests/test_agent_action_protocol.py that a thought does not become a tool
+       call and does not reach the final tree; a case that the field is absent by default.
+    5. Report: thought-vs-no-thought on rung A1 only, at the SAME turn budget and case_timeout_sec,
+       with mean completion chars beside it -- the cost is part of the comparison.
