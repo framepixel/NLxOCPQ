@@ -440,6 +440,33 @@ check_true("every tool says what it is for",
            all(len(spec["description"]) > 40 for spec in TOOL_SPECS))
 check_true("the registry is JSON-serialisable for the prompt", json.dumps(TOOL_SPECS))
 
+print("\n--- the model can reach the loaded log and nothing else on disk ---")
+# The evaluated model's only channels are the prompt and these tools. No tool may take anything
+# that names a location, and no handler may touch the filesystem or (re)load a log -- loading is
+# the HARNESS's job (`ensure_log`), with a path the model never supplies. Otherwise a model could
+# ask for data/testset.json by name. Added 2026-09-23; until then this held by inspection only.
+LOCATION_WORDS = ("path", "file", "dir", "folder", "url", "uri", "name_of_log", "ocel", "load")
+arg_names = sorted({arg for spec in TOOL_SPECS for arg in spec["args"]})
+check("no tool argument names a location",
+      [a for a in arg_names if any(word in a.lower() for word in LOCATION_WORDS)], [])
+check("the arguments are exactly the known, harmless set", arg_names,
+      ["attribute", "n", "node", "tree", "type", "violated"])
+
+module = ast.parse(source)
+functions = {node.name: node for node in ast.walk(module) if isinstance(node, ast.FunctionDef)}
+# The handlers, plus the helper two of them call to read entities.
+reachable = sorted(set(ocpq_probe._TOOL_HANDLERS) | {"_scan_entities"})
+FORBIDDEN_NAMES = {"open", "os", "subprocess", "Path", "shutil", "glob", "io", "pathlib"}
+FORBIDDEN_CALLS = {"link_log", "ensure_log", "extract_ocel_schema"}
+for name in reachable:
+    body = functions[name]
+    used = {n.id for n in ast.walk(body) if isinstance(n, ast.Name)}
+    attrs = {n.attr for n in ast.walk(body) if isinstance(n, ast.Attribute)}
+    text = ast.unparse(body)
+    check(f"{name}: touches no filesystem module or builtin", sorted(used & FORBIDDEN_NAMES), [])
+    check(f"{name}: never loads or links a log", sorted((used | attrs) & FORBIDDEN_CALLS), [])
+    check(f"{name}: never calls the server's load route", "/ocel/load" in text, False)
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")

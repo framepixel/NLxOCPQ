@@ -1483,9 +1483,9 @@
   --agent-memory NOT added: a flag that does nothing yet would be worse than none; it comes with A3.
   OPEN, IN ORDER, ON THE CLUSTER:
     a. sync; build the web server on a login node (command in the submit script header).
-    b. python tests/test_constrained_decoding.py -- its 5 new `thought` grammar checks cannot run
-       locally (xgrammar is stubbed); they are the measurement behind "the off condition cannot
-       emit a thought". Must pass before the gate.
+    b. DONE (2026-09-23, reported by the user from the cluster): tests/test_constrained_decoding.py
+       PASSES, including the 5 `thought` grammar checks -- the plain grammar rejects a thought
+       (strict_mode), the thought grammar accepts one before/after the action or none.
     c. python tests/test_agentic_rungs.py tests/test_agentic_no_gold.py tests/test_agent_action_protocol.py
     d. sbatch slurm/submit_agentic_gate.sh -- read compliance and WALL CLOCK PER CASE only.
     e. size A2 from (d): set A2_TURNS / A2_TOOL_CALLS in submit_agentic_rungs.sh (test_agentic_rungs
