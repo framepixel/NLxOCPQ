@@ -313,6 +313,25 @@ check("on: a thought ALONE is not an action -- counted malformed, not executed",
       (LLM.get_last_agent_trajectory()["malformed_actions"], outcome), (1, None))
 LLM.set_agent_thought(False)
 
+print("\n--- the agent gets the one-shot prompt's tree rules, verbatim (gate smoke, 2026-09-23) ---")
+# Without them the model wrote `filters` in 0 of 12 turns (B0: O2E filters in 158/169), so A1 - A0
+# would have measured the missing rules as well as the tools. B0's template is read from SOURCE,
+# not re-typed, so any edit to either copy fails here.
+import re  # noqa: E402
+
+_src = (ROOT / "src" / "LLM.py").read_text(encoding="utf-8")
+_start = _src.index("def _run_pipeline_allowed_entities_only(")
+_b0 = _src[_start:_src.index("\ndef ", _start + 1)]
+_m = re.search(r'\nRules:\n(.*?)\n\nQuery:', _b0, re.S)
+check("B0's rules block located", _m is not None, True)
+if _m:
+    check("OCPQ_TREE_RULES is B0's rendered rules, character for character",
+          LLM.OCPQ_TREE_RULES, _m.group(1).replace("{{", "{").replace("}}", "}"))
+for probe in (FakeProbe(), None):
+    model, outcome, error = run_loop(['{"final_tree": %s}' % json.dumps(TREE)], probe=probe)
+    check(f"the {'tool' if probe else 'control'} rung's prompt carries the rules",
+          LLM.OCPQ_TREE_RULES in model.sent[0][1]["content"], True)
+
 OUTPUT_FILE.unlink(missing_ok=True)
 
 print()

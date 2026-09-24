@@ -3816,6 +3816,28 @@ AGENT_THOUGHT_RULE = (
 )
 
 
+# The one-shot prompt's tree rules, verbatim (`_run_pipeline_allowed_entities_only`, rendered). The
+# agent prompt first shipped without them, and in the 2026-09-23 gate smoke the model wrote a
+# `filters` key in 0 of 12 turns (B0: O2E filters in 158/169 predictions), so A1 - A0 would have
+# measured the missing rules as well as the tools. A copy rather than a shared reference because
+# B0's prompt is a completed, pinned condition and is not refactored mid-experiment;
+# `tests/test_agent_action_protocol.py` asserts this string equals B0's rendered rules exactly.
+OCPQ_TREE_RULES = (
+    "- The root object MUST contain both \"nodes\" and \"edgeNames\".\n"
+    "- \"edgeNames\" is an array of [[parent_index, child_index], \"label\"] pairs, one per parent-child\n"
+    "  link used in \"nodes\" (e.g. [[0, 1], \"A\"]). Do NOT omit it.\n"
+    "- Basic filters (\"TimeBetweenEvents\", \"NotEqual\", \"EventAttributeValueFilter\",\n"
+    "  \"ObjectAttributeValueFilter\", \"BasicFilterCEL\") must be wrapped as\n"
+    "  {\"type\": \"Filter\", \"filter\": {...}} when placed in \"constraints\".\n"
+    "- \"O2E\" and \"O2O\" belong in the node's \"filters\" array, never directly in \"constraints\".\n"
+    "- Use ONLY event and object names from the allowed lists.\n"
+    "- Do NOT invent unsupported filter types such as \"ExactlyOnce\".\n"
+    "- Represent \"exactly once\" using supported schema structure, not a custom operator.\n"
+    "- If a node contains both events and objects, include the required O2E filter(s).\n"
+    "- Keep all nodes connected in a single tree and avoid empty nodes."
+)
+
+
 def _agent_protocol_rules():
     """The protocol rules for the current condition: the plain rules, plus the thought line."""
     return AGENT_PROTOCOL_RULES + ("\n" + AGENT_THOUGHT_RULE if agent_thought else "")
@@ -4007,10 +4029,12 @@ Write an OCPQ query answering the question below, using the log to check your wo
 
 {_agent_protocol_rules()}
 
+Rules for every tree you write (in try_query and in final_tree):
+{OCPQ_TREE_RULES}
+
 How to work:
 - A query is a tree of binding boxes. The ROOT box holds the answer rows; child boxes express
   conditions about them.
-- Use ONLY event and object names from the allowed lists above.
 - Before answering, run your candidate with try_query if you have it: a box that binds 0
   situations is a box that selects nothing, and the counts tell you which one collapsed.
 - A result of 0 situations is usually wrong. So is a result that selects nearly everything.

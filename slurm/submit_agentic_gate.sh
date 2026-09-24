@@ -6,23 +6,24 @@
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 #SBATCH --time=08:00:00
-#SBATCH --array=0-7
+#SBATCH --array=0,1,4,5
 #SBATCH --account=thes2358
 #SBATCH --export=ALL
 
 # MODEL GATE FOR THE AGENTIC ARM -- TODO "AGENTIC PLAN STAGE 4", item 6; notes 43.
 #
 # Runs the tool rung A1 (8 turns, 12 tool calls) on data/agent_devset.json -- 38 entries, NEVER
-# scored in the thesis -- for four models, with and without the `thought` field:
+# scored in the thesis -- for the two BASE models, with and without the `thought` field:
 #
 #   task  model                       thought
 #   0/1   llama31-8b-base    (idx 0)  off / on
-#   2/3   llama31-8b-finetuned (idx 1) off / on   <- the model the matrix arms use
 #   4/5   ministral3-14b-base (idx 2) off / on
-#   6/7   ministral3-14b-finetuned (idx 3) off / on
 #
-# Base models are here on purpose: the adapters were trained to emit exactly ONE query tree, so a
-# fine-tuned model may hold a multi-turn protocol worse than its base. That is a finding either way.
+# The agentic arm runs on base instruct models (TODO option D; notes 43.6). The adapters were
+# trained to emit exactly ONE query tree, and the 2026-09-23 smoke confirmed it: fine-tuned Llama
+# (tasks 2/3) made 0 tool calls in 10 cases and declared a tree on turn 1 every time. Tasks 2/3 and
+# 6/7 (the fine-tuned adapters, idx 1 and 3) stay in the table so a fine-tuned check can still be
+# run explicitly with --array, but they are not part of the gate.
 #
 # READ COMPLIANCE AND COST ONLY, from each summary's compliance block and records:
 #   malformed-action rate, no-answer rate, budget exhaustion, final_source mix, mean turns and tool
@@ -34,7 +35,7 @@
 #
 # Prerequisite, on a login node, once: build the probe server (see submit_agentic_rungs.sh).
 #   sbatch slurm/submit_agentic_gate.sh
-#   sbatch --array=2,3 slurm/submit_agentic_gate.sh      # only the matrix model
+#   sbatch --array=0,1 slurm/submit_agentic_gate.sh --case-shard 0/8   # smoke: Llama base
 #
 set -u
 # SLURM copies the batch script into its spool directory before executing it, so
@@ -129,7 +130,7 @@ case "$TASK" in
   2|3) MODEL_IDX=1; MODEL_NAME="llama31-8b-finetuned" ;;
   4|5) MODEL_IDX=2; MODEL_NAME="ministral3-14b-base" ;;
   6|7) MODEL_IDX=3; MODEL_NAME="ministral3-14b-finetuned" ;;
-  *) echo "FATAL: task ${TASK} is not a gate task; this array is 0-7." >&2; exit 1 ;;
+  *) echo "FATAL: task ${TASK} is not a gate task (0-7; the gate is 0,1,4,5)." >&2; exit 1 ;;
 esac
 if [ $((TASK % 2)) -eq 0 ]; then
   THOUGHT_ARGS=(--no-agent-thought)

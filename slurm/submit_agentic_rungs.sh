@@ -16,7 +16,7 @@
 # cannot reach gold (tests/test_ocpq_probe.py, tests/test_agentic_no_gold.py); no oracle- strategy,
 # force_root_arity false. `oracle_conditions` must be EMPTY in all five manifests.
 #
-#   task 0  A0        one-shot, no tools, no loop       == non-oracle B0 (notes 41), re-measured here
+#   task 0  A0        one-shot, no tools, no loop       the SAME base model, B0's prompt (notes 43.6)
 #   task 1  A1        tool loop, 8 turns / 12 tool calls
 #   task 2  A1-prime  the SAME loop, 8 turns, NO tools  compute-matched control (self-refine)
 #   task 3  A2        tool loop, larger budget          PROVISIONAL budget -- see below
@@ -48,9 +48,9 @@
 #     cargo build --release --manifest-path ../OCPQ/backend/web-server/Cargo.toml -p ocpq-web-server
 #
 # Smoke first (slice 8/11: small logs):
-#   sbatch --array=0-2,4 slurm/submit_agentic_rungs.sh --case-shard 8/11
+#   sbatch --array=0-2,4 slurm/submit_agentic_rungs.sh --model-idx 0 --case-shard 8/11
 # Full run (A2 once its budget is decided):
-#   sbatch --array=0-2,4 slurm/submit_agentic_rungs.sh
+#   sbatch --array=0-2,4 slurm/submit_agentic_rungs.sh --model-idx 0
 #
 set -u
 # SLURM copies the batch script into its spool directory before executing it, so
@@ -139,8 +139,15 @@ export OCPQ_SCHEMA_TOKEN_BUDGET="${OCPQ_SCHEMA_TOKEN_BUDGET:-17000}"
 TASK="${SLURM_ARRAY_TASK_ID}"
 
 STRATEGY_IDX=0   # set per rung below: 0 one-shot, 1 agentic-log-tools, 2 agentic-self-refine
-MODEL_IDX=1      # llama31-8b-finetuned -- the same expansion as eval_config.non_oracle.json
 SCHEMA_IDX=0     # schema_enforced is [true]
+# The arm runs on a BASE instruct model (TODO option D; notes 43.6): the adapters were trained to
+# emit exactly one tree, and the 2026-09-23 smoke on fine-tuned Llama confirmed it (0 tool calls in
+# 10 cases). Which base model is the gate's decision, so -- like A2's budget -- there is no default:
+#     sbatch --array=0-2,4 slurm/submit_agentic_rungs.sh --model-idx 0
+# ($OCPQ_AGENT_MODEL_IDX also works, but see --case-shard below for why the argument is safer.)
+# Indices are the expansion of eval_config.agentic.json: even = base, odd = its fine-tuned adapter.
+# Checked after the arguments are parsed.
+MODEL_IDX="${OCPQ_AGENT_MODEL_IDX:-}"
 # The config sets constrained decoding and a 4000-token budget for every rung, so every shard
 # directory carries `_constrained_tok4000` before the agent suffix, which is exactly
 # eval_testset._agent_suffix. tests/test_agentic_rungs.py pins every RUNG_SUFFIX against both.
@@ -148,7 +155,7 @@ A2_TURNS=16
 A2_TOOL_CALLS=24
 
 case "$TASK" in
-  0) RUNG_NAME="A0 / one-shot, no tools (== non-oracle B0)"
+  0) RUNG_NAME="A0 / one-shot, no tools (B0's prompt, this base model)"
      STRATEGY_IDX=0
      AGENT_ARGS=()
      RUNG_SUFFIX="_constrained_tok4000" ;;
@@ -184,7 +191,7 @@ OCPQ_RESUME_REQUESTED="${OCPQ_RESUME:-0}"
 # running (2026-09-12, jobs 4041388 and 4042439: no CASE SHARD line, _case_shard null, slice 0
 # again). Arguments after the script name are passed through by sbatch directly, so this form
 # cannot be lost in propagation:
-#     sbatch --array=0-3 slurm/submit_agentic_rungs.sh --case-shard 8/11
+#     sbatch --array=0-3 slurm/submit_agentic_rungs.sh --model-idx 0 --case-shard 8/11
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --resume) OCPQ_RESUME_REQUESTED=1 ;;
@@ -193,10 +200,26 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -gt 0 ] || { echo "FATAL: --case-shard needs a value like 2/11" >&2; exit 1; }
       OCPQ_CASE_SHARD="$1" ;;
     --case-shard=*) OCPQ_CASE_SHARD="${1#*=}" ;;
+    --model-idx)
+      shift
+      [ "$#" -gt 0 ] || { echo "FATAL: --model-idx needs a value (0 or 2)" >&2; exit 1; }
+      MODEL_IDX="$1" ;;
+    --model-idx=*) MODEL_IDX="${1#*=}" ;;
     *) echo "Warning: ignoring unrecognised argument '$1'" >&2 ;;
   esac
   shift
 done
+
+case "$MODEL_IDX" in
+  0|2) ;;
+  1|3) echo "FATAL: model index ${MODEL_IDX} is a fine-tuned adapter. The agentic arm runs on the" >&2
+       echo "       base model the gate picked (0 llama31-8b-base, 2 ministral3-14b-base)." >&2
+       exit 1 ;;
+  *) echo "FATAL: pass --model-idx with the base model the gate picked" >&2
+     echo "       (0 llama31-8b-base, 2 ministral3-14b-base); '${MODEL_IDX}' is not one." >&2
+     exit 1 ;;
+esac
+echo "Model index: ${MODEL_IDX}"
 
 RESUME_ARGS=()
 if [ "$OCPQ_RESUME_REQUESTED" = "1" ]; then
@@ -215,7 +238,7 @@ fi
 # Targeted smoke: OCPQ_CASE_SHARD=I/N (or --case-shard I/N) restricts this task to case slice I of N.
 # The slice is CONTIGUOUS. 8/11 holds 9 of N2's 44 never-evaluated cases and only small logs, so a
 # 10-minute smoke exercises the repair instead of passing a compliance check 0-of-0.
-#   sbatch --array=0-3 slurm/submit_agentic_rungs.sh --case-shard 8/11
+#   sbatch --array=0-3 slurm/submit_agentic_rungs.sh --model-idx 0 --case-shard 8/11
 # --case-shard appends `_c{I}of{N}` to the run directory, so a smoke can never collide with, or be
 # merged into, the full run.
 # A malformed value must stop the job, not silently fall through to a full slice-0 run -- that is
@@ -238,8 +261,8 @@ echo "Agent args: ${AGENT_ARGS[*]:-(none)}"
 echo "NOTE: SYSTEM PERFORMANCE. The probe reads the log and the model's own trees, never gold."
 echo "      Read the summary's compliance block BEFORE any F1."
 echo "Python: $(which python)"; python --version
-# Greedy generation is not bit-reproducible across jobs (notes 37.5); A0 repeats B0, so node and
-# GPU are what make a difference between the two attributable.
+# Greedy generation is not bit-reproducible across jobs (notes 37.5), so node and GPU are recorded
+# to make any cross-job difference attributable.
 echo "Node: $(hostname)  GPU: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | head -1)"
 
 # The tool rungs need the probe server: check it serves every log (the three XML ones included)

@@ -1573,3 +1573,32 @@
   the union must compile in xgrammar and refuse the smoke's runaway shape; cannot run locally);
   then the SAME smoke again (sbatch --array=2,3 slurm/submit_agentic_gate.sh --case-shard 0/8) and
   compare against the numbers above before the full gate. Thought uptake is re-read after (3).
+
+- DONE LOCALLY (2026-09-24, notes 43.6) SMOKE RE-RUN: THE HARNESS HOLDS; THE ARM MOVES TO BASE
+  MODELS; THE AGENT PROMPT GETS B0's TREE RULES. Re-run smoke (llama31-8b-finetuned, same 5 cases):
+  10/10 declared (was 0/10), 2/12 malformed turns (was ~50%), 0/10 timeouts (was 2/5), 0 probe
+  restarts, probe/CLI 2/2. But 0 TOOL CALLS in 10 cases -- the fine-tuned model declares on turn 1.
+  That is what option D above predicted: the arm runs on BASE instruct models; Stage 4 had drifted
+  (gate included the adapters, rung script hard-coded MODEL_IDX=1, notes 43.4 said A0 == B0).
+  FIXED:
+    1. Agent prompt carries B0's `Rules:` block verbatim (LLM.OCPQ_TREE_RULES), both rungs. It had
+       none: the model wrote `filters` in 0/12 turns vs O2E filters in 158/169 B0 predictions.
+       test_agent_action_protocol.py pins the copy to B0's template read from source.
+    2. Gate default array 0,1,4,5 (Llama/Ministral base x thought off/on).
+    3. Rung script: no default model; --model-idx N (env OCPQ_AGENT_MODEL_IDX as fallback);
+       refuses fine-tuned indices 1/3 and a missing index. test_agentic_rungs.py runs the guard.
+    4. Notes 43.4 corrected: A0 = B0's prompt on the SAME base model; B0 is a reference line.
+  NEXT, ON THE CLUSTER: pull; sbatch --array=0,1 slurm/submit_agentic_gate.sh --case-shard 0/8
+  (Llama base, 5 cases, thought off/on). Read: tool calls per case, malformed rate, thought uptake,
+  wall clock per turn, and whether `filters` now appears in the raw turns. Then the full gate.
+  OPEN DECISIONS, from that smoke:
+    - "TEST IT FIRST" BOUNCE, behind a config flag: with tools on, a final_tree declared before any
+      try_query gets one "run it with try_query first" reply (tree kept as last_valid_probe); A1'
+      gets a matching single "re-check it" bounce so A1 - A1' stays compute-matched. Only if base
+      models also skip the tools. Changes A1's definition -> notes before any scored run.
+    - Watch: one turn stopped one `}` short UNDER THE GRAMMAR (thought shard, case 4, turn 1, 1310
+      chars, not the token limit). Should be impossible with xgrammar masking EOS; if it recurs,
+      check which stop tokens generate() uses vs the xgrammar TokenizerInfo stop set (Llama 3.1
+      has three: 128001, 128008, 128009).
+    - Known, not changed (same in every arm): CEL binding `labels` fail with exit 0 and no stderr,
+      so the single stderr repair never fires (B0: 15/17 CEL-label predictions failed).

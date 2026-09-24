@@ -9,13 +9,17 @@ the way `eval_testset` applies them, and the directory suffix the harness would 
 with the script's RUNG_SUFFIX -- no string is written twice here.
 
 Also asserted: nothing is an oracle; every rung shares one case cap (CLAUDE.md 6); A2 cannot run
-before its budget is sized; the gate runs on the dev set only; the main matrix config is untouched;
+before its budget is sized; the arm runs on a base model the gate picked, never a
+fine-tuned adapter; the gate runs on the dev set only; the main matrix config is untouched;
 and the `thought` condition changes the action schema and one rule line, and nothing else.
 
 Run from the repo root:  python tests/test_agentic_rungs.py
 """
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -133,7 +137,7 @@ for name, cfg in (("agentic", CONFIG), ("gate", GATE_CONFIG)):
     check(f"{name}: case_timeout_sec is the matrix's 600", cfg["case_timeout_sec"], 600)
 check("the rungs pass no per-rung cap (one config, one cap)", "--case-timeout" in RUNGS_SCRIPT,
       False)
-check("the model is the non-oracle arm's model",
+check("the model list is the non-oracle arm's, so an index means the same model",
       (CONFIG["models"], CONFIG["fine_tune_map"]),
       (load("configs/eval_config.non_oracle.json")["models"],
        load("configs/eval_config.non_oracle.json")["fine_tune_map"]))
@@ -181,11 +185,50 @@ for name, text in (("rungs", RUNGS_SCRIPT), ("gate", GATE_SCRIPT)):
     check(f"{name}: --case-shard is accepted as an argument", "--case-shard)" in text, True)
 check("rungs: the array covers exactly the five rungs", "#SBATCH --array=0-4" in RUNGS_SCRIPT,
       True)
-check("gate: the array covers exactly the eight tasks", "#SBATCH --array=0-7" in GATE_SCRIPT,
-      True)
+check("gate: the default array is the two BASE models x thought off/on (notes 43.6)",
+      "#SBATCH --array=0,1,4,5" in GATE_SCRIPT, True)
+
+print("\n--- the arm runs on a BASE model, and only the one the gate picked (notes 43.6) ---")
+# The fine-tuned adapters emit one tree and never call a tool (2026-09-23 smoke: 0 calls in 10
+# cases), and MODEL_IDX=1 -- fine-tuned Llama -- was hard-coded here until then. Even indices are
+# base models in the config's expansion; the script must refuse the odd ones and refuse to guess.
+from expand_models import expand_models  # noqa: E402
+
+labels = [m["label"] for m in expand_models(CONFIG)["models"]]
+check("the indices the guard accepts are base models",
+      [labels[0], labels[2]], ["llama31-8b-base", "ministral3-14b-base"])
+check("...and the ones it refuses are their adapters",
+      [labels[1], labels[3]], ["llama31-8b-finetuned", "ministral3-14b-finetuned"])
+check("MODEL_IDX is not hard-coded", re.search(r"^MODEL_IDX=\d", RUNGS_SCRIPT, re.M), None)
+_loop = RUNGS_SCRIPT.index('while [ "$#" -gt 0 ]; do')
+_guard_end = RUNGS_SCRIPT.index('echo "Model index: ${MODEL_IDX}"')
+_snippet = ('MODEL_IDX="${OCPQ_AGENT_MODEL_IDX:-}"\n'
+            + RUNGS_SCRIPT[_loop:_guard_end] + 'echo "OK ${MODEL_IDX}"\n')
+_bash = shutil.which("bash")
+if _bash is None:
+    print("SKIP  the guard is executed (no bash on PATH)")
+else:
+    def guard(args, env_idx=None):
+        env = dict(os.environ)
+        env.pop("OCPQ_AGENT_MODEL_IDX", None)
+        if env_idx is not None:
+            env["OCPQ_AGENT_MODEL_IDX"] = env_idx
+        proc = subprocess.run([_bash, "-c", _snippet, "guard", *args], env=env,
+                              capture_output=True, text=True)
+        return proc.returncode, proc.stdout.strip()
+    check("no model given: refuses", guard([])[0], 1)
+    check("--model-idx 0 (Llama base): runs", guard(["--model-idx", "0"]), (0, "OK 0"))
+    check("--model-idx=2 (Ministral base): runs", guard(["--model-idx=2"]), (0, "OK 2"))
+    check("--model-idx 1 (fine-tuned Llama): refuses", guard(["--model-idx", "1"])[0], 1)
+    check("--model-idx 3 (fine-tuned Ministral): refuses", guard(["--model-idx", "3"])[0], 1)
+    check("the env var is a fallback", guard([], env_idx="2"), (0, "OK 2"))
+    check("the argument wins over the env var", guard(["--model-idx", "0"], env_idx="2"),
+          (0, "OK 0"))
+    check("the argument coexists with --case-shard",
+          guard(["--case-shard", "8/11", "--model-idx", "0"]), (0, "OK 0"))
 
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")
     sys.exit(1)
-print("RESULT: PASS -> five distinct agentic rungs in five directories, no gold, one cap")
+print("RESULT: PASS -> five distinct agentic rungs in five directories, a base model, no gold, one cap")
