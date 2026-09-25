@@ -310,28 +310,45 @@ class FinalAnswer(BaseModel):
     final_tree: BindingBoxTree
 
 
-class TryQueryCallWithThought(TryQueryCall):
+# The thought variants spell their fields out, `thought` FIRST, rather than subclassing the plain
+# calls: a subclass appends its field, and under the ordered grammar (`constrained_any_order`
+# false, notes 43.7) property order is generation order -- the thought would come after the action
+# and the whole tree, which is reasoning written after the decision it was meant to inform.
+
+
+class TryQueryCallWithThought(BaseModel):
     thought: Optional[str] = None
+    tool: Literal["try_query"]
+    args: TryQueryArgs
 
 
-class InspectSituationsCallWithThought(InspectSituationsCall):
+class InspectSituationsCallWithThought(BaseModel):
     thought: Optional[str] = None
+    tool: Literal["inspect_situations"]
+    args: InspectSituationsArgs
 
 
-class SampleCallWithThought(SampleCall):
+class SampleCallWithThought(BaseModel):
     thought: Optional[str] = None
+    tool: Literal["sample"]
+    args: SampleArgs
 
 
-class AttributeValuesCallWithThought(AttributeValuesCall):
+class AttributeValuesCallWithThought(BaseModel):
     thought: Optional[str] = None
+    tool: Literal["attribute_values"]
+    args: AttributeValuesArgs
 
 
-class ActivityStatsCallWithThought(ActivityStatsCall):
+class ActivityStatsCallWithThought(BaseModel):
     thought: Optional[str] = None
+    tool: Literal["activity_stats"]
+    args: ActivityStatsArgs
 
 
-class FinalAnswerWithThought(FinalAnswer):
+class FinalAnswerWithThought(BaseModel):
     thought: Optional[str] = None
+    final_tree: BindingBoxTree
 
 
 AGENT_TOOL_CALLS = (TryQueryCall, InspectSituationsCall, SampleCall, AttributeValuesCall,

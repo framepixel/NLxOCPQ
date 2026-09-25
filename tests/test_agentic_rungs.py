@@ -87,8 +87,20 @@ blocks = re.findall(r"^  (\d)\) (RUNG_NAME=.*?);;", RUNGS_SCRIPT, flags=re.MULTI
 check("five rungs in the case statement", [task for task, _ in blocks], ["0", "1", "2", "3", "4"])
 decoding = _decoding_suffix(CONFIG["constrained_decoding"], CONFIG["force_root_arity"],
                             CONFIG["generation_token_budget"], CONFIG["type_aware_filters"],
-                            CONFIG["constant_root_arity"], CONFIG["structural_validation"])
-check("the config's decoding suffix", decoding, "_constrained_tok4000")
+                            CONFIG["constant_root_arity"], CONFIG["structural_validation"],
+                            CONFIG["constrained_any_order"])
+check("the config's decoding suffix", decoding, "_constrained_ordered_tok4000")
+# notes 43.7: any_order=True admits a repeated key, and base Llama looped on one in 58/70 turns.
+check("both agentic configs compile the ORDERED grammar",
+      (CONFIG["constrained_any_order"], load("configs/eval_config.agentic_gate.json")
+       ["constrained_any_order"]), (False, False))
+check("...which names its directories (no resume into an any_order run)",
+      _decoding_suffix(True, False, 4000, any_order=False), "_constrained_ordered_tok4000")
+check("the default leaves every published directory name alone",
+      (_decoding_suffix(True, False, 4000), _decoding_suffix(True, False, 4000, any_order=True)),
+      ("_constrained_tok4000", "_constrained_tok4000"))
+check("_ordered means nothing without constrained decoding, so it is not written",
+      _decoding_suffix(False, False, 4000, any_order=False), "_tok4000")
 suffixes = {}
 for task, block in blocks:
     strategy_idx = int(re.search(r"STRATEGY_IDX=(\d+)", block).group(1))

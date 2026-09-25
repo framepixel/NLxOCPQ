@@ -1602,3 +1602,24 @@
       has three: 128001, 128008, 128009).
     - Known, not changed (same in every arm): CEL binding `labels` fail with exit 0 and no stderr,
       so the single stderr repair never fires (B0: 15/17 CEL-label predictions failed).
+
+- DONE LOCALLY (2026-09-25, notes 43.7) BASE-MODEL SMOKE: THE GRAMMAR ADMITS A REPEATED KEY. Smoke on
+  llama31-8b-base (eval_runs/agentic_gate_smoke/shard_m0_*): 10/10 cases hit the 600 s cap, 58/70
+  turns malformed, 0 trees. All 58 malformed turns = one key repeated (>=20x) to the 4000-token
+  limit (~95 s/turn). xgrammar 0.2.5 any_order=True admits a repeated key; any_order=False refuses
+  it and still admits every gold tree in schema order (169/169 testset, 38/38 dev).
+  FIXED: config key `constrained_any_order` (default true = every existing run unchanged), false in
+  both agentic configs, all rungs incl. A0; `_ordered` in the decoding suffix (RUNG_SUFFIX in both
+  scripts); grammar cache keyed on it; thought variants declare `thought` FIRST (ordered grammar =
+  generation order); thought rule says "START either form with". Tests: test_constrained_decoding
+  (now runs locally -- xgrammar installed), test_agentic_rungs.
+  NEXT, ON THE CLUSTER: pull; python tests/test_constrained_decoding.py (must PASS);
+  sbatch --array=0,1 slurm/submit_agentic_gate.sh --case-shard 0/8 -> new `_constrained_ordered_`
+  directories. Read: tool calls, malformed rate, thought position/uptake, wall clock per turn.
+  OPEN:
+    - IF items repeat inside a list (the fine-tuned smoke's empty-box runaway), the fallback is a
+      per-turn token cap for agent turns, sized from gold (longest gold tree ~3000 chars compact).
+      Hold until measured.
+    - COUNT (thesis sentence, not a blocker): how many B0 / matrix constrained failures were
+      repeated-key runaways under any_order=True. Needs raw outputs (failure_log raw_output / the
+      generated/ dirs); do not re-run anything for it.

@@ -41,6 +41,7 @@ from LLM import (
     set_generation_temperature,
     set_generation_seed,
     set_constrained_decoding,
+    set_constrained_any_order,
     set_generation_token_budget,
     set_forced_root_arity,
     set_type_aware_filters,
@@ -225,7 +226,7 @@ _STRATUM_MISS = (None, None, {}, {})
 
 def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_budget,
                      type_aware_filters=False, constant_root_arity=False,
-                     structural_validation=False):
+                     structural_validation=False, any_order=True):
     """The suffix that distinguishes decoding rungs, used by BOTH `config_id` and the shard name.
 
     One definition because these had already drifted apart once. `config_id` carried the arity
@@ -235,11 +236,14 @@ def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_bu
     without saying anything.
 
     Empty when everything is at its default, so every condition recorded before 2026-09-02 keeps
-    the id and the directory name it was published with.
+    the id and the directory name it was published with. `_ordered` (notes 43.7) marks the ordered
+    grammar; it follows `_constrained` because it only means anything under it.
     """
     suffix = ""
     if constrained_decoding:
         suffix += "_constrained"
+        if any_order is False:
+            suffix += "_ordered"
     if type_aware_filters:
         suffix += "_typed"
     if structural_validation:
@@ -1857,6 +1861,7 @@ def run_evaluation(config_path_or_config):
             config.get("type_aware_filters"),
             config.get("constant_root_arity"),
             config.get("structural_validation"),
+            config.get("constrained_any_order", True),
         )
         # After the decoding suffix, matching `config_id`'s order. See `_agent_shard_suffix`.
         # The strategies are resolved (and the index validated) further down; this reads the same
@@ -1960,6 +1965,9 @@ def run_evaluation(config_path_or_config):
     # NON-ORACLE: pin the root arity to a fixed (0,1) rather than gold's. Justified from the
     # synthetic training corpus, whose majority class is also (0,1) -- see notes 33.4.
     constant_root_arity = bool(config.get("constant_root_arity", False))
+    # Grammar setting, not a new mechanism: False compiles the ORDERED grammar, which forbids a
+    # repeated key (`any_order=True` admits one, and base models loop on it). Notes 43.7.
+    constrained_any_order = bool(config.get("constrained_any_order", True))
     # Stops a run whose logs differ from data/corpus_manifest.json (notes 35). "warn" and "off"
     # exist for exploratory runs; every thesis run keeps the default.
     corpus_check = str(config.get("corpus_check", "error")).lower()
@@ -2064,6 +2072,8 @@ def run_evaluation(config_path_or_config):
         print(f"Dry run: constrained_decoding = {constrained_decoding}"
               f"  (grammar-masked generation; NOT the same as schema_enforced, which only "
               f"validates and repairs afterwards)")
+        print(f"Dry run: constrained_any_order = {constrained_any_order}"
+              f"   (False = ordered grammar: no repeated keys; notes 43.7)")
         print(f"Dry run: type_aware_filters = {type_aware_filters}   (non-oracle; from the log)")
         print(f"Dry run: structural_validation = {structural_validation}   (non-oracle; reads the generated tree)")
         print(f"Dry run: constant_root_arity = {constant_root_arity}   (non-oracle; training-corpus majority)")
@@ -2157,6 +2167,7 @@ def run_evaluation(config_path_or_config):
         # run is NOT comparable to a free one: the model could not have emitted the same tokens.
         # Two shards that disagree on these must not merge silently.
         "constrained_decoding": constrained_decoding,
+        "constrained_any_order": constrained_any_order,
         "generation_token_budget": generation_token_budget,
         "force_root_arity": force_root_arity,
         "type_aware_filters": type_aware_filters,
@@ -2347,6 +2358,7 @@ def run_evaluation(config_path_or_config):
             # Both default to today's behaviour, so a config that does not mention them produces
             # byte-identical generation to every run recorded before 2026-09-02.
             set_constrained_decoding(constrained_decoding)
+            set_constrained_any_order(constrained_any_order)
             set_generation_token_budget(generation_token_budget)
 
             for strategy_idx, prompt_strategy in enumerate(prompt_strategies, start=1):
@@ -2367,7 +2379,8 @@ def run_evaluation(config_path_or_config):
                     # 2026-09-02 keeps its published `config_id` and nothing downstream re-slices.
                     decoding_suffix = _decoding_suffix(
                         constrained_decoding, force_root_arity, generation_token_budget,
-                        type_aware_filters, constant_root_arity, structural_validation)
+                        type_aware_filters, constant_root_arity, structural_validation,
+                        constrained_any_order)
                     agent_suffix = (_agent_suffix(prompt_strategy, agent_settings["max_turns"],
                                                   agent_settings["max_tool_calls"],
                                                   agent_settings["thought"])
@@ -2719,6 +2732,7 @@ def run_evaluation(config_path_or_config):
                             # manifest is gone and a reader still has to be able to tell a
                             # constrained prediction from a free one.
                             "constrained_decoding": constrained_decoding,
+                            "constrained_any_order": constrained_any_order,
                             "generation_token_budget": generation_token_budget,
                             # The arity actually handed to the decoder, or None where the flag was
                             # off or gold was unreadable. Recorded per record so a reader can audit

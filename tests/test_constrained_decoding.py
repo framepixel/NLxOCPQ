@@ -25,7 +25,9 @@ Two things this caught, both of which would have wasted a GPU array job:
   * `any_order=True` is REQUIRED, not a convenience. Gold emits object properties out of schema
     order -- `value_filter` before `at_time` in `FilterObjectAttributeValueFilter` -- and with
     ordered matching xgrammar rejects 32 of the 169 gold queries. Asserted below so the flag
-    cannot be quietly dropped.
+    cannot be quietly dropped. (Qualified 2026-09-25, notes 43.7: that is gold AS WRITTEN. In
+    schema order the ordered grammar admits all 169, and it forbids the repeated key any_order
+    admits, so the agentic arm sets `constrained_any_order: false`. Asserted at the end.)
 
 Run from the repo root:  python tests/test_constrained_decoding.py
 """
@@ -126,7 +128,8 @@ print("\n--- any_order=True is required, not cosmetic ---")
 # of the testset and read as a finding rather than a bug.
 ordered = grammar(any_order=False)
 ordered_rejects = sum(1 for t in texts if not accepts(ordered, t))
-check("ordered matching rejects gold, so the flag must stay", ordered_rejects > 0, True)
+check("ordered matching rejects gold AS WRITTEN (the default stays; see the end)",
+      ordered_rejects > 0, True)
 print(f"        (any_order=False rejects {ordered_rejects}/{len(texts)}; "
       f"any_order=True rejects {len(rejected)})")
 
@@ -316,6 +319,66 @@ check("the thought grammar still accepts a turn without one (it is optional)",
       accepts(thought_g, TOOL), True)
 check("the thought grammar accepts a thought after the action (any_order)",
       accepts(thought_g, '{"tool":"sample","args":{"type":"o"},"thought":"x"}'), True)
+
+print("\n--- THE ORDERED GRAMMAR: no repeated keys, nothing gold needs is lost (notes 43.7) ---")
+# The 2026-09-24 gate smoke on BASE Llama 3.1 8B timed out 10/10 cases: 58 of 70 turns ran to the
+# 4000-token limit repeating one key ("filters": [], "filters": [], ...; "labels": [] x hundreds;
+# "type": "String" x hundreds). any_order=True admits that; the ordered grammar does not. The
+# agentic configs set `constrained_any_order: false`; every other config keeps the default.
+DUP_FILTERS = ONE_BOX.replace('"filters":[],', '"filters":[],"filters":[],"filters":[],')
+DUP_LABELS = ONE_BOX.replace('"obVarLabels":{}}', '"obVarLabels":{},"labels":[],"labels":[]}')
+TBE = ('{"type":"Filter","filter":{"type":"TimeBetweenEvents","from_event":0,"to_event":1,'
+       '"min_seconds":0,"max_seconds":0%s}}')
+ONE_TBE = ONE_BOX.replace('"constraints":[]', '"constraints":[' + TBE % "" + ']')
+DUP_TBE = ONE_BOX.replace('"constraints":[]',
+                          '"constraints":[' + TBE % ',"min_seconds":0,"max_seconds":0' + ']')
+ordered_tree = grammar(any_order=False)
+check("any_order ADMITS a repeated key -- the hole the base model looped in (pinned)",
+      [accepts(g, t) for t in (DUP_FILTERS, DUP_LABELS, DUP_TBE)], [True, True, True])
+check("the ordered grammar REFUSES every smoke shape",
+      [accepts(ordered_tree, t) for t in (DUP_FILTERS, DUP_LABELS, DUP_TBE)], [False, False, False])
+check("...and accepts the same trees written once", [accepts(ordered_tree, t) for t in
+                                                     (ONE_BOX, ONE_TBE)], [True, True])
+# The 32 rejections above are gold AS WRITTEN. A constrained model writes in the grammar's order,
+# so what matters is whether every gold TREE is expressible -- i.e. gold re-serialised in schema
+# order. If this ever drops below all, the ordered grammar caps the model below gold.
+for label, path in (("testset", "data/testset.json"), ("dev set", "data/agent_devset.json")):
+    entries = json.load(open(REPO / path, encoding="utf-8"))
+    in_order = [json.dumps(BindingBoxTree.model_validate(e["ocpq_query"])
+                           .model_dump(by_alias=True, mode="json"), separators=(",", ":"))
+                for e in entries]
+    check(f"every {label} gold tree, in schema order, is admitted by the ordered grammar",
+          [i for i, t in enumerate(in_order) if not accepts(ordered_tree, t)], [])
+
+turn_ord = xgr.Grammar.from_json_schema(AgentTurn, any_order=False, strict_mode=True)
+thought_ord = xgr.Grammar.from_json_schema(AgentTurnWithThought, any_order=False,
+                                           strict_mode=True)
+check("ordered turn grammar: a tool call, a try_query and a final answer are admitted",
+      [accepts(turn_ord, TOOL), accepts(turn_ord, '{"tool":"try_query","args":{"tree":'
+                                        + ONE_BOX + '}}'),
+       accepts(turn_ord, '{"final_tree":' + ONE_BOX + '}')], [True, True, True])
+check("ordered turn grammar: a repeated key inside a try_query tree is REFUSED",
+      accepts(turn_ord, '{"tool":"try_query","args":{"tree":' + DUP_FILTERS + '}}'), False)
+check("ordered turn grammar: a repeated key in the turn itself is REFUSED",
+      accepts(turn_ord, '{"tool":"sample","tool":"sample","args":{"type":"orders"}}'), False)
+check("ordered thought grammar: the thought comes FIRST, before the action it informs",
+      accepts(thought_ord, THOUGHT_TOOL), True)
+check("...and not after it (the variants declare `thought` first, ocpq_schema)",
+      accepts(thought_ord, '{"tool":"sample","args":{"type":"o"},"thought":"x"}'), False)
+check("ordered thought grammar: the thought stays optional", accepts(thought_ord, TOOL), True)
+
+LLM.set_constrained_any_order(None)
+check("the setter's default is any_order (every recorded run)", LLM.get_constrained_any_order(),
+      True)
+LLM.set_constrained_any_order(False)
+check("...and it can be switched off", LLM.get_constrained_any_order(), False)
+LLM.set_constrained_any_order(None)
+_llm_src = (REPO / "src" / "LLM.py").read_text(encoding="utf-8")
+check("the decoder compiles with the flag, not a constant",
+      "from_json_schema(source, any_order=constrained_any_order, strict_mode=True)" in _llm_src,
+      True)
+check("...and the grammar cache is keyed by it (an any_order grammar is never reused)",
+      '"__name__", None), constrained_any_order)' in _llm_src, True)
 
 print()
 if failures:

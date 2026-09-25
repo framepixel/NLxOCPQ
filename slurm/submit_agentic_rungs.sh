@@ -148,9 +148,9 @@ SCHEMA_IDX=0     # schema_enforced is [true]
 # Indices are the expansion of eval_config.agentic.json: even = base, odd = its fine-tuned adapter.
 # Checked after the arguments are parsed.
 MODEL_IDX="${OCPQ_AGENT_MODEL_IDX:-}"
-# The config sets constrained decoding and a 4000-token budget for every rung, so every shard
-# directory carries `_constrained_tok4000` before the agent suffix, which is exactly
-# eval_testset._agent_suffix. tests/test_agentic_rungs.py pins every RUNG_SUFFIX against both.
+# The config sets constrained decoding, the ORDERED grammar (notes 43.7) and a 4000-token budget
+# for every rung, so every shard directory carries `_constrained_ordered_tok4000` before the agent
+# suffix -- exactly eval_testset._decoding_suffix followed by eval_testset._agent_suffix. tests/test_agentic_rungs.py pins every RUNG_SUFFIX against both.
 A2_TURNS=16
 A2_TOOL_CALLS=24
 
@@ -158,15 +158,15 @@ case "$TASK" in
   0) RUNG_NAME="A0 / one-shot, no tools (B0's prompt, this base model)"
      STRATEGY_IDX=0
      AGENT_ARGS=()
-     RUNG_SUFFIX="_constrained_tok4000" ;;
+     RUNG_SUFFIX="_constrained_ordered_tok4000" ;;
   1) RUNG_NAME="A1 / tool loop, 8 turns, 12 tool calls"
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --no-agent-thought)
-     RUNG_SUFFIX="_constrained_tok4000_turns8_tools12" ;;
+     RUNG_SUFFIX="_constrained_ordered_tok4000_turns8_tools12" ;;
   2) RUNG_NAME="A1-prime / same loop, 8 turns, NO tools (compute-matched control)"
      STRATEGY_IDX=2
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --no-agent-thought)
-     RUNG_SUFFIX="_constrained_tok4000_turns8" ;;
+     RUNG_SUFFIX="_constrained_ordered_tok4000_turns8" ;;
   3) RUNG_NAME="A2 / tool loop, ${A2_TURNS} turns, ${A2_TOOL_CALLS} tool calls (PROVISIONAL)"
      if [ "${OCPQ_A2_CONFIRMED:-0}" != "1" ]; then
        echo "FATAL: A2's budget has not been sized from the model gate yet. Measure it with" >&2
@@ -177,11 +177,11 @@ case "$TASK" in
      fi
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns "${A2_TURNS}" --agent-max-tool-calls "${A2_TOOL_CALLS}" --no-agent-thought)
-     RUNG_SUFFIX="_constrained_tok4000_turns${A2_TURNS}_tools${A2_TOOL_CALLS}" ;;
+     RUNG_SUFFIX="_constrained_ordered_tok4000_turns${A2_TURNS}_tools${A2_TOOL_CALLS}" ;;
   4) RUNG_NAME="A1+thought / A1 with a thought field"
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --agent-thought)
-     RUNG_SUFFIX="_constrained_tok4000_turns8_tools12_thought" ;;
+     RUNG_SUFFIX="_constrained_ordered_tok4000_turns8_tools12_thought" ;;
   *) echo "FATAL: task ${TASK} is not a rung; this array is 0-4." >&2; exit 1 ;;
 esac
 

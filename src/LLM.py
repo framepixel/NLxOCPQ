@@ -144,6 +144,10 @@ generation_seed = None
 # Default False: every run recorded before 2026-09-02 generated freely, and the flag must not
 # change what those runs meant. See `set_constrained_decoding`.
 constrained_decoding = False
+# xgrammar's `any_order` for that grammar. True is what every recorded constrained run used. False
+# (the agentic arm, notes 43.7) makes property order generation order and forbids a key twice,
+# which `any_order=True` silently admits. See `set_constrained_any_order`.
+constrained_any_order = True
 # Overrides the per-call `max_tokens` the pipelines pass. None keeps their own values.
 generation_token_budget = None
 # ORACLE control: `(root_index, n_event_vars, n_object_vars)` taken from gold, or None. Tightens
@@ -365,6 +369,27 @@ def set_constrained_decoding(value):
 
 def get_constrained_decoding():
     return constrained_decoding
+
+
+def set_constrained_any_order(value):
+    """Compile the decoding grammar with xgrammar's `any_order` on (default) or off.
+
+    `any_order=True` lets object properties come in any order, which was adopted because gold
+    writes some out of schema order (tests/test_constrained_decoding.py). It also admits the SAME
+    key any number of times -- `"filters": [], "filters": [], ...` -- and the 2026-09-24 gate smoke
+    on base Llama 3.1 8B fell into exactly that loop on 58 of 70 turns, each to the 4000-token
+    limit, timing out all 10 cases. The ordered grammar forbids a repeated key and still expresses
+    every gold tree once it is written in schema order (169/169 testset, 38/38 dev set), which is
+    the only order a constrained model can write anyway. Notes 43.7.
+
+    None means the default (True), so a config that does not mention it is unchanged.
+    """
+    global constrained_any_order
+    constrained_any_order = True if value is None else bool(value)
+
+
+def get_constrained_any_order():
+    return constrained_any_order
 
 
 def set_constrained_schema(model):
@@ -1572,7 +1597,10 @@ def _ocpq_logits_processor():
     * `any_order=True` -- gold writes object properties out of schema order (`value_filter` before
       `at_time` in `FilterObjectAttributeValueFilter`). With ordered matching the grammar rejects
       **32 of the 169 gold queries**, which would cap the model below gold on 19% of the testset
-      and read as a finding rather than a bug.
+      and read as a finding rather than a bug. That counts gold as WRITTEN; in schema order the
+      ordered grammar admits all 169. And `any_order=True` admits a repeated key, which base
+      models loop on. So it is the default, not a constant: `set_constrained_any_order(False)`
+      compiles the ordered grammar instead (the agentic arm, notes 43.7).
     * `strict_mode=True` -- forbids unknown fields. Pydantic ignores them, so here the grammar is
       the stricter of the two, which is the safe direction: everything it admits validates.
 
@@ -1594,7 +1622,7 @@ def _ocpq_logits_processor():
     # arities across 13 (root_index, arity) combinations in the whole testset, so this cache stays
     # tiny even though the grammar is nominally per-case.
     key = (id(local_tokenizer), id(local_model), forced_root_arity, type_aware_filters_log,
-           getattr(constrained_schema_override, "__name__", None))
+           getattr(constrained_schema_override, "__name__", None), constrained_any_order)
     cached = _XGRAMMAR_CACHE.get(key)
     if cached is None:
         # The model's vocabulary is often LARGER than the tokenizer's, because checkpoints pad the
@@ -1620,7 +1648,7 @@ def _ocpq_logits_processor():
                 built = _type_aware_schema(built, type_aware_filters_log)
             source = json.dumps(built)
         cached = xgr.GrammarCompiler(tokenizer_info).compile_grammar(
-            xgr.Grammar.from_json_schema(source, any_order=True, strict_mode=True)
+            xgr.Grammar.from_json_schema(source, any_order=constrained_any_order, strict_mode=True)
         )
         _XGRAMMAR_CACHE[key] = cached
     # The matcher carries per-generation state, so it is built fresh per call; the expensive
@@ -3811,8 +3839,8 @@ AGENT_PROTOCOL_RULES = (
 # plain one in this line and in the action schema, and in nothing else. Asks for brevity because a
 # thought costs tokens every turn against the same turn budget and case_timeout_sec (notes 43).
 AGENT_THOUGHT_RULE = (
-    "You may add \"thought\": \"...\" to either form -- one or two sentences on what you expect "
-    "and why -- written before you commit to the action."
+    "You may START either form with \"thought\": \"...\" -- one or two sentences on what you "
+    "expect and why -- before the action itself."
 )
 
 

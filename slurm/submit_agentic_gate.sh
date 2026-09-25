@@ -134,10 +134,10 @@ case "$TASK" in
 esac
 if [ $((TASK % 2)) -eq 0 ]; then
   THOUGHT_ARGS=(--no-agent-thought)
-  RUNG_SUFFIX="_constrained_tok4000_turns8_tools12"
+  RUNG_SUFFIX="_constrained_ordered_tok4000_turns8_tools12"
 else
   THOUGHT_ARGS=(--agent-thought)
-  RUNG_SUFFIX="_constrained_tok4000_turns8_tools12_thought"
+  RUNG_SUFFIX="_constrained_ordered_tok4000_turns8_tools12_thought"
 fi
 RUNG_NAME="${MODEL_NAME} / A1 ${THOUGHT_ARGS[*]}"
 AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 "${THOUGHT_ARGS[@]}")
