@@ -462,6 +462,21 @@ check("a child list [0, 0, 0, 0, 0] (the smoke's shape) is REFUSED",
 many_filters = SP_BOX.replace('"filters": []', '"filters": [' + ", ".join(
     ['{"type": "O2E", "object": 0, "event": 0}'] * (LLM.OCPQ_TREE_MAX_ITEMS["filters"] + 1)) + "]")
 check("a filter list over its bound is REFUSED", accepts(b_tree, tree_of(box=many_filters)), False)
+# notes 43.9: OCPQ refuses a variable name that is not a number in quotes; both base models wrote
+# {"Event": [...]} and resubmitted the unparseable tree. All 652 gold variable keys are numeric.
+for field in ("newEventVars", "newObjectVars"):
+    named = SP_BOX.replace(f'"{field}": {{}}', f'"{field}": {{"Event": ["x"]}}')
+    numbered = SP_BOX.replace(f'"{field}": {{}}', f'"{field}": {{"12": ["x"]}}')
+    check(f"{field}: a word as a variable name is REFUSED, a number admitted",
+          (accepts(b_tree, tree_of(box=named)), accepts(b_tree, tree_of(box=numbered))),
+          (False, True))
+for field in ("evVarLabels", "obVarLabels"):
+    named = SP_BOX.replace(f'"{field}": {{}}', f'"{field}": {{"event": "EXCLUDED"}}')
+    check(f"{field}: a word as a variable name is REFUSED (the smoke's shape)",
+          accepts(b_tree, tree_of(box=named)), False)
+check("...which the unbounded grammar admits (pinned: the schema allows any string)",
+      accepts(grammar(any_order=False), tree_of(box=SP_BOX.replace(
+          '"newEventVars": {}', '"newEventVars": {"Event": ["x"]}'))), True)
 check("the bounded turn grammar refuses the runaway inside a try_query",
       accepts(b_turn, '{"tool": "try_query", "args": {"tree": '
               + tree_of(nodes=LLM.OCPQ_TREE_MAX_ITEMS["nodes"] + 1) + '}}'), False)

@@ -357,6 +357,52 @@ check("no cap: a turn gets the run budget, as before", model.effective_max_token
 LLM.set_generation_token_budget(None)
 check("no budgets at all: the caller's own value", LLM._effective_max_tokens(1000), 1000)
 
+print("\n--- the stderr repair gets an alternating transcript, whatever the loop ended on ---")
+# notes 43.9: the repair appended its prompt to the LOOP transcript, which ends on a user turn (a
+# tool result), so two user turns met. Mistral's template refuses that (5 of 10 Ministral smoke
+# cases: pipeline_error); Llama's accepts it silently. The repair must see what the one-shot
+# repair sees: system, task, the query as the model's answer -- then the fix prompt.
+_saved = (LLM.verify_ocpq_json, LLM.schema_fix_with_llm)
+repair_calls = []
+
+
+def _record_repair(model_name, messages, prompt, **kwargs):
+    repair_calls.append([m["role"] for m in messages] + ["user"])   # + the fix prompt it appends
+    return None, None
+
+
+LLM.verify_ocpq_json = lambda ocpq_json, *args, **kwargs: ocpq_json
+LLM.schema_fix_with_llm = _record_repair
+try:
+    for ending, replies in (
+            ("declared after a tool result", [
+                '{"tool": "try_query", "args": {"tree": %s}}' % json.dumps(TREE),
+                '{"final_tree": %s}' % json.dumps(TREE)]),
+            ("budget exhausted (last_valid_probe)", [
+                '{"tool": "try_query", "args": {"tree": %s}}' % json.dumps(TREE)] * 2)):
+        repair_calls.clear()
+        max_turns = 2
+        model = ScriptedModel(replies)
+        LLM.call_hf_with_retry = model
+        LLM.run_ocpq_query_with_logging = (
+            lambda **kwargs: (None, "Error: evaluation failed", None))
+        LLM.set_agent_probe(FakeProbe())
+        LLM.set_agent_max_turns(max_turns)
+        LLM._run_pipeline_agentic(
+            "Which orders were paid late?", None, None, output_file=str(OUTPUT_FILE),
+            ocel_path="../Logs/order-management.json", model_name="test-model",
+            schema_validation=True)
+        roles = repair_calls[0] if repair_calls else None
+        check(f"{ending}: the repair ran", roles is not None, True)
+        if roles:
+            after_system = roles[1:] if roles[0] == "system" else roles
+            check(f"{ending}: roles alternate user/assistant after the system message",
+                  all(a != b for a, b in zip(after_system, after_system[1:])), True)
+            check(f"{ending}: ...and it is the one-shot repair's shape",
+                  roles, ["system", "user", "assistant", "user"])
+finally:
+    LLM.verify_ocpq_json, LLM.schema_fix_with_llm = _saved
+
 OUTPUT_FILE.unlink(missing_ok=True)
 
 print()

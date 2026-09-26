@@ -1623,3 +1623,17 @@
     - COUNT (thesis sentence, not a blocker): how many B0 / matrix constrained failures were
       repeated-key runaways under any_order=True. Needs raw outputs (failure_log raw_output / the
       generated/ dirs); do not re-run anything for it.
+
+- DONE LOCALLY (2026-09-26, notes 43.9) TWO-MODEL SMOKE: NO TIMEOUTS; MINISTRAL HOLDS THE PROTOCOL.
+  20 cases, 0 timeouts, probe/CLI agree. Ministral 14B base: 0% malformed, uses sample /
+  attribute_values / activity_stats before try_query, thought in 52% of turns, 4.9-9.4 s/turn.
+  Llama 8B base: 11-28% malformed, try_query only, 0% thought, ~30 s/turn, cases up to 447 s.
+  FIXED: (1) stderr repair now gets [system, task, assistant=query] + fix prompt instead of the loop
+  transcript (two user turns broke Mistral's template: 5/10 Ministral cases pipeline_error);
+  (2) bounded grammar requires numeric variable names (propertyNames ^[0-9]+$) in newEventVars /
+  newObjectVars / evVarLabels / obVarLabels -- OCPQ panics otherwise; all 652 gold keys numeric.
+  NEXT, ON THE CLUSTER: pull; tests/test_constrained_decoding.py + tests/test_agent_turn_budget.py
+  must PASS; then the FULL GATE: sbatch slurm/submit_agentic_gate.sh (array 0,1,4,5; 38 dev cases).
+  STAGE 5 INPUTS (dev set only, after the gate picks the model): identical try_query resubmissions
+  (Llama 12/28, Ministral 8/19 without thought) -> refuse with previous counts; budget exhaustion
+  (Ministral 3-5/5) -> reserve the last turn for an answer; A2 budget from the gate's s/turn.

@@ -419,6 +419,8 @@ OCPQ_TREE_MAX_ITEMS = {
     "children": 4,       # gold max 2 (the List[int] half of a Box)
     "child_names": 4,    # gold max 2 (SAT/NOT/OR/AND/ANY)
 }
+# What a variable name must look like in a box's variable and label maps -- see `_bounded_schema`.
+OCPQ_VARIABLE_KEY_PATTERN = "^[0-9]+$"
 
 
 def set_constrained_bounded_shape(value):
@@ -461,6 +463,13 @@ def _bounded_schema(schema):
         child_names = definition.get("properties", {}).get("child_names")
         if child_names is not None:
             child_names["maxItems"] = OCPQ_TREE_MAX_ITEMS["child_names"]
+    # Variable names are numbers in quotes: OCPQ refuses anything else ("expected key to be a
+    # number in quotes"; ocpq_cli panics on it). The schema admits any string, and in the
+    # 2026-09-26 smoke both base models named variables "Event"/"Object" and resubmitted the same
+    # unparseable tree. All 652 variable keys in gold are numeric. Notes 43.9.
+    for key in ("newEventVars", "newObjectVars", "evVarLabels", "obVarLabels"):
+        if key in box_data:
+            box_data[key]["propertyNames"] = {"pattern": OCPQ_VARIABLE_KEY_PATTERN}
     return schema
 
 
@@ -4352,8 +4361,16 @@ Question:
                 f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
                 "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a "
                 "markdown code block.")
+            # The repair sees what the one-shot repair sees -- the task, then the query as the
+            # model's answer -- NOT the loop transcript. That transcript ends on a USER turn (a
+            # tool result, or the task itself), so appending the fix prompt made two user turns in
+            # a row: Mistral's chat template refuses that outright (the 2026-09-26 gate smoke, 5 of
+            # 10 Ministral cases ended as pipeline_error), and Llama's accepts it silently. This
+            # shape alternates under every template and keeps finalisation identical across rungs.
+            repair_messages = [messages[0], messages[1],
+                               {"role": "assistant", "content": json.dumps(ocpq_json)}]
             fixed_json, fixed_content = schema_fix_with_llm(
-                model_name=selected_model, messages=messages, prompt=prompt_fix,
+                model_name=selected_model, messages=repair_messages, prompt=prompt_fix,
                 schema_enforced=schema_enforced)
             if fixed_json is not None and fixed_json != ocpq_json:
                 print("Attempting to re-run fixed query...")
