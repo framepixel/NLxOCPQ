@@ -1734,3 +1734,16 @@
   and the bounce cost turns), bounce and check_tree uptake.
   THEN: freeze (record the prompt_sha256), size A2 from the new s/turn, smoke the rungs
   (--model-idx 2 --case-shard 8/11), full run.
+
+- DONE (2026-09-26, notes 43.13) STAGE 5 DEV RUN (Ministral, pFBEXL): clean run; finals with a
+  blocking defect 36/37 -> 9/38 (thought on 34/38 -> 11/38); clean try_query trees 1/139 -> 30/35;
+  executed 16 -> 32 (27 -> 26 with thought); every case declares an answer; 6.4-7.0 s/turn, max
+  case 95 s. Remaining: unbound variables in finals; 14-16/38 cases never call try_query (dev
+  evidence on whether that matters is mixed); thought no longer helps on dev.
+  PROPOSED NEXT (awaiting go-ahead):
+    1. FREEZE the protocol: pin the four FBEXL prompt hashes (tool/control x thought off/on) in
+       tests/test_agent_stage5.py; notes 43.13 records them.
+    2. A2 = 16 turns / 24 tool calls, confirmed IN the script (a committed constant, not the
+       OCPQ_A2_CONFIRMED env var, which may not survive sbatch -- the --case-shard lesson).
+    3. Rung smoke: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
+       -> src/smoke_check.py -> full run (5 rungs x 169 cases; est. A1 ~2.5 h, A2 ~5 h).
