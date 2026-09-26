@@ -24,6 +24,7 @@ from pydantic import ValidationError
 
 import paths
 from ocpq_schema import AGENT_TOOL_CALLS, AGENT_TURN_SCHEMA, AGENT_TURN_WITH_THOUGHT_SCHEMA, AgentTurn, AgentTurnWithThought  # noqa: E402
+from ocpq_schema import CheckTreeCall, DEFECT_HINTS, PROBE_TOOL_NAMES, agent_turn_model, blocking_defects, defect_kind, structural_defects as _tree_structural_defects  # noqa: E402
 from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, AGENT_ACTION_SCHEMA, AgentAction, AGENT_ACTION_WITH_THOUGHT_SCHEMA, AgentActionWithThought, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
 
 from LogEvents import events_and_objects_from_ocel, extract_ocel_schema
@@ -188,6 +189,16 @@ agent_turn_token_budget = None
 # True only while an agent turn is generating, so the per-turn cap cannot reach any other call --
 # the verifier, the post-execution repair, or the one-shot rung.
 _agent_turn_active = False
+# The Stage 5 protocol levers (notes 43.12). Each is off by default, so every run before them --
+# the model gate included -- is reproduced exactly. See `set_agent_protocol`.
+AGENT_PROTOCOL_DEFAULTS = {
+    "structural_feedback": False,     # F: structure report on try_query; the check_tree tool
+    "bounce_blocking_final": False,   # B: a final tree with blocking defects is returned ONCE
+    "finalise_evaluated": False,      # E: fall back to the last tree the probe EVALUATED first
+    "worked_example": False,          # X: how a tree links boxes, and one worked example
+    "reserve_last_turn": False,       # L: the last turn admits a final answer only
+}
+agent_protocol = dict(AGENT_PROTOCOL_DEFAULTS)
 _last_agent_trajectory = None
 
 LLM_CALL_STATS = []
@@ -618,6 +629,24 @@ def set_agent_thought(value):
 
 def get_agent_thought():
     return agent_thought
+
+
+def set_agent_protocol(**levers):
+    """Set the Stage 5 protocol levers (notes 43.12); anything not named goes back to its default.
+
+    Replacing rather than merging, so a case can never inherit a lever from a previous condition.
+    An unknown name raises: a misspelt lever would silently run the wrong condition.
+    """
+    global agent_protocol
+    unknown = set(levers) - set(AGENT_PROTOCOL_DEFAULTS)
+    if unknown:
+        raise ValueError(f"unknown agent protocol lever(s): {sorted(unknown)}")
+    agent_protocol = {name: bool(levers.get(name, default))
+                      for name, default in AGENT_PROTOCOL_DEFAULTS.items()}
+
+
+def get_agent_protocol():
+    return dict(agent_protocol)
 
 
 def set_agent_turn_token_budget(value):
@@ -3990,6 +4019,87 @@ OCPQ_TREE_RULES = (
 )
 
 
+# X (notes 43.12). The model gate's 298 try_query trees: 178 list a node as its OWN child, 205 have
+# child lists that disagree with edgeNames, 168 have the wrong number of roots -- box content is
+# mostly right, the LINKING is not understood. Rules about the representation plus ONE worked
+# example in an invented domain: `tests/test_agent_action_protocol.py` checks it validates, has no
+# structural defect, and shares no type name with any corpus log and no tree with any gold.
+AGENT_TREE_STRUCTURE_RULES = (
+    "How a tree is linked (this is where most mistakes happen):\n"
+    "- \"nodes\" is a list; node 0 is the ROOT.\n"
+    "- Each node is {\"Box\": [box data, child list]}. The child list holds the indices of OTHER "
+    "nodes that are this node's children -- never the node's own index.\n"
+    "- Every node except node 0 appears in exactly one child list; node 0 appears in none.\n"
+    "- \"edgeNames\" has exactly one entry [[parent, child], \"name\"] for each child link, and "
+    "nothing else. SAT, NOT and NumChilds refer to a child by that name.\n"
+    "- A filter may read the variables declared in its own box or in any ancestor box, and no "
+    "others."
+)
+AGENT_WORKED_EXAMPLE_QUESTION = "Every book must be shelved at least once."
+AGENT_WORKED_EXAMPLE = {
+    "nodes": [
+        {"Box": [{"newEventVars": {}, "newObjectVars": {"0": ["book"]}, "filters": [],
+                  "sizeFilters": [],
+                  "constraints": [{"type": "SizeFilter", "filter": {
+                      "type": "NumChilds", "child_name": "A", "min": 1, "max": None}}],
+                  "evVarLabels": {}, "obVarLabels": {}}, [1]]},
+        {"Box": [{"newEventVars": {"0": ["shelve book"]}, "newObjectVars": {},
+                  "filters": [{"type": "O2E", "object": 0, "event": 0, "qualifier": None}],
+                  "sizeFilters": [], "constraints": [], "evVarLabels": {}, "obVarLabels": {}},
+                 []]},
+    ],
+    "edgeNames": [[[0, 1], "A"]],
+}
+AGENT_CHECK_TREE_SPEC = {
+    "name": "check_tree",
+    "args": {"tree": "a complete BindingBoxTree JSON object"},
+    "description": ("Check how a candidate tree is linked, WITHOUT running it and without the log: "
+                    "every structural defect (child lists, edgeNames, the root, variables in "
+                    "scope), each with how to fix it."),
+}
+AGENT_LAST_TURN_NOTE = "This is your LAST turn: answer now with {\"final_tree\": {...}}."
+_STRUCTURE_REPORT_CAP = 8
+
+
+def _agent_structure_block():
+    """The X block: the linking rules, then the worked example on an invented log."""
+    return (f"{AGENT_TREE_STRUCTURE_RULES}\n\n"
+            f"Example, on a different log whose types are not in yours. Question: "
+            f"\"{AGENT_WORKED_EXAMPLE_QUESTION}\" The root binds each book; the child binds that "
+            f"book's shelve events; NumChilds min 1 makes a book with none a violation.\n"
+            f"{json.dumps(AGENT_WORKED_EXAMPLE)}")
+
+
+def _structure_report(tree):
+    """Every structural defect of `tree`, blocking kinds first, each with its fix (F, notes 43.12).
+
+    Static: reads only the model's own tree, never the log and never gold. Capped, with the number
+    left out stated, so a badly broken tree cannot flood the transcript.
+    """
+    defects = _tree_structural_defects(tree)
+    blocking = blocking_defects(defects)
+    ordered = blocking + [d for d in defects if d not in blocking]
+    report = [f"{d} -> fix: {DEFECT_HINTS[defect_kind(d)]}" if defect_kind(d) in DEFECT_HINTS
+              else d for d in ordered[:_STRUCTURE_REPORT_CAP]]
+    if len(ordered) > _STRUCTURE_REPORT_CAP:
+        report.append(f"... and {len(ordered) - _STRUCTURE_REPORT_CAP} more")
+    return report
+
+
+def _tree_blocking_count(tree):
+    """Blocking structural defects in a tree the agent wrote -- recorded on every turn that carries
+    one, whatever the levers, so the structure rate is comparable across conditions."""
+    return len(blocking_defects(_tree_structural_defects(tree)))
+
+
+def _check_tree_result(tree):
+    report = _structure_report(tree)
+    if report:
+        return {"structure": report}
+    return {"structure": [], "note": "no structural defect found -- this checks how the tree is "
+                                     "linked, not whether it answers the question"}
+
+
 def _agent_protocol_rules():
     """The protocol rules for the current condition: the plain rules, plus the thought line."""
     return AGENT_PROTOCOL_RULES + ("\n" + AGENT_THOUGHT_RULE if agent_thought else "")
@@ -4068,7 +4178,8 @@ def _parse_agent_action(content, action_model=AgentAction):
                           f"{sorted(_AGENT_TOOL_CALL_BY_NAME)}")
         args = parsed.get("args")
         normalized = []
-        if tool == "try_query" and isinstance(args, dict) and isinstance(args.get("tree"), dict):
+        if (tool in ("try_query", "check_tree") and isinstance(args, dict)
+                and isinstance(args.get("tree"), dict)):
             repaired, normalized = _repair_agent_tree(args["tree"])
             args = dict(args, tree=repaired)
         try:
@@ -4087,7 +4198,8 @@ def _parse_agent_action(content, action_model=AgentAction):
 _last_agent_parse_normalized = []
 
 _AGENT_TOOL_CALL_BY_NAME = {
-    typing.get_args(call.model_fields["tool"].annotation)[0]: call for call in AGENT_TOOL_CALLS}
+    typing.get_args(call.model_fields["tool"].annotation)[0]: call
+    for call in AGENT_TOOL_CALLS + (CheckTreeCall,)}
 
 
 def _repair_agent_tree(tree):
@@ -4115,14 +4227,84 @@ def _agent_tool_block(probe):
     dispatcher is a silent dead end -- the model spends its budget calling something that can only
     ever answer "unknown tool".
     """
+    def line(spec):
+        arguments = ", ".join(f"{name} ({description})" for name, description in spec["args"].items())
+        return f"- {spec['name']}({arguments}): {spec['description']}"
+
+    structural = agent_protocol["structural_feedback"]
     if probe is None:
+        if structural:
+            # The control keeps the STATIC check: A1 - A1' then isolates log access (notes 43.12).
+            return ("You have NO log tools in this condition. One tool you may call:\n"
+                    + line(AGENT_CHECK_TREE_SPEC))
         return ("You have NO tools in this condition. Think it through and answer with "
                 "{\"final_tree\": {...}}.")
-    lines = ["Tools you may call:"]
-    for spec in ocpq_probe.TOOL_SPECS:
-        arguments = ", ".join(f"{name} ({description})" for name, description in spec["args"].items())
-        lines.append(f"- {spec['name']}({arguments}): {spec['description']}")
+    lines = ["Tools you may call:"] + [line(spec) for spec in ocpq_probe.TOOL_SPECS]
+    if structural:
+        lines.append(line(AGENT_CHECK_TREE_SPEC))
     return "\n".join(lines)
+
+
+AGENT_SYSTEM_PROMPT = ("You are a JSON-only API that writes OCPQ queries. You answer with exactly one "
+                       "JSON object per turn and never with prose.")
+
+
+def _agent_task_prompt(schema_block, query, probe):
+    """The first user message of an agentic case, for the current condition.
+
+    With every Stage 5 lever off this renders exactly what the loop sent before them, so the model
+    gate stays reproducible. `agent_prompt_sha256` hashes it with placeholders in place of the log
+    schema and the question -- the part a Stage 5 freeze fixes.
+    """
+    levers = agent_protocol
+    rules = ("Rules for every tree you write (in try_query and in final_tree):\n"
+             f"{OCPQ_TREE_RULES}")
+    if levers["worked_example"]:
+        rules += "\n\n" + _agent_structure_block()
+    extra = ""
+    if levers["structural_feedback"]:
+        # A check costs a turn: the tool rung is told try_query already reports the same defects,
+        # so it need not spend one on a tree it is about to run.
+        extra += ("\n- Check your tree with check_tree before you answer, and fix every defect it "
+                  "reports." if probe is None else
+                  "\n- try_query reports every structural defect beside the counts; check_tree "
+                  "reports them without running the tree. Fix every defect before you answer.")
+    if levers["reserve_last_turn"]:
+        extra += "\n- Your last turn must be a final answer; you will be told when it comes."
+    return f"""
+Write an OCPQ query answering the question below, using the log to check your work.
+
+{schema_block}
+
+{_agent_tool_block(probe)}
+
+{_agent_protocol_rules()}
+
+{rules}
+
+How to work:
+- A query is a tree of binding boxes. The ROOT box holds the answer rows; child boxes express
+  conditions about them.
+- Before answering, run your candidate with try_query if you have it: a box that binds 0
+  situations is a box that selects nothing, and the counts tell you which one collapsed.
+- A result of 0 situations is usually wrong. So is a result that selects nearly everything.{extra}
+- When you are confident, answer with {{"final_tree": {{...}}}}.
+
+Question:
+{query}
+"""
+
+
+def agent_prompt_sha256(with_tools):
+    """sha256 of the condition's static prompt: system message + task with placeholders.
+
+    Recorded in the manifest (notes 43.12), so "the prompt was frozen before the scored runs" is a
+    value that can be compared, not a claim. Depends on the thought flag and the levers, which is
+    the point: a different condition must hash differently.
+    """
+    marker = object() if with_tools else None
+    text = AGENT_SYSTEM_PROMPT + "\n" + _agent_task_prompt("<LOG SCHEMA>", "<QUESTION>", marker)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _run_pipeline_agentic(
@@ -4167,34 +4349,8 @@ def _run_pipeline_agentic(
     event_names, object_names = schema["event_types"], schema["object_types"]
     schema_block = build_schema_block(schema)
 
-    messages = [{
-        "role": "system",
-        "content": ("You are a JSON-only API that writes OCPQ queries. You answer with exactly one "
-                    "JSON object per turn and never with prose."),
-    }]
-    task = f"""
-Write an OCPQ query answering the question below, using the log to check your work.
-
-{schema_block}
-
-{_agent_tool_block(probe)}
-
-{_agent_protocol_rules()}
-
-Rules for every tree you write (in try_query and in final_tree):
-{OCPQ_TREE_RULES}
-
-How to work:
-- A query is a tree of binding boxes. The ROOT box holds the answer rows; child boxes express
-  conditions about them.
-- Before answering, run your candidate with try_query if you have it: a box that binds 0
-  situations is a box that selects nothing, and the counts tell you which one collapsed.
-- A result of 0 situations is usually wrong. So is a result that selects nearly everything.
-- When you are confident, answer with {{"final_tree": {{...}}}}.
-
-Question:
-{query}
-"""
+    messages = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
+    task = _agent_task_prompt(schema_block, query, probe)
     messages.append({"role": "user", "content": task})
 
     trajectory = []
@@ -4202,6 +4358,14 @@ Question:
     final_tree = None
     final_source = "none"
     last_valid_tree = None
+    last_evaluated_tree = None
+    levers = dict(agent_protocol)
+    # What this condition may call: the probe's tools when there is a probe, and the static
+    # check_tree under F in BOTH loop rungs (notes 43.12).
+    available_tools = (PROBE_TOOL_NAMES if probe is not None else ()) + (
+        ("check_tree",) if levers["structural_feedback"] else ())
+    final_bounced = False
+    check_tree_calls = 0
     turns_used = 0
 
     # Published BEFORE the loop and updated every turn, so a case the per-case cap kills mid-loop
@@ -4223,14 +4387,30 @@ Question:
     action_model = _agent_action_model()
     # The GRAMMAR is the strict union (one variant per tool + a final answer); the parsed turn is
     # the flat `action_model`. See ocpq_schema, "THE STRICT TURN GRAMMAR".
-    turn_model = AgentTurnWithThought if action_model is AgentActionWithThought else AgentTurn
-    action_schema = (AGENT_TURN_WITH_THOUGHT_SCHEMA if turn_model is AgentTurnWithThought
-                     else AGENT_TURN_SCHEMA)
+    thought_on = action_model is AgentActionWithThought
     _last_agent_trajectory["thought_enabled"] = agent_thought
+    _last_agent_trajectory["protocol"] = levers
+
+    def grammar_for(turn):
+        """The turn grammar. Without levers: exactly the pre-Stage-5 grammar (the no-tools control
+        keeps the full union, whose tool calls it is told it cannot make)."""
+        final_only = levers["reserve_last_turn"] and turn == agent_max_turns - 1
+        if not final_only and (probe is not None or levers["structural_feedback"]):
+            return agent_turn_model(available_tools, thought_on, False)
+        if final_only:
+            return agent_turn_model((), thought_on, True)
+        return AgentTurnWithThought if thought_on else AgentTurn
 
     previous_schema = get_constrained_schema()
     for turn in range(agent_max_turns):
         turns_used = turn + 1
+        turn_model = grammar_for(turn)
+        action_schema = turn_model.model_json_schema()
+        if (levers["reserve_last_turn"] and turn == agent_max_turns - 1
+                and messages[-1]["role"] == "user"):
+            # L: said in the message the model is answering, so the roles still alternate.
+            messages[-1] = dict(messages[-1], content=messages[-1]["content"] + "\n\n"
+                                + AGENT_LAST_TURN_NOTE)
         _last_agent_trajectory["turns"] = turns_used
         _last_agent_trajectory["malformed_actions"] = malformed
         _last_agent_trajectory["tool_calls"] = 0 if probe is None else probe.tool_calls
@@ -4281,13 +4461,46 @@ Question:
             continue
 
         if action.final_tree is not None:
-            final_tree = action.final_tree.model_dump(by_alias=True)
+            declared = action.final_tree.model_dump(by_alias=True)
             entry["action"] = "final_tree"
+            entry["tree_blocking"] = _tree_blocking_count(declared)
+            if (levers["bounce_blocking_final"] and not final_bounced and entry["tree_blocking"]
+                    and turn < agent_max_turns - 1):
+                # B (notes 43.12): returned ONCE with its defects while a turn remains. Static --
+                # the same check a structural-validation rung applies -- so both loop rungs get it.
+                final_bounced = True
+                entry["bounced"] = True
+                trajectory.append(entry)
+                report = _structure_report(declared)
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content":
+                                 "Your final_tree cannot be evaluated as written:\n- "
+                                 + "\n- ".join(report)
+                                 + "\nFix these and answer again with {\"final_tree\": {...}}."})
+                continue
+            final_tree = declared
             trajectory.append(entry)
             final_source = "declared"
             break
 
         entry["action"] = action.tool
+        if action.tool == "check_tree" and "check_tree" in available_tools:
+            tree = (action.args or {}).get("tree")
+            entry["tree_blocking"] = _tree_blocking_count(tree)
+            check_tree_calls += 1
+            result = _check_tree_result(tree)
+            entry["result"] = result
+            trajectory.append(entry)
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": json.dumps(result, default=str)})
+            continue
+        if probe is not None and action.tool not in available_tools:
+            # Reachable only without constrained decoding: the grammar offers available tools only.
+            entry["result"] = {"error": f"{action.tool} is not a tool in this condition"}
+            trajectory.append(entry)
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": json.dumps(entry["result"])})
+            continue
         if probe is None:
             # The control rung: the model asked for a tool it was told it does not have.
             entry["result"] = {"error": "no tools are available in this condition"}
@@ -4299,7 +4512,9 @@ Question:
 
         # A candidate passed to try_query is a tree the model committed to; keep the last one that
         # validates, so a budget-exhausted case still has an answer to score (`last_valid_probe`).
+        candidate = None
         if action.tool == "try_query" and isinstance((action.args or {}).get("tree"), dict):
+            entry["tree_blocking"] = _tree_blocking_count((action.args or {}).get("tree"))
             candidate = validate_and_normalize_ocpq_json((action.args or {}).get("tree"))
             if candidate is not None:
                 last_valid_tree = candidate
@@ -4313,11 +4528,25 @@ Question:
             messages.append({"role": "user", "content":
                              "Your tool budget is spent. Answer now with {\"final_tree\": {...}}."})
             continue
+        if action.tool == "try_query" and isinstance(result, dict):
+            if "nodes" in result and candidate is not None:
+                # E: a tree the probe returned COUNTS for -- not refused, not an error.
+                last_evaluated_tree = candidate
+            if levers["structural_feedback"] and "defects" not in result:
+                # F: what the counts or the server's error cannot say. A refused tree already
+                # carries its defects.
+                result = dict(result, structure=_structure_report((action.args or {}).get("tree")))
         entry["result"] = result
         trajectory.append(entry)
         messages.append({"role": "assistant", "content": content})
         messages.append({"role": "user", "content": json.dumps(result, default=str)})
 
+    if final_tree is None and levers["finalise_evaluated"] and last_evaluated_tree is not None:
+        # E, AMENDING the pre-registered rule below (notes 43.12): the last tree the probe actually
+        # evaluated comes first. The plain rule finalised refused cyclic trees, which then crashed
+        # ocpq_cli with a stack overflow.
+        final_tree = last_evaluated_tree
+        final_source = "last_evaluated_probe"
     if final_tree is None and last_valid_tree is not None:
         # PRE-REGISTERED (notes 43): finalise with the best tree the model actually produced.
         # Without this the tool rungs would lose cases to protocol compliance that the one-shot
@@ -4332,6 +4561,8 @@ Question:
         "final_source": final_source,
         "complete": True,
         "tool_trajectory": [] if probe is None else list(probe.trajectory),
+        "final_bounced": final_bounced,
+        "check_tree_calls": check_tree_calls,
     })
 
     if final_tree is None:

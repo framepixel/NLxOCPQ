@@ -516,6 +516,35 @@ check("...and caches by it", "constrained_any_order,\n           constrained_bou
 check("off by default: every recorded run compiled the unbounded grammar",
       LLM.get_constrained_bounded_shape(), False)
 
+print("\n--- STAGE 5 TURN GRAMMARS, compiled as the agentic configs compile them (notes 43.12) ---")
+# check_tree in both loop rungs, and a final-only last turn. Compiled ordered + bounded, exactly as
+# `_ocpq_logits_processor` does with the agentic configs' flags.
+from ocpq_schema import PROBE_TOOL_NAMES, agent_turn_model  # noqa: E402
+
+GOOD = tree_of()
+CHECK = '{"tool": "check_tree", "args": {"tree": ' + GOOD + '}}'
+FINAL = '{"final_tree": ' + GOOD + '}'
+SAMPLE = '{"tool": "sample", "args": {"type": "orders", "n": 5}}'
+for label, tools, thought, final_only, want in (
+        ("tool rung + check_tree", PROBE_TOOL_NAMES + ("check_tree",), False, False,
+         (True, True, True)),
+        ("control rung: check_tree only", ("check_tree",), False, False, (True, True, False)),
+        ("control rung + thought", ("check_tree",), True, False, (True, True, False)),
+        ("reserved last turn", (), False, True, (False, True, False)),
+        ("reserved last turn + thought", (), True, True, (False, True, False))):
+    model = agent_turn_model(tools, thought, final_only)
+    compiled = bounded(LLM._bounded_schema(model.model_json_schema()))
+    check(f"{label} ({model.__name__}): check_tree / final / sample admitted",
+          (accepts(compiled, CHECK), accepts(compiled, FINAL), accepts(compiled, SAMPLE)), want)
+    if thought:
+        check(f"{label}: the thought still comes first",
+              accepts(compiled, FINAL.replace('{"final_tree"', '{"thought": "x", "final_tree"')),
+              True)
+check("check_tree carries a bounded tree too (the runaway shapes are refused inside it)",
+      accepts(bounded(LLM._bounded_schema(agent_turn_model(("check_tree",)).model_json_schema())),
+              '{"tool": "check_tree", "args": {"tree": '
+              + tree_of(nodes=LLM.OCPQ_TREE_MAX_ITEMS["nodes"] + 1) + '}}'), False)
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")

@@ -1670,3 +1670,67 @@
     5. refuse identical resubmission (low priority for Ministral+thought).
   Iterate with: sbatch --array=4,5 slurm/submit_agentic_gate.sh (Ministral, thought off/on).
   THEN: size A2 from the new s/turn; smoke the rungs (--model-idx 2 --case-shard 8/11); full run.
+
+- PLAN (2026-09-26) STAGE 5, ITEMS 1-4 -- dev set only; Ministral 3 14B base (idx 2), thought off/on.
+  BASELINE (gate, eval_runs/agentic_gate, Ministral off / on): structurally clean finals 1/38 / 4/38
+  (71 of 75 finals carry a BLOCKING defect); try_query trees without any defect 2/298; cases with
+  >=1 tree the probe evaluated 11/38 / 13/38; refused trees 102 / 97; executed 16 / 27.
+  Defects in the 298 try_query trees: children_mismatch 205, cycle 192 (178 trees list a node as its
+  OWN child), root_count 168, unbound_variable 101, multiple_parents 90. Only 6/298 have N-1 child
+  links. Box CONTENT is mostly fine; the model does not understand how a tree LINKS boxes.
+  Every lever is a config flag, default false (the gate stays reproducible); the enabled set enters
+  the agent suffix as `_p<letters>` (F, E, X, L) so dev iterations never share a directory.
+  1. F -- STRUCTURAL FEEDBACK (`agent_structural_feedback`). OcpqProbe.try_query computes
+     structural_defects once: refused kinds are refused as now; otherwise the result carries
+     "structure": [defects, blocking first, capped] beside the counts OR beside the server's error
+     ("Could not get o1" becomes "[unbound_variable] node 0: ... reads object variable 1, which
+     neither node 0 nor its ancestors declare"). Plus a one-line fix hint per kind (static dict):
+     cycle -> "a child list holds OTHER nodes' indices, never the node's own"; children_mismatch ->
+     "node p's child list must hold exactly the c of every [[p, c], name] in edgeNames";
+     root_count -> "node 0 is the root: the only node in no child list".
+     Reads only the model's tree (the no-gold AST test must still pass).
+     OPEN (a): the no-tools control A1'. Recommended: A1' gets a STATIC `check_tree(tree)` tool (the
+     same structure report, no log access), so A1 - A1' isolates LOG ACCESS and both rungs get the
+     same structural help. Alternative: A1' gets nothing, and A1 - A1' = log + structure checker.
+     OPEN (b): a declared final_tree with BLOCKING defects is bounced ONCE with its defects while
+     turns remain (both loop rungs; static, no log). Recommended: yes -- 71/75 finals are blocking,
+     and notes 41 found the structural check to be what worked in the non-oracle arm.
+  2. E -- FINALISE ON THE LAST EVALUATED TREE (`agent_finalise_evaluated`): prefer the last
+     try_query tree the probe returned COUNTS for (final_source `last_evaluated_probe`), else the
+     last schema-valid one (`last_valid_probe`). Today refused cyclic trees are finalised and crash
+     ocpq_cli. Reach is limited now (11-13/38 cases have an evaluated tree) and grows with 1 and 3.
+     AMENDS THE PRE-REGISTERED RULE (notes 43) -> write it into the notes BEFORE any scored run.
+  3. X -- TREE STRUCTURE IN THE PROMPT (`agent_worked_example`): (i) five short structure rules
+     (node 0 is the root; Box = [data, child indices]; a node never lists itself; every other node
+     is in exactly one child list; one edgeNames entry per child link, whose name SAT/NOT/NumChilds
+     use); (ii) ONE worked 2-box example in an invented domain (library: book / borrow book) with
+     an O2E filter, a child list [1], edgeNames [[[0, 1], "A"]] and a NumChilds/SAT constraint.
+     Tests: the example validates, has no structural defect, uses no type name from any of the 11
+     corpus logs, and equals no testset or dev-set gold. Both loop rungs get it; A0 keeps B0's
+     prompt.
+     OPEN (c): A1 - A0 then also contains the example. Recommended: accept and state it -- the
+     headline contrast is A1 - A1' (same prompt, same loop).
+  4. L -- LAST TURN RESERVED (`agent_reserve_last_turn`): the last turn is constrained to the
+     FinalAnswer variant (with thought under the thought condition), and the previous user message
+     says "This is your last turn". Ends the 61-79% budget exhaustion; the fallback of 2 remains
+     for a truncated last turn.
+  ALSO: compliance metrics -- final_blocking_defect_rate, try_query defect-free rate, refused per
+  case, final_source incl. last_evaluated_probe; `agent_prompt_sha256` in the manifest (hash of the
+  static prompt parts) from now on, so the Stage 5 freeze is a recorded value, not a claim.
+  DEV ITERATION: run 1 = F+E+X+L on (sbatch --array=4,5 slurm/submit_agentic_gate.sh, ~1.5 h),
+  read against the baseline above; ablate single levers only if the result is ambiguous. Then freeze
+  (prompt hash), size A2 from the new s/turn, smoke the rungs (--model-idx 2 --case-shard 8/11).
+
+- DONE LOCALLY (2026-09-26, notes 43.12) STAGE 5 LEVERS F B E X L IMPLEMENTED (plan above). Decided:
+  (a) A1' gets the static check_tree tool; (b) a blocking final is bounced once; (c) A0 keeps B0's
+  prompt. Finalisation rule AMENDED in notes 43.12 (declared > last EVALUATED > last schema-valid).
+  All five on in both agentic configs; suffix `_pFBEXL`; levers off reproduce the gate exactly
+  (prompt hashes pinned in tests/test_agent_stage5.py). Manifest records agentic.prompt_sha256.
+  NEXT, ON THE CLUSTER: pull; python tests/test_constrained_decoding.py (the new turn grammars
+  compile there) + tests/test_agent_stage5.py; then the dev iteration:
+    sbatch --array=4,5 slurm/submit_agentic_gate.sh      (Ministral, thought off / on, ~1.5 h)
+  READ against the gate baseline: agent_final_blocking_rate (71/75 blocking), clean try_query
+  trees (2/298), cases with an evaluated tree (11/13 of 38), executed (16/27), s/turn (check_tree
+  and the bounce cost turns), bounce and check_tree uptake.
+  THEN: freeze (record the prompt_sha256), size A2 from the new s/turn, smoke the rungs
+  (--model-idx 2 --case-shard 8/11), full run.

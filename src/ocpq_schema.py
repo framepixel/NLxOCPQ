@@ -367,6 +367,91 @@ class AgentTurnWithThought(RootModel[Union[
     class NAME, because the grammar cache (LLM._ocpq_logits_processor) is keyed by it."""
 
 
+# --- STAGE 5 (notes 43.12): check_tree, and a turn grammar per condition -------------------------
+#
+# `check_tree` is the STATIC structure check: `structural_defects` on the model's tree, no log. Both
+# loop rungs get it under `agent_structural_feedback`, so the no-tools control A1' has the same
+# structural help as A1 and A1 - A1' isolates LOG ACCESS (decided 2026-09-26).
+
+
+class CheckTreeArgs(BaseModel):
+    tree: BindingBoxTree
+
+
+class CheckTreeCall(BaseModel):
+    tool: Literal["check_tree"]
+    args: CheckTreeArgs
+
+
+class CheckTreeCallWithThought(BaseModel):
+    thought: Optional[str] = None
+    tool: Literal["check_tree"]
+    args: CheckTreeArgs
+
+
+_TURN_VARIANTS = {
+    # name: (plain variant, thought variant)
+    "try_query": (TryQueryCall, TryQueryCallWithThought),
+    "inspect_situations": (InspectSituationsCall, InspectSituationsCallWithThought),
+    "sample": (SampleCall, SampleCallWithThought),
+    "attribute_values": (AttributeValuesCall, AttributeValuesCallWithThought),
+    "activity_stats": (ActivityStatsCall, ActivityStatsCallWithThought),
+    "check_tree": (CheckTreeCall, CheckTreeCallWithThought),
+}
+PROBE_TOOL_NAMES = ("try_query", "inspect_situations", "sample", "attribute_values",
+                    "activity_stats")
+_TURN_MODEL_CACHE: Dict[Tuple, Any] = {}
+
+
+def agent_turn_model(tools: Tuple[str, ...], thought: bool = False, final_only: bool = False):
+    """The turn grammar for a condition: exactly one call to one of `tools`, or a final answer.
+
+    With the five probe tools, no `check_tree` and not `final_only` this returns `AgentTurn` /
+    `AgentTurnWithThought` THEMSELVES, so every condition without the Stage 5 levers compiles the
+    grammar it compiled before. Otherwise a union is built once per combination, with a class name
+    that spells the combination -- the grammar cache is keyed by the name.
+
+    `final_only` (the reserved last turn) admits the final answer alone.
+    """
+    tools = tuple(tools)
+    if not final_only and tools == PROBE_TOOL_NAMES:
+        return AgentTurnWithThought if thought else AgentTurn
+    key = (() if final_only else tools, bool(thought), bool(final_only))
+    if key not in _TURN_MODEL_CACHE:
+        final = FinalAnswerWithThought if thought else FinalAnswer
+        calls = [] if final_only else [_TURN_VARIANTS[name][1 if thought else 0]
+                                       for name in tools]
+        variants = tuple(calls + [final])
+        root = RootModel[Union[variants]] if len(variants) > 1 else RootModel[final]
+        name = ("AgentTurn_" + ("final_only" if final_only else "_".join(tools) or "no_tools")
+                + ("_thought" if thought else ""))
+        _TURN_MODEL_CACHE[key] = type(name, (root,), {"__doc__": agent_turn_model.__doc__})
+    return _TURN_MODEL_CACHE[key]
+
+
+# A one-line fix per defect kind, appended to each defect the agent is shown (notes 43.12). The
+# measured failures of the model gate, 298 try_query trees: children_mismatch 205, cycle 192,
+# root_count 168, unbound_variable 101, multiple_parents 90 -- the model writes plausible boxes and
+# does not know how a tree LINKS them. Static text about the representation, never about a case.
+DEFECT_HINTS = {
+    "cycle": "a Box's child list holds the indices of OTHER nodes, never the node's own index",
+    "children_mismatch": "node p's child list must hold exactly the c of every [[p, c], name] "
+                         "entry in edgeNames, and nothing else",
+    "root_count": "node 0 is the root: the ONE node that appears in no child list; every other "
+                  "node appears in exactly one",
+    "multiple_parents": "a node appears in exactly one child list -- it has one parent",
+    "child_out_of_range": "child indices must be node indices that exist (0 .. number of nodes-1)",
+    "edge_name_out_of_range": "edgeNames entries must link existing nodes, parent first",
+    "unbound_variable": "a filter may only read variables declared in its own box or an ancestor "
+                        "box; declare the variable there or move the filter",
+    "unbound_optional_reference": "an optional reference names a variable no box in scope "
+                                  "declares; declare it or drop the reference",
+    "unknown_child_name": "SAT/NOT/NumChilds name a child by its edgeNames name; use a name this "
+                          "node's own edgeNames entries give",
+    "malformed_tree": "each node is {\"Box\": [box data, [child indices]]}",
+}
+
+
 class QueryVerification(BaseModel):
     is_correct: bool
     issues: List[str]

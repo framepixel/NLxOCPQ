@@ -18,7 +18,7 @@ import corpus_manifest
 import paths
 import result_store
 from LogEvents import extract_ocel_schema
-from ocpq_schema import BindingBoxTree
+from ocpq_schema import BindingBoxTree, blocking_defects, structural_defects
 from tag_testset_bb import detect_bb_labels
 from QueryExecutor import (
     discard_result_file,
@@ -63,6 +63,8 @@ from LLM import (
     set_agent_max_turns,
     set_agent_thought,
     set_agent_turn_token_budget,
+    set_agent_protocol,
+    agent_prompt_sha256,
     get_last_agent_trajectory,
     reset_last_agent_trajectory,
 )
@@ -266,9 +268,30 @@ DEFAULT_AGENT_MAX_TURNS = 8
 DEFAULT_AGENT_MAX_TOOL_CALLS = 12
 
 
+# The Stage 5 protocol levers (notes 43.12): config key -> (LLM lever name, suffix letter). Order is
+# the suffix order. Each defaults to off, so every earlier directory name and config_id is kept.
+AGENT_LEVERS = (
+    ("agent_structural_feedback", "structural_feedback", "F"),
+    ("agent_bounce_blocking_final", "bounce_blocking_final", "B"),
+    ("agent_finalise_evaluated", "finalise_evaluated", "E"),
+    ("agent_worked_example", "worked_example", "X"),
+    ("agent_reserve_last_turn", "reserve_last_turn", "L"),
+)
+
+
+def _agent_protocol(config):
+    """`{lever: bool}` for `LLM.set_agent_protocol`, read from the config."""
+    return {lever: bool(config.get(key, False)) for key, lever, _letter in AGENT_LEVERS}
+
+
+def _agent_levers(config):
+    """The enabled levers as suffix letters, in AGENT_LEVERS order ("" when none)."""
+    return "".join(letter for key, _lever, letter in AGENT_LEVERS if config.get(key, False))
+
+
 def _agent_budget(config):
-    """`(max_turns, max_tool_calls, thought, turn_token_budget)` for an agentic run, read once from
-    the config.
+    """`(max_turns, max_tool_calls, thought, turn_token_budget, levers)` for an agentic run, read
+    once from the config.
 
     One reader for the three places that name the condition -- the manifest's `agentic` block,
     `config_id`, and the shard directory -- so they cannot disagree about what ran.
@@ -277,7 +300,8 @@ def _agent_budget(config):
     return (int(config.get("agent_max_turns", DEFAULT_AGENT_MAX_TURNS)),
             int(config.get("agent_max_tool_calls", DEFAULT_AGENT_MAX_TOOL_CALLS)),
             bool(config.get("agent_thought", False)),
-            None if turn_tokens is None else int(turn_tokens))
+            None if turn_tokens is None else int(turn_tokens),
+            _agent_levers(config))
 
 
 def _agent_shard_suffix(prompt_strategies, config):
@@ -296,7 +320,8 @@ def _agent_shard_suffix(prompt_strategies, config):
     return _agent_suffix(strategy, *_agent_budget(config))
 
 
-def _agent_suffix(prompt_strategy, max_turns, max_tool_calls, thought=False, turn_tokens=None):
+def _agent_suffix(prompt_strategy, max_turns, max_tool_calls, thought=False, turn_tokens=None,
+                  levers=""):
     """The budget of an agentic condition, for its `config_id`. Empty for every other strategy.
 
     Per condition rather than in `_decoding_suffix`, which is run-wide: the one-shot rung A0 runs in
@@ -313,6 +338,10 @@ def _agent_suffix(prompt_strategy, max_turns, max_tool_calls, thought=False, tur
         # What one turn may cost, and therefore how many runaway turns fit in the case cap (notes
         # 43.8). Both loop rungs carry it; None keeps every earlier id.
         suffix += f"_turntok{int(turn_tokens)}"
+    if levers:
+        # The Stage 5 protocol (notes 43.12). A different set of levers is a different condition,
+        # and the dev iterations must never resume into each other's directories.
+        suffix += f"_p{levers}"
     if thought:
         # A CONDITION like the budget: A1 with and without it share everything else.
         suffix += "_thought"
@@ -1356,6 +1385,17 @@ def _agent_compliance(records) -> dict:
                                             for t in thought_turns]) if thought_turns else None),
         "agent_mean_thought_chars": _mean([t.get("thought_chars") for t in thought_turns
                                            if t.get("thought_chars")]),
+        # Stage 5 (notes 43.12): is the model writing well-formed TREES? Read off every turn that
+        # carried a tree and off the scored tree, whatever the levers, so conditions compare.
+        "agent_final_blocking_rate": _mean(
+            [1 if a.get("final_blocking_defects") else 0 for _, a in agents
+             if a.get("final_blocking_defects") is not None]),
+        "agent_tree_turn_clean_rate": _mean(
+            [1 if t.get("tree_blocking") == 0 else 0 for t in all_turns
+             if t.get("tree_blocking") is not None]),
+        "agent_final_bounce_rate": _mean([1 if a.get("final_bounced") else 0 for _, a in agents]),
+        "agent_mean_check_tree_calls": _mean([a.get("check_tree_calls") for _, a in agents
+                                              if a.get("check_tree_calls") is not None]),
     }
 
 
@@ -1681,6 +1721,11 @@ def _compact_agent_turns(trajectory, cap):
         if entry.get("normalized"):
             # Containers the harness filled in the turn's tree (LLM._repair_agent_tree).
             turn["repaired"] = len(entry["normalized"])
+        if entry.get("tree_blocking") is not None:
+            # Blocking structural defects in the tree this turn carried (notes 43.12).
+            turn["tree_blocking"] = int(entry["tree_blocking"])
+        if entry.get("bounced"):
+            turn["bounced"] = True
         result = entry.get("result")
         if isinstance(result, dict):
             if result.get("error"):
@@ -1999,7 +2044,11 @@ def run_evaluation(config_path_or_config):
     agent_uses_probe = "agentic-log-tools" in prompt_strategies
     agent_settings = None
     if agentic_strategies:
-        _turns, _tools, _thought, _turn_tokens = _agent_budget(config)
+        _turns, _tools, _thought, _turn_tokens, _levers = _agent_budget(config)
+        _protocol = _agent_protocol(config)
+        # Set here as well as below, because the prompt hash depends on both.
+        set_agent_thought(_thought)
+        set_agent_protocol(**_protocol)
         agent_settings = {
             "strategies": agentic_strategies,
             "max_turns": _turns,
@@ -2008,6 +2057,13 @@ def run_evaluation(config_path_or_config):
             "thought": _thought,
             # Per-turn generation cap for the loop rungs, or None for the run budget (notes 43.8).
             "turn_token_budget": _turn_tokens,
+            # The Stage 5 levers (notes 43.12), and the prompt they produce. The hash is what makes
+            # "the prompt was frozen before the scored runs" checkable across manifests.
+            "protocol": _protocol,
+            "levers": _levers,
+            "prompt_sha256": {
+                strategy: agent_prompt_sha256(with_tools=(strategy == "agentic-log-tools"))
+                for strategy in agentic_strategies},
             "tool_result_char_cap": int(config.get("agent_tool_result_char_cap",
                                                    ocpq_probe.DEFAULT_RESULT_CHAR_CAP)),
             "probe_request_timeout_sec": float(config.get(
@@ -2111,7 +2167,7 @@ def run_evaluation(config_path_or_config):
                   f"{'yes (started at run start)' if agent_uses_probe else 'no'}")
             for strategy in prompt_strategies:
                 print(f"Dry run:   config_id suffix for {strategy}: "
-                      f"{_agent_suffix(strategy, agent_settings['max_turns'], agent_settings['max_tool_calls'], agent_settings['thought'], agent_settings['turn_token_budget']) or '(none)'}")
+                      f"{_agent_suffix(strategy, agent_settings['max_turns'], agent_settings['max_tool_calls'], agent_settings['thought'], agent_settings['turn_token_budget'], agent_settings['levers']) or '(none)'}")
         return None
 
     # Before any directory is created or model loaded: a run on the wrong corpus is worthless,
@@ -2254,6 +2310,7 @@ def run_evaluation(config_path_or_config):
         set_agent_max_turns(agent_settings["max_turns"])
         set_agent_thought(agent_settings["thought"])
         set_agent_turn_token_budget(agent_settings["turn_token_budget"])
+        set_agent_protocol(**agent_settings["protocol"])
     if agent_uses_probe:
         probe_server = ocpq_probe.ProbeServer().start()
         agent_probe_obj = ocpq_probe.OcpqProbe(
@@ -2407,7 +2464,8 @@ def run_evaluation(config_path_or_config):
                     agent_suffix = (_agent_suffix(prompt_strategy, agent_settings["max_turns"],
                                                   agent_settings["max_tool_calls"],
                                                   agent_settings["thought"],
-                                                  agent_settings["turn_token_budget"])
+                                                  agent_settings["turn_token_budget"],
+                                                  agent_settings["levers"])
                                     if agent_settings else "")
                     config_id = _slug(
                         f"{resolved_model['label']}_{prompt_strategy}"
@@ -2704,6 +2762,13 @@ def run_evaluation(config_path_or_config):
                                     agent_state.get("post_execution_repair")),
                                 "probe_load_sec": probe_load_sec,
                                 "thought_enabled": bool(agent_state.get("thought_enabled")),
+                                # Stage 5 (notes 43.12). The blocking count is read off the scored
+                                # tree whatever the levers, so it compares across conditions.
+                                "final_bounced": bool(agent_state.get("final_bounced")),
+                                "check_tree_calls": int(agent_state.get("check_tree_calls") or 0),
+                                "final_blocking_defects": (
+                                    len(blocking_defects(structural_defects(ocpq_json)))
+                                    if isinstance(ocpq_json, dict) else None),
                                 "turn_summary": _compact_agent_turns(
                                     agent_state.get("trajectory"),
                                     agent_settings["record_turn_char_cap"]),

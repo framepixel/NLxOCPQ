@@ -165,11 +165,11 @@ case "$TASK" in
   1) RUNG_NAME="A1 / tool loop, 8 turns, 12 tool calls"
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --no-agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL" ;;
   2) RUNG_NAME="A1-prime / same loop, 8 turns, NO tools (compute-matched control)"
      STRATEGY_IDX=2
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --no-agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_turntok2000" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXL" ;;
   3) RUNG_NAME="A2 / tool loop, ${A2_TURNS} turns, ${A2_TOOL_CALLS} tool calls (PROVISIONAL)"
      if [ "${OCPQ_A2_CONFIRMED:-0}" != "1" ]; then
        echo "FATAL: A2's budget has not been sized from the model gate yet. Measure it with" >&2
@@ -180,11 +180,11 @@ case "$TASK" in
      fi
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns "${A2_TURNS}" --agent-max-tool-calls "${A2_TOOL_CALLS}" --no-agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns${A2_TURNS}_tools${A2_TOOL_CALLS}_turntok2000" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns${A2_TURNS}_tools${A2_TOOL_CALLS}_turntok2000_pFBEXL" ;;
   4) RUNG_NAME="A1+thought / A1 with a thought field"
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_thought" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought" ;;
   *) echo "FATAL: task ${TASK} is not a rung; this array is 0-4." >&2; exit 1 ;;
 esac
 
