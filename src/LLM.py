@@ -467,9 +467,18 @@ def _bounded_schema(schema):
     # number in quotes"; ocpq_cli panics on it). The schema admits any string, and in the
     # 2026-09-26 smoke both base models named variables "Event"/"Object" and resubmitted the same
     # unparseable tree. All 652 variable keys in gold are numeric. Notes 43.9.
+    #
+    # `patternProperties` + `additionalProperties: false`, NOT `propertyNames`: xgrammar 0.2.5
+    # honours `propertyNames` on the keys but then DROPS the value schema, so every value became
+    # free JSON -- `{"1": {"type": "X"}}` where a list of type names belongs, label values outside
+    # IGNORED/INCLUDED/EXCLUDED. That shipped in 9b11b8d and wrecked the full model gate (87% / 46%
+    # malformed turns, notes 43.10). This form enforces the key AND keeps the value schema;
+    # tests/test_constrained_decoding.py checks both directions.
     for key in ("newEventVars", "newObjectVars", "evVarLabels", "obVarLabels"):
-        if key in box_data:
-            box_data[key]["propertyNames"] = {"pattern": OCPQ_VARIABLE_KEY_PATTERN}
+        if key in box_data and "additionalProperties" in box_data[key]:
+            value_schema = box_data[key].pop("additionalProperties")
+            box_data[key]["patternProperties"] = {OCPQ_VARIABLE_KEY_PATTERN: value_schema}
+            box_data[key]["additionalProperties"] = False
     return schema
 
 

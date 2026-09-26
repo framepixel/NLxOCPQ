@@ -93,10 +93,18 @@ DEFAULT_MAX_RESTARTS_PER_RUN = int(os.getenv("OCPQ_PROBE_MAX_RESTARTS_PER_RUN", 
 #                         connection but SURVIVES and keeps answering correctly; ocpq_cli exits 101.
 #   unbound_variable   -- 400 "Could not get oN": an error document, passed through.
 #   malformed_tree     -- 422 deserialisation error naming the field: passed through.
-#   cycle, multiple_parents -- EVALUATED by both the server and ocpq_cli (exit 0, an `Ok` export),
-#                         although `ocpq_schema.BLOCKING_DEFECT_KINDS` lists them. Passed through.
+#   multiple_parents   -- EVALUATED by both the server and ocpq_cli (exit 0, an `Ok` export),
+#                         although `ocpq_schema.BLOCKING_DEFECT_KINDS` lists it. Passed through.
+#   cycle              -- REFUSED since 2026-09-26 (notes 43.10). The one-tree measurement above
+#                         said "evaluated"; the full model gate measured 38 cyclic trees, every
+#                         cycle reachable from node 0: 9 KILLED the server process (a restart
+#                         each; one run spent its whole restart budget and lost its last 8 cases),
+#                         and the other 29 all bound 0 situations at the root, so the evaluator
+#                         never descended into the loop. A cycle therefore never yields an
+#                         informative count -- refusing it withholds nothing -- and no gold tree has
+#                         one (testset and dev set are defect-free).
 # Refusing more than the crash class would withhold counts for trees the scorer does evaluate.
-PROBE_REFUSED_DEFECT_KINDS = frozenset({"child_out_of_range"})
+PROBE_REFUSED_DEFECT_KINDS = frozenset({"child_out_of_range", "cycle"})
 
 
 class ProbeError(RuntimeError):

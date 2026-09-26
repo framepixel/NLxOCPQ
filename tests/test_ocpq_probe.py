@@ -351,6 +351,24 @@ check("...without touching the server", transport.calls, [])
 check("...charged to the budget like any call", probe.tool_calls, 1)
 check("...and counted", probe.health()["probe_refused_trees"], 1)
 
+# notes 43.10: a cycle reachable from the root either binds nothing (29 of 38 in the full gate) or
+# KILLS the server process (9 of 38; one run lost its whole restart budget and its last 8 cases).
+SELF_LOOP = {"nodes": [{"Box": [{"newObjectVars": {"0": ["orders"]}}, [0]]}], "edgeNames": []}
+probe, transport = probe_with({"check-constraints-box": (200, {"nodeSummaries": []})},
+                              server=FakeServer())
+refused = probe.call("try_query", {"tree": SELF_LOOP})
+check_true("a cycle (the gate's `[0, 0, 0, 0]` shape) is refused before sending",
+           "not evaluated" in refused.get("error", ""))
+check_true("...naming the cycle", any("cycle" in d for d in refused.get("defects", [])))
+check("...without touching the server", transport.calls, [])
+MULTI_PARENT = {"nodes": [{"Box": [{}, [1, 2]]}, {"Box": [{}, [2]]}, {"Box": [{}, []]}],
+                "edgeNames": [[[0, 1], "A"], [[0, 2], "B"], [[1, 2], "C"]]}
+probe, transport = probe_with({"check-constraints-box": (200, {"nodeSummaries": []})},
+                              server=FakeServer())
+probe.call("try_query", {"tree": MULTI_PARENT})
+check("multiple_parents is still evaluated (both evaluators answer it; notes 43.1)",
+      len(transport.calls), 1)
+
 probe, transport = probe_with({"check-constraints-box": (400, "Could not get o4")},
                               server=FakeServer())
 passed = probe.call("try_query", {"tree": {"nodes": [{"Box": [{}, []]}], "edgeNames": [],

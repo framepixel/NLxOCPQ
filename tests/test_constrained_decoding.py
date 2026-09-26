@@ -474,6 +474,30 @@ for field in ("evVarLabels", "obVarLabels"):
     named = SP_BOX.replace(f'"{field}": {{}}', f'"{field}": {{"event": "EXCLUDED"}}')
     check(f"{field}: a word as a variable name is REFUSED (the smoke's shape)",
           accepts(b_tree, tree_of(box=named)), False)
+# notes 43.10: the key rule must not cost the VALUE rule. The first version used `propertyNames`,
+# with which xgrammar 0.2.5 drops the value schema -- the gate then saw {"1": {"type": "X"}} and
+# label values outside the enum, and 87% of Llama's turns failed validation. Both directions, for
+# every map the rule touches:
+BAD_VALUES = {
+    "newObjectVars": ('{"1": {"type": "X"}}', "an object where a list of type names belongs"),
+    "newEventVars": ('{"1": "X"}', "a bare string where a list of type names belongs"),
+    "obVarLabels": ('{"1": "DiagnosticEquipment"}', "a label outside IGNORED/INCLUDED/EXCLUDED"),
+    "evVarLabels": ('{"0": ["X"]}', "a list where a label belongs"),
+}
+for field, (value, what) in BAD_VALUES.items():
+    bad = tree_of(box=SP_BOX.replace(f'"{field}": {{}}', f'"{field}": {value}'))
+    check(f"{field}: {what} is REFUSED by the bounded grammar",
+          accepts(b_tree, bad), False)
+    check(f"...and by the unbounded one (the bounded grammar may only be STRICTER)",
+          accepts(grammar(any_order=False), bad.replace(", ", ",").replace(": ", ":")), False)
+check("a valid label value under a numeric key is admitted",
+      accepts(b_tree, tree_of(box=SP_BOX.replace('"obVarLabels": {}',
+                                                   '"obVarLabels": {"1": "EXCLUDED"}'))), True)
+check("the bounded schema carries the value schema under the key pattern (no propertyNames)",
+      ("propertyNames" in json.dumps(bounded_tree_schema),
+       all("patternProperties" in bounded_tree_schema["$defs"]["BindingBoxData"]["properties"][k]
+           for k in ("newEventVars", "newObjectVars", "evVarLabels", "obVarLabels"))),
+      (False, True))
 check("...which the unbounded grammar admits (pinned: the schema allows any string)",
       accepts(grammar(any_order=False), tree_of(box=SP_BOX.replace(
           '"newEventVars": {}', '"newEventVars": {"Event": ["x"]}'))), True)

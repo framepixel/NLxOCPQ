@@ -1637,3 +1637,18 @@
   STAGE 5 INPUTS (dev set only, after the gate picks the model): identical try_query resubmissions
   (Llama 12/28, Ministral 8/19 without thought) -> refuse with previous counts; budget exhaustion
   (Ministral 3-5/5) -> reserve the last turn for an answer; A2 budget from the gate's s/turn.
+
+- DONE LOCALLY (2026-09-26, notes 43.10) FULL GATE VOID: GRAMMAR REGRESSION + CYCLES KILL THE PROBE.
+  eval_runs/agentic_gate (fp 25cc83e88b, commit 9b11b8d): Llama 87%/76% malformed, 32-34/38 no
+  answer; Ministral 46%/41% malformed, 11/38 probe_unavailable (restart budget spent by case 31).
+  (1) 9b11b8d's propertyNames made xgrammar drop the dict VALUE schema ({"1": {"type": ...}},
+  labels outside the enum). FIXED: patternProperties + additionalProperties false; tests check bad
+  values are refused in both grammars; all 571 gate turns that failed validation are refused now.
+  (2) cyclic trees ([0,0,0,0]): 9/38 killed the server, 29/38 bound 0 at the root. FIXED: probe
+  refuses `cycle` (PROBE_REFUSED_DEFECT_KINDS), gold has none.
+  NEXT, ON THE CLUSTER: move the void run aside (mv eval_runs/agentic_gate
+  eval_runs/agentic_gate_void_20260926); pull; test_constrained_decoding + test_agent_turn_budget +
+  test_ocpq_probe must PASS; sbatch slurm/submit_agentic_gate.sh.
+  LESSON (verification): a constraint that tightens one thing must be tested for NOT loosening
+  another -- test the bounded grammar against the unbounded one on invalid inputs, not only on
+  the new rule.
