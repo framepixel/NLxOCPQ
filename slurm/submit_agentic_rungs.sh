@@ -19,7 +19,7 @@
 #   task 0  A0        one-shot, no tools, no loop       the SAME base model, B0's prompt (notes 43.6)
 #   task 1  A1        tool loop, 8 turns / 12 tool calls
 #   task 2  A1-prime  the SAME loop, 8 turns, NO tools  compute-matched control (self-refine)
-#   task 3  A2        tool loop, larger budget          PROVISIONAL budget -- see below
+#   task 3  A2        tool loop, 16 turns / 24 tool calls  sized from the Stage 5 dev run
 #   task 4  A1+th     A1 with a `thought` field         the reasoning condition (TODO, `thought`)
 #
 # PRE-REGISTERED
@@ -39,18 +39,21 @@
 #     touched the compositional failure of notes 40, whatever the F1 says.
 #   * ONE CAP FOR EVERY ARM (CLAUDE.md 6): case_timeout_sec 600 in all five rungs.
 #
-# A2's BUDGET IS NOT YET DECIDED. It must be sized from the model gate's measured wall clock per
-# turn (slurm/submit_agentic_gate.sh) so that A2 fits the 600 s cap; if it cannot, the cap rises
-# for ALL five rungs. Until then task 3 refuses to run unless OCPQ_A2_CONFIRMED=1 is exported.
+# A2's BUDGET IS SIZED (notes 43.13): the Stage 5 dev run (Ministral 3 14B base, pFBEXL, 38 cases x
+# thought off/on) took a median 6.4-7.0 s per turn (p90 ~9 s), longest case 95 s at 8 turns, and
+# cases used 7.1-7.2 of 8 turns -- the budget binds, so A2 is informative. 16 turns extrapolate to a
+# worst case of ~190 s, inside the 600 s cap every arm shares (CLAUDE.md 6). The decision is a
+# committed constant below (A2_SIZED), not an exported variable: an environment variable is not
+# reliably propagated by sbatch (the --case-shard lesson, 2026-09-12).
 #
 # BEFORE THE FIRST JOB, on a login node: build the probe server once (the first release build
 # takes minutes and must not happen inside a GPU job):
 #     cargo build --release --manifest-path ../OCPQ/backend/web-server/Cargo.toml -p ocpq-web-server
 #
-# Smoke first (slice 8/11: small logs):
-#   sbatch --array=0-2,4 slurm/submit_agentic_rungs.sh --model-idx 0 --case-shard 8/11
-# Full run (A2 once its budget is decided):
-#   sbatch --array=0-2,4 slurm/submit_agentic_rungs.sh --model-idx 0
+# Smoke first (slice 8/11: small logs), then src/smoke_check.py, then the full run -- model index 2
+# is Ministral 3 14B base, the model gate's choice (notes 43.11):
+#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
+#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2
 #
 set -u
 # SLURM copies the batch script into its spool directory before executing it, so
@@ -156,6 +159,7 @@ MODEL_IDX="${OCPQ_AGENT_MODEL_IDX:-}"
 # tests/test_agentic_rungs.py pins every RUNG_SUFFIX against both.
 A2_TURNS=16
 A2_TOOL_CALLS=24
+A2_SIZED=1   # notes 43.13: sized from the Stage 5 dev run; see the header
 
 case "$TASK" in
   0) RUNG_NAME="A0 / one-shot, no tools (B0's prompt, this base model)"
@@ -170,12 +174,10 @@ case "$TASK" in
      STRATEGY_IDX=2
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --no-agent-thought)
      RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXL" ;;
-  3) RUNG_NAME="A2 / tool loop, ${A2_TURNS} turns, ${A2_TOOL_CALLS} tool calls (PROVISIONAL)"
-     if [ "${OCPQ_A2_CONFIRMED:-0}" != "1" ]; then
-       echo "FATAL: A2's budget has not been sized from the model gate yet. Measure it with" >&2
-       echo "       slurm/submit_agentic_gate.sh, set A2_TURNS/A2_TOOL_CALLS so A2 fits" >&2
-       echo "       case_timeout_sec, update tests/test_agentic_rungs.py, then export" >&2
-       echo "       OCPQ_A2_CONFIRMED=1." >&2
+  3) RUNG_NAME="A2 / tool loop, ${A2_TURNS} turns, ${A2_TOOL_CALLS} tool calls"
+     if [ "${A2_SIZED}" != "1" ]; then
+       echo "FATAL: A2's budget is not marked as sized (A2_SIZED). Size it from a dev run so A2" >&2
+       echo "       fits case_timeout_sec, record the evidence in the notes, and set A2_SIZED=1." >&2
        exit 1
      fi
      STRATEGY_IDX=1

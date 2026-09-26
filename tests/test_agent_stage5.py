@@ -338,6 +338,29 @@ check("final blocking rate, clean tree-turn rate, bounce rate, mean check_tree c
 check("last_evaluated_probe appears in the final-source counts",
       block["agent_final_source"].get("last_evaluated_probe"), 1)
 
+print("\n--- THE FROZEN PROTOCOL (notes 43.14): the prompt the scored rungs run ---")
+# Frozen 2026-09-26 after the Stage 5 dev run (notes 43.13), BEFORE any scored agentic run. The
+# tool-rung hashes equal the ones the cluster recorded in that run's manifests (f70eb067...,
+# d46ba7c2...), so this is the prompt that was measured. Derived from the RUNG config's own levers,
+# so the config and the frozen prompt cannot drift apart. A change here after a scored run is a new
+# condition, and every compared rung re-runs.
+from eval_testset import _agent_protocol  # noqa: E402
+
+FROZEN = {  # the three prompts a rung runs: (thought, tool rung?) -> sha256. A0 runs B0's prompt.
+    (False, True): "f70eb067d54d5d5e4fce3c9d34c57093330b6bc5de4e3f0b5b49943e0084b780",   # A1, A2
+    (False, False): "093b2eb0816183e57c61445d7f4b08fb471c319e52440df3be3967c70950d89a",  # A1-prime
+    (True, True): "d46ba7c2d21d5c7c99cb03fae1092023089b60cb048dd4e8f490dda718956670",    # A1+thought
+}
+rung_cfg = json.load(open(ROOT / "configs" / "eval_config.agentic.json", encoding="utf-8"))
+gate_cfg = json.load(open(ROOT / "configs" / "eval_config.agentic_gate.json", encoding="utf-8"))
+check("the rung config runs the levers the dev run measured",
+      _agent_protocol(rung_cfg), _agent_protocol(gate_cfg))
+for (thought, with_tools), want in FROZEN.items():
+    LLM.set_agent_thought(thought)
+    LLM.set_agent_protocol(**_agent_protocol(rung_cfg))
+    rung = "A1+thought" if thought else ("A1 and A2" if with_tools else "A1-prime")
+    check(f"frozen: the prompt of {rung}", LLM.agent_prompt_sha256(with_tools), want)
+
 LLM.set_agent_protocol()
 LLM.set_agent_thought(False)
 OUT.unlink(missing_ok=True)

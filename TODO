@@ -1747,3 +1747,23 @@
        OCPQ_A2_CONFIRMED env var, which may not survive sbatch -- the --case-shard lesson).
     3. Rung smoke: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
        -> src/smoke_check.py -> full run (5 rungs x 169 cases; est. A1 ~2.5 h, A2 ~5 h).
+
+- DONE (2026-09-26, notes 43.14) PROTOCOL FROZEN + A2 SIZED. Frozen prompt hashes pinned in
+  tests/test_agent_stage5.py (A1/A2 f70eb067..., A1' 093b2eb0..., A1+thought d46ba7c2...); A2 =
+  16 turns / 24 tool calls, a committed constant (A2_SIZED=1) in slurm/submit_agentic_rungs.sh.
+
+- OPEN, NEXT (step 3): THE SCORED AGENTIC RUNS, Ministral 3 14B base (--model-idx 2), frozen pFBEXL.
+    a. On the cluster: git pull; python tests/test_agent_stage5.py (the frozen hashes must PASS
+       there too) and python tests/test_agentic_rungs.py.
+    b. RUNG SMOKE on a testset slice (small logs):
+         sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
+       Read per rung: manifest agentic.prompt_sha256 == the frozen table (notes 43.14);
+       oracle_conditions == []; compliance block (timeouts, probe restarts/panics, probe/CLI
+       agreement, malformed rate, final_source, bounce rate); s/turn against the dev run.
+    c. python src/smoke_check.py on the smoke directories.
+    d. FULL RUN: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2
+       (5 rungs x 169 cases; est. A0 < 1 h, A1/A1'/A1+thought ~2.5 h, A2 ~5 h; 24 h wall).
+    e. Merge per rung, check pipeline/corpus/ocpq consistency, then the pre-registered analysis:
+       compliance BEFORE any F1; paired bootstrap A1 - A1' (log access, the headline), A2 - A1
+       (budget), A1+thought - A1 (reasoning), A1 - A0 (the whole arm vs one-shot, incl. the
+       prompt's structure block); skill beside F1; mechanism (population vs syntax revisions).

@@ -148,8 +148,19 @@ check("A1-prime has A1's turn budget (compute-matched)",
 check("A1+thought differs from A1 in the thought flag only",
       by_task["4"].split("AGENT_ARGS=")[1].split(")")[0].replace("--agent-thought", "X"),
       by_task["1"].split("AGENT_ARGS=")[1].split(")")[0].replace("--no-agent-thought", "X"))
-check("A2 refuses to run until its budget is sized from the gate",
-      'if [ "${OCPQ_A2_CONFIRMED:-0}" != "1" ]' in by_task["3"], True)
+# notes 43.13: sized from the Stage 5 dev run (6.4-7.0 s/turn, longest case 95 s at 8 turns ->
+# ~190 s at 16), and recorded as a COMMITTED constant -- an exported variable may not survive sbatch.
+check("A2's budget is the sized one: 16 turns, 24 tool calls, marked A2_SIZED=1",
+      [re.search(rf"^{name}=(\d+)", RUNGS_SCRIPT, re.M).group(1)
+       for name in ("A2_TURNS", "A2_TOOL_CALLS", "A2_SIZED")], ["16", "24", "1"])
+check("A2 is double A1's turns and tool calls (only the budget moves)",
+      (int(resolve("${A2_TURNS}", RUNGS_SCRIPT)), int(resolve("${A2_TOOL_CALLS}", RUNGS_SCRIPT))),
+      (2 * int(re.search(r"--agent-max-turns (\d+)", by_task["1"]).group(1)),
+       2 * int(re.search(r"--agent-max-tool-calls (\d+)", by_task["1"]).group(1))))
+check("A2 still refuses to run when the constant says unsized",
+      'if [ "${A2_SIZED}" != "1" ]' in by_task["3"], True)
+check("...and nothing depends on an exported confirmation any more",
+      "OCPQ_A2_CONFIRMED" in RUNGS_SCRIPT, False)
 check("the tool rungs run the probe preflight", 'python "$PROJECT_DIR/src/check_probe.py"'
       in RUNGS_SCRIPT and 'if [ "$STRATEGY_IDX" = "1" ]' in RUNGS_SCRIPT, True)
 
