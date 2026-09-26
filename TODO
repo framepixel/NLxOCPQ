@@ -1652,3 +1652,21 @@
   LESSON (verification): a constraint that tightens one thing must be tested for NOT loosening
   another -- test the bounded grammar against the unbounded one on invalid inputs, not only on
   the new rule.
+
+- DONE (2026-09-26, notes 43.11) MODEL GATE: MINISTRAL 3 14B BASE (idx 2). Clean run
+  (eval_runs/agentic_gate, fp 137f1fc52d): 0 timeouts, 0 probe_unavailable, 1 restart, probe/CLI
+  25/26 (the 1 = bindings_skipped). Ministral: 0-0.4% malformed, lookups before try_query,
+  8-9 s/turn (p90 ~15), max case 189 s; +thought executes 27/38 vs 16/38, 0 resubmits.
+  Llama 8B base fails the protocol (28-30% malformed = runaways at the 2000 cap, 0% thought).
+  THE FAILURE NOW: TREE STRUCTURE. ~100 refused trees per Ministral run (cycles), finals full of
+  children_mismatch / root_count / cycle / multiple_parents / unbound_variable.
+  NEXT = STAGE 5 (dev set only; then freeze + hash the prompt):
+    1. structural_defects on EVERY try_query, returned with the counts (flag, e.g.
+       agent_structural_feedback) -- biggest expected lever.
+    2. finalise on the last EVALUATED tree, else last schema-valid (amends the pre-registered
+       rule -> notes BEFORE any scored run).
+    3. one worked example of tree topology (children lists + edgeNames) in the prompt.
+    4. reserve the last turn for an answer.
+    5. refuse identical resubmission (low priority for Ministral+thought).
+  Iterate with: sbatch --array=4,5 slurm/submit_agentic_gate.sh (Ministral, thought off/on).
+  THEN: size A2 from the new s/turn; smoke the rungs (--model-idx 2 --case-shard 8/11); full run.
