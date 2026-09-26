@@ -148,6 +148,10 @@ constrained_decoding = False
 # (the agentic arm, notes 43.7) makes property order generation order and forbids a key twice,
 # which `any_order=True` silently admits. See `set_constrained_any_order`.
 constrained_any_order = True
+# Tightens that grammar further (the agentic arm, notes 43.8): no free whitespace between JSON
+# tokens, and every list in a tree bounded at twice the largest gold list. Off by default, so every
+# recorded run is unchanged. See `set_constrained_bounded_shape`.
+constrained_bounded_shape = False
 # Overrides the per-call `max_tokens` the pipelines pass. None keeps their own values.
 generation_token_budget = None
 # ORACLE control: `(root_index, n_event_vars, n_object_vars)` taken from gold, or None. Tightens
@@ -177,6 +181,13 @@ agent_max_turns = 8
 # Whether agentic turns may carry a short `thought` (notes 43, the reasoning condition). Off by
 # default, which is exactly the protocol every run before 2026-09-23 used.
 agent_thought = False
+# Per-TURN generation cap for the agent loop, or None to use the run's budget (notes 43.8). Applied
+# where generation happens (`_effective_max_tokens`), because the run-wide budget overrides every
+# caller's `max_tokens` there and would silently swallow a cap passed from the loop.
+agent_turn_token_budget = None
+# True only while an agent turn is generating, so the per-turn cap cannot reach any other call --
+# the verifier, the post-execution repair, or the one-shot rung.
+_agent_turn_active = False
 _last_agent_trajectory = None
 
 LLM_CALL_STATS = []
@@ -392,6 +403,67 @@ def get_constrained_any_order():
     return constrained_any_order
 
 
+# The largest list of each kind in any gold tree (testset 169 + dev set 38, measured 2026-09-26),
+# doubled. Doubling keeps the bound far from anything gold needs -- every gold tree is admitted,
+# asserted in tests/test_constrained_decoding.py -- while a list that repeats its items forever (the
+# 2026-09-26 smoke: one empty box x60, a child list `[0, 0, 0, ...]`) is cut off. Lists of type
+# names per variable are deliberately NOT bounded: gold binds up to 67 event types to one variable,
+# and the per-turn token cap bounds those instead.
+OCPQ_TREE_MAX_ITEMS = {
+    "nodes": 16,         # gold max 8
+    "edgeNames": 16,     # gold max 7
+    "filters": 14,       # gold max 7
+    "constraints": 8,    # gold max 4
+    "sizeFilters": 2,    # gold max 1
+    "labels": 2,         # gold max 1
+    "children": 4,       # gold max 2 (the List[int] half of a Box)
+    "child_names": 4,    # gold max 2 (SAT/NOT/OR/AND/ANY)
+}
+
+
+def set_constrained_bounded_shape(value):
+    """Tighten the decoding grammar: no free whitespace, and bounded lists (see OCPQ_TREE_MAX_ITEMS).
+
+    Two more holes the ordered grammar (notes 43.7) left open, both measured in the 2026-09-26 gate
+    smoke on base Llama 3.1 8B: JSON admits unlimited whitespace between tokens, and one case wrote
+    398 visible characters and ~3900 tokens of blanks; and a list may repeat its items without
+    end. `any_whitespace=False` keeps the standard `", "` / `": "` separators and nothing else;
+    `maxItems` bounds each tree list. Every gold tree still passes both. Notes 43.8.
+    """
+    global constrained_bounded_shape
+    constrained_bounded_shape = bool(value)
+
+
+def get_constrained_bounded_shape():
+    return constrained_bounded_shape
+
+
+def _bounded_schema(schema):
+    """`schema` (a JSON-schema dict) with OCPQ_TREE_MAX_ITEMS applied to every BindingBoxTree in it.
+
+    Works on any schema that embeds the tree -- `BindingBoxTree` itself and the agent's turn union,
+    whose `$defs` carry the same definitions -- and leaves one without them unchanged. A copy.
+    """
+    schema = copy.deepcopy(schema)
+    defs = schema.get("$defs", {})
+    tree = defs.get("BindingBoxTree", schema if "nodes" in schema.get("properties", {}) else None)
+    if tree is not None:
+        tree["properties"]["nodes"]["maxItems"] = OCPQ_TREE_MAX_ITEMS["nodes"]
+        tree["properties"]["edgeNames"]["maxItems"] = OCPQ_TREE_MAX_ITEMS["edgeNames"]
+    box_data = defs.get("BindingBoxData", {}).get("properties", {})
+    for key in ("filters", "sizeFilters", "constraints", "labels"):
+        if key in box_data:
+            box_data[key]["maxItems"] = OCPQ_TREE_MAX_ITEMS[key]
+    node_box = defs.get("BindingBoxTreeNodeBox", {}).get("properties", {}).get("Box")
+    if node_box is not None:
+        node_box["prefixItems"][1]["maxItems"] = OCPQ_TREE_MAX_ITEMS["children"]
+    for definition in defs.values():
+        child_names = definition.get("properties", {}).get("child_names")
+        if child_names is not None:
+            child_names["maxItems"] = OCPQ_TREE_MAX_ITEMS["child_names"]
+    return schema
+
+
 def set_constrained_schema(model):
     """Constrain the next generation to `model` instead of the OCPQ tree, or None to restore it.
 
@@ -528,6 +600,34 @@ def set_agent_thought(value):
 
 def get_agent_thought():
     return agent_thought
+
+
+def set_agent_turn_token_budget(value):
+    """Cap each agent TURN at `value` tokens, or None to use the run's generation budget.
+
+    A turn that loops (a list repeating its items, a string that never closes) runs to the cap, and
+    at the run's 4000 tokens that is ~95 s -- six such turns spend a case's 600 s (notes 43.7-43.8).
+    The cap bounds the cost of a runaway, not the length of an answer: it is sized so every gold
+    tree fits with margin, which `tests/test_agent_turn_budget.py` checks with the evaluated
+    models' own tokenizers. The one-shot rung never enters the loop and keeps the run budget.
+    """
+    global agent_turn_token_budget
+    agent_turn_token_budget = None if value is None else int(value)
+
+
+def get_agent_turn_token_budget():
+    return agent_turn_token_budget
+
+
+def _effective_max_tokens(max_tokens):
+    """The `max_tokens` generation actually uses: the run budget overrides the caller's value, and
+    inside an agent turn the per-turn cap overrides both. One function, so the local backend and
+    the tests read the same rule."""
+    if generation_token_budget is not None:
+        max_tokens = generation_token_budget
+    if _agent_turn_active and agent_turn_token_budget is not None:
+        max_tokens = agent_turn_token_budget
+    return max_tokens
 
 
 def get_last_agent_trajectory():
@@ -1622,7 +1722,8 @@ def _ocpq_logits_processor():
     # arities across 13 (root_index, arity) combinations in the whole testset, so this cache stays
     # tiny even though the grammar is nominally per-case.
     key = (id(local_tokenizer), id(local_model), forced_root_arity, type_aware_filters_log,
-           getattr(constrained_schema_override, "__name__", None), constrained_any_order)
+           getattr(constrained_schema_override, "__name__", None), constrained_any_order,
+           constrained_bounded_shape)
     cached = _XGRAMMAR_CACHE.get(key)
     if cached is None:
         # The model's vocabulary is often LARGER than the tokenizer's, because checkpoints pad the
@@ -1647,8 +1748,13 @@ def _ocpq_logits_processor():
             if type_aware_filters_log is not None:
                 built = _type_aware_schema(built, type_aware_filters_log)
             source = json.dumps(built)
+        if constrained_bounded_shape:
+            # Applied LAST, to whatever the source is, so it composes with every transform above.
+            as_dict = json.loads(source) if isinstance(source, str) else source.model_json_schema()
+            source = json.dumps(_bounded_schema(as_dict))
         cached = xgr.GrammarCompiler(tokenizer_info).compile_grammar(
-            xgr.Grammar.from_json_schema(source, any_order=constrained_any_order, strict_mode=True)
+            xgr.Grammar.from_json_schema(source, any_order=constrained_any_order, strict_mode=True,
+                                         any_whitespace=not constrained_bounded_shape)
         )
         _XGRAMMAR_CACHE[key] = cached
     # The matcher carries per-generation state, so it is built fresh per call; the expensive
@@ -1692,9 +1798,9 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
             attention_mask = attention_mask.to(local_model.device)
 
     # Applied here rather than at the eight call sites that hard-code 1000/2000, so no pipeline
-    # signature changes and nothing can bypass it. None leaves each caller's own value alone.
-    if generation_token_budget is not None:
-        max_tokens = generation_token_budget
+    # signature changes and nothing can bypass it. None leaves each caller's own value alone. The
+    # agent's per-turn cap is applied at the same point, for the same reason.
+    max_tokens = _effective_max_tokens(max_tokens)
 
     prompt_tokens = int(input_ids.shape[-1])
     _check_context_budget(prompt_tokens, max_tokens)
@@ -4031,7 +4137,7 @@ def _run_pipeline_agentic(
         AgentNoFinalAnswer: no usable tree was produced. Never raised when any turn yielded a valid
             tree: the best one so far is finalised instead, and `final_source` records which it was.
     """
-    global _last_agent_trajectory
+    global _last_agent_trajectory, _agent_turn_active
     probe = agent_probe
     selected_model = model_name or hf_model
     print(f"Starting agentic NL to OCPQ pipeline "
@@ -4116,10 +4222,13 @@ Question:
             # model could not emit a tool call at all -- which would read as "small models cannot
             # do agentic work" when it is a grammar bug.
             set_constrained_schema(turn_model)
+            _agent_turn_active = True
             response = call_hf_with_retry(
                 model=selected_model,
                 messages=messages,
-                max_tokens=get_generation_token_budget() or 2000,
+                # The endpoint backend honours this directly; the local one applies the same rule
+                # in `_effective_max_tokens`.
+                max_tokens=(agent_turn_token_budget or get_generation_token_budget() or 2000),
                 # A union cannot be expressed in OpenAI strict mode (no root-level anyOf, and a
                 # free-form `args` cannot satisfy additionalProperties:false), so endpoint backends
                 # get plain JSON mode and the schema is enforced on the FINAL tree instead.
@@ -4132,6 +4241,7 @@ Question:
             break
         finally:
             set_constrained_schema(previous_schema)
+            _agent_turn_active = False
 
         content = response.choices[0].message.content or ""
         action, reason = _parse_agent_action(content, action_model)

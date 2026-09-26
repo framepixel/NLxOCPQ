@@ -42,6 +42,7 @@ from LLM import (
     set_generation_seed,
     set_constrained_decoding,
     set_constrained_any_order,
+    set_constrained_bounded_shape,
     set_generation_token_budget,
     set_forced_root_arity,
     set_type_aware_filters,
@@ -61,6 +62,7 @@ from LLM import (
     set_agent_probe,
     set_agent_max_turns,
     set_agent_thought,
+    set_agent_turn_token_budget,
     get_last_agent_trajectory,
     reset_last_agent_trajectory,
 )
@@ -226,7 +228,7 @@ _STRATUM_MISS = (None, None, {}, {})
 
 def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_budget,
                      type_aware_filters=False, constant_root_arity=False,
-                     structural_validation=False, any_order=True):
+                     structural_validation=False, any_order=True, bounded=False):
     """The suffix that distinguishes decoding rungs, used by BOTH `config_id` and the shard name.
 
     One definition because these had already drifted apart once. `config_id` carried the arity
@@ -237,13 +239,16 @@ def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_bu
 
     Empty when everything is at its default, so every condition recorded before 2026-09-02 keeps
     the id and the directory name it was published with. `_ordered` (notes 43.7) marks the ordered
-    grammar; it follows `_constrained` because it only means anything under it.
+    grammar and `_bounded` (notes 43.8) the whitespace-free, list-bounded one; both follow
+    `_constrained` because they only mean anything under it.
     """
     suffix = ""
     if constrained_decoding:
         suffix += "_constrained"
         if any_order is False:
             suffix += "_ordered"
+        if bounded:
+            suffix += "_bounded"
     if type_aware_filters:
         suffix += "_typed"
     if structural_validation:
@@ -262,14 +267,17 @@ DEFAULT_AGENT_MAX_TOOL_CALLS = 12
 
 
 def _agent_budget(config):
-    """`(max_turns, max_tool_calls, thought)` for an agentic run, read once from the config.
+    """`(max_turns, max_tool_calls, thought, turn_token_budget)` for an agentic run, read once from
+    the config.
 
     One reader for the three places that name the condition -- the manifest's `agentic` block,
     `config_id`, and the shard directory -- so they cannot disagree about what ran.
     """
+    turn_tokens = config.get("agent_turn_token_budget")
     return (int(config.get("agent_max_turns", DEFAULT_AGENT_MAX_TURNS)),
             int(config.get("agent_max_tool_calls", DEFAULT_AGENT_MAX_TOOL_CALLS)),
-            bool(config.get("agent_thought", False)))
+            bool(config.get("agent_thought", False)),
+            None if turn_tokens is None else int(turn_tokens))
 
 
 def _agent_shard_suffix(prompt_strategies, config):
@@ -288,7 +296,7 @@ def _agent_shard_suffix(prompt_strategies, config):
     return _agent_suffix(strategy, *_agent_budget(config))
 
 
-def _agent_suffix(prompt_strategy, max_turns, max_tool_calls, thought=False):
+def _agent_suffix(prompt_strategy, max_turns, max_tool_calls, thought=False, turn_tokens=None):
     """The budget of an agentic condition, for its `config_id`. Empty for every other strategy.
 
     Per condition rather than in `_decoding_suffix`, which is run-wide: the one-shot rung A0 runs in
@@ -301,6 +309,10 @@ def _agent_suffix(prompt_strategy, max_turns, max_tool_calls, thought=False):
     suffix = f"_turns{int(max_turns)}"
     if prompt_strategy == "agentic-log-tools":
         suffix += f"_tools{int(max_tool_calls)}"
+    if turn_tokens is not None:
+        # What one turn may cost, and therefore how many runaway turns fit in the case cap (notes
+        # 43.8). Both loop rungs carry it; None keeps every earlier id.
+        suffix += f"_turntok{int(turn_tokens)}"
     if thought:
         # A CONDITION like the budget: A1 with and without it share everything else.
         suffix += "_thought"
@@ -1862,6 +1874,7 @@ def run_evaluation(config_path_or_config):
             config.get("constant_root_arity"),
             config.get("structural_validation"),
             config.get("constrained_any_order", True),
+            config.get("constrained_bounded_shape", False),
         )
         # After the decoding suffix, matching `config_id`'s order. See `_agent_shard_suffix`.
         # The strategies are resolved (and the index validated) further down; this reads the same
@@ -1968,6 +1981,9 @@ def run_evaluation(config_path_or_config):
     # Grammar setting, not a new mechanism: False compiles the ORDERED grammar, which forbids a
     # repeated key (`any_order=True` admits one, and base models loop on it). Notes 43.7.
     constrained_any_order = bool(config.get("constrained_any_order", True))
+    # Grammar setting too: no free whitespace, and tree lists bounded at twice gold's largest.
+    # Notes 43.8. False keeps every recorded run unchanged.
+    constrained_bounded_shape = bool(config.get("constrained_bounded_shape", False))
     # Stops a run whose logs differ from data/corpus_manifest.json (notes 35). "warn" and "off"
     # exist for exploratory runs; every thesis run keeps the default.
     corpus_check = str(config.get("corpus_check", "error")).lower()
@@ -1983,13 +1999,15 @@ def run_evaluation(config_path_or_config):
     agent_uses_probe = "agentic-log-tools" in prompt_strategies
     agent_settings = None
     if agentic_strategies:
-        _turns, _tools, _thought = _agent_budget(config)
+        _turns, _tools, _thought, _turn_tokens = _agent_budget(config)
         agent_settings = {
             "strategies": agentic_strategies,
             "max_turns": _turns,
             "max_tool_calls": _tools,
             # The reasoning condition (notes 43): the action schema gains `thought`.
             "thought": _thought,
+            # Per-turn generation cap for the loop rungs, or None for the run budget (notes 43.8).
+            "turn_token_budget": _turn_tokens,
             "tool_result_char_cap": int(config.get("agent_tool_result_char_cap",
                                                    ocpq_probe.DEFAULT_RESULT_CHAR_CAP)),
             "probe_request_timeout_sec": float(config.get(
@@ -2074,6 +2092,8 @@ def run_evaluation(config_path_or_config):
               f"validates and repairs afterwards)")
         print(f"Dry run: constrained_any_order = {constrained_any_order}"
               f"   (False = ordered grammar: no repeated keys; notes 43.7)")
+        print(f"Dry run: constrained_bounded_shape = {constrained_bounded_shape}"
+              f"   (True = no free whitespace, bounded tree lists; notes 43.8)")
         print(f"Dry run: type_aware_filters = {type_aware_filters}   (non-oracle; from the log)")
         print(f"Dry run: structural_validation = {structural_validation}   (non-oracle; reads the generated tree)")
         print(f"Dry run: constant_root_arity = {constant_root_arity}   (non-oracle; training-corpus majority)")
@@ -2091,7 +2111,7 @@ def run_evaluation(config_path_or_config):
                   f"{'yes (started at run start)' if agent_uses_probe else 'no'}")
             for strategy in prompt_strategies:
                 print(f"Dry run:   config_id suffix for {strategy}: "
-                      f"{_agent_suffix(strategy, agent_settings['max_turns'], agent_settings['max_tool_calls'], agent_settings['thought']) or '(none)'}")
+                      f"{_agent_suffix(strategy, agent_settings['max_turns'], agent_settings['max_tool_calls'], agent_settings['thought'], agent_settings['turn_token_budget']) or '(none)'}")
         return None
 
     # Before any directory is created or model loaded: a run on the wrong corpus is worthless,
@@ -2168,6 +2188,7 @@ def run_evaluation(config_path_or_config):
         # Two shards that disagree on these must not merge silently.
         "constrained_decoding": constrained_decoding,
         "constrained_any_order": constrained_any_order,
+        "constrained_bounded_shape": constrained_bounded_shape,
         "generation_token_budget": generation_token_budget,
         "force_root_arity": force_root_arity,
         "type_aware_filters": type_aware_filters,
@@ -2232,6 +2253,7 @@ def run_evaluation(config_path_or_config):
     if agent_settings:
         set_agent_max_turns(agent_settings["max_turns"])
         set_agent_thought(agent_settings["thought"])
+        set_agent_turn_token_budget(agent_settings["turn_token_budget"])
     if agent_uses_probe:
         probe_server = ocpq_probe.ProbeServer().start()
         agent_probe_obj = ocpq_probe.OcpqProbe(
@@ -2359,6 +2381,7 @@ def run_evaluation(config_path_or_config):
             # byte-identical generation to every run recorded before 2026-09-02.
             set_constrained_decoding(constrained_decoding)
             set_constrained_any_order(constrained_any_order)
+            set_constrained_bounded_shape(constrained_bounded_shape)
             set_generation_token_budget(generation_token_budget)
 
             for strategy_idx, prompt_strategy in enumerate(prompt_strategies, start=1):
@@ -2380,10 +2403,11 @@ def run_evaluation(config_path_or_config):
                     decoding_suffix = _decoding_suffix(
                         constrained_decoding, force_root_arity, generation_token_budget,
                         type_aware_filters, constant_root_arity, structural_validation,
-                        constrained_any_order)
+                        constrained_any_order, constrained_bounded_shape)
                     agent_suffix = (_agent_suffix(prompt_strategy, agent_settings["max_turns"],
                                                   agent_settings["max_tool_calls"],
-                                                  agent_settings["thought"])
+                                                  agent_settings["thought"],
+                                                  agent_settings["turn_token_budget"])
                                     if agent_settings else "")
                     config_id = _slug(
                         f"{resolved_model['label']}_{prompt_strategy}"
@@ -2733,6 +2757,7 @@ def run_evaluation(config_path_or_config):
                             # constrained prediction from a free one.
                             "constrained_decoding": constrained_decoding,
                             "constrained_any_order": constrained_any_order,
+                            "constrained_bounded_shape": constrained_bounded_shape,
                             "generation_token_budget": generation_token_budget,
                             # The arity actually handed to the decoder, or None where the flag was
                             # off or gold was unreadable. Recorded per record so a reader can audit

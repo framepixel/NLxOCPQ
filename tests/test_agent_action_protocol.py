@@ -61,10 +61,14 @@ class ScriptedModel:
         self.replies = list(replies)
         self.sent = []
         self.schema_during_call = []
+        # What generation would ACTUALLY use: the local backend rewrites max_tokens through
+        # `_effective_max_tokens`, so the value passed here is not the whole story (notes 43.8).
+        self.effective_max_tokens = []
 
     def __call__(self, model, messages, max_tokens, response_format, **kwargs):
         self.sent.append([dict(message) for message in messages])
         self.schema_during_call.append(LLM.get_constrained_schema())
+        self.effective_max_tokens.append(LLM._effective_max_tokens(max_tokens))
         reply = self.replies.pop(0) if self.replies else '{"final_tree": %s}' % json.dumps(TREE)
         if isinstance(reply, Exception):
             raise reply
@@ -331,6 +335,27 @@ for probe in (FakeProbe(), None):
     model, outcome, error = run_loop(['{"final_tree": %s}' % json.dumps(TREE)], probe=probe)
     check(f"the {'tool' if probe else 'control'} rung's prompt carries the rules",
           LLM.OCPQ_TREE_RULES in model.sent[0][1]["content"], True)
+
+print("\n--- the per-turn cap: every agent turn, and nothing else (notes 43.8) ---")
+# The run budget overrides every caller's max_tokens where generation happens, so a cap passed from
+# the loop alone would be silently swallowed -- it has to win at that same point, and only inside
+# an agent turn: the verifier, the stderr repair and the one-shot rung keep the run budget.
+LLM.set_generation_token_budget(4000)
+LLM.set_agent_turn_token_budget(2000)
+model, outcome, error = run_loop([
+    '{"tool": "try_query", "args": {"tree": %s}}' % json.dumps(TREE),
+    '{"final_tree": %s}' % json.dumps(TREE)], probe=FakeProbe())
+check("every turn generates under the 2000-token cap, not the run's 4000",
+      model.effective_max_tokens, [2000, 2000])
+check("outside a turn the run budget applies again", LLM._effective_max_tokens(1000), 4000)
+check("...and the turn flag is down", LLM._agent_turn_active, False)
+model, outcome, error = run_loop([RuntimeError("generation died")])
+check("the flag comes down even when a turn raises", LLM._agent_turn_active, False)
+LLM.set_agent_turn_token_budget(None)
+model, outcome, error = run_loop(['{"final_tree": %s}' % json.dumps(TREE)])
+check("no cap: a turn gets the run budget, as before", model.effective_max_tokens, [4000])
+LLM.set_generation_token_budget(None)
+check("no budgets at all: the caller's own value", LLM._effective_max_tokens(1000), 1000)
 
 OUTPUT_FILE.unlink(missing_ok=True)
 

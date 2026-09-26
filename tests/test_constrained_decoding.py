@@ -375,10 +375,107 @@ check("...and it can be switched off", LLM.get_constrained_any_order(), False)
 LLM.set_constrained_any_order(None)
 _llm_src = (REPO / "src" / "LLM.py").read_text(encoding="utf-8")
 check("the decoder compiles with the flag, not a constant",
-      "from_json_schema(source, any_order=constrained_any_order, strict_mode=True)" in _llm_src,
+      "from_json_schema(source, any_order=constrained_any_order, strict_mode=True" in _llm_src,
       True)
 check("...and the grammar cache is keyed by it (an any_order grammar is never reused)",
-      '"__name__", None), constrained_any_order)' in _llm_src, True)
+      '"__name__", None), constrained_any_order,' in _llm_src, True)
+
+print("\n--- THE BOUNDED GRAMMAR: no free whitespace, bounded tree lists (notes 43.8) ---")
+# The 2026-09-26 smoke (ordered grammar, base Llama 3.1 8B): 8/10 cases still timed out. One turn
+# wrote 398 visible characters and ~3900 tokens of blanks; others repeated list items (one empty
+# box x60, a child list [0, 0, 0, ...]). Built with LLM's own transform, so what is tested here is
+# what the decoder compiles.
+bounded_tree_schema = LLM._bounded_schema(BindingBoxTree.model_json_schema())
+bounded_turn_schema = LLM._bounded_schema(AgentTurn.model_json_schema())
+bounded_thought_schema = LLM._bounded_schema(AgentTurnWithThought.model_json_schema())
+
+
+def bounded(schema):
+    return xgr.Grammar.from_json_schema(json.dumps(schema), any_order=False, strict_mode=True,
+                                        any_whitespace=False)
+
+
+b_tree, b_turn, b_thought = (bounded(bounded_tree_schema), bounded(bounded_turn_schema),
+                             bounded(bounded_thought_schema))
+
+
+def placed_bounds(schema):
+    """Each bound read back from the path it must sit at -- a count would pass on Pydantic's own
+    tuple `maxItems: 2` without any bound having been placed."""
+    d = schema["$defs"]
+    tree = d.get("BindingBoxTree", schema)
+    box = d["BindingBoxData"]["properties"]
+    child_names = {name: dfn["properties"]["child_names"].get("maxItems")
+                   for name, dfn in d.items() if "child_names" in dfn.get("properties", {})}
+    return {"nodes": tree["properties"]["nodes"].get("maxItems"),
+            "edgeNames": tree["properties"]["edgeNames"].get("maxItems"),
+            **{k: box[k].get("maxItems") for k in ("filters", "sizeFilters", "constraints",
+                                                    "labels")},
+            "children": d["BindingBoxTreeNodeBox"]["properties"]["Box"]["prefixItems"][1]
+            .get("maxItems"),
+            "child_names": set(child_names.values()) if child_names else None}
+
+
+_expected = dict(LLM.OCPQ_TREE_MAX_ITEMS, child_names={LLM.OCPQ_TREE_MAX_ITEMS["child_names"]})
+check("every bound sits at its path in the tree schema", placed_bounds(bounded_tree_schema),
+      _expected)
+check("...and in the turn union's embedded tree (same definitions)",
+      placed_bounds(bounded_turn_schema), _expected)
+_before = BindingBoxTree.model_json_schema()
+_snapshot = json.dumps(_before, sort_keys=True)
+LLM._bounded_schema(_before)
+check("the transform leaves its input alone (it returns a copy)",
+      json.dumps(_before, sort_keys=True), _snapshot)
+for label, path in (("testset", "data/testset.json"), ("dev set", "data/agent_devset.json")):
+    trees = [json.dumps(BindingBoxTree.model_validate(e["ocpq_query"])
+                        .model_dump(by_alias=True, mode="json"))
+             for e in json.load(open(REPO / path, encoding="utf-8"))]
+    check(f"every {label} gold tree passes the bounded tree grammar",
+          [i for i, t in enumerate(trees) if not accepts(b_tree, t)], [])
+    check(f"...as a final answer and as a try_query in the bounded turn grammar",
+          [i for i, t in enumerate(trees)
+           if not (accepts(b_turn, '{"final_tree": ' + t + '}')
+                   and accepts(b_turn, '{"tool": "try_query", "args": {"tree": ' + t + '}}'))],
+          [])
+SP_BOX = ('{"newEventVars": {}, "newObjectVars": {}, "filters": [], "sizeFilters": [], '
+          '"constraints": [], "evVarLabels": {}, "obVarLabels": {}}')
+SP_NODE = '{"Box": [' + SP_BOX + ', []]}'
+
+
+def tree_of(nodes=1, children="[]", box=SP_BOX, gap=""):
+    node = '{"Box": [' + box + ', ' + children + ']}'
+    return '{"nodes": [' + ", ".join([node] * nodes) + '],' + (gap or " ") + '"edgeNames": []}'
+
+
+check("a clean tree with standard separators is admitted", accepts(b_tree, tree_of()), True)
+check("REFUSES the whitespace runaway (the smoke's blanks)",
+      accepts(b_tree, tree_of(gap=" " * 40 + "\n" * 10)), False)
+check("...which the unbounded grammar admits (pinned: why the flag exists)",
+      accepts(grammar(any_order=False),
+              tree_of(gap=" " * 40 + "\n" * 10).replace(", ", ",").replace(": ", ":")
+              .replace(",  ", ", ")), True)
+check(f"nodes: {LLM.OCPQ_TREE_MAX_ITEMS['nodes']} admitted, one more REFUSED",
+      (accepts(b_tree, tree_of(nodes=LLM.OCPQ_TREE_MAX_ITEMS["nodes"])),
+       accepts(b_tree, tree_of(nodes=LLM.OCPQ_TREE_MAX_ITEMS["nodes"] + 1))), (True, False))
+check("a child list [0, 0, 0, 0, 0] (the smoke's shape) is REFUSED",
+      accepts(b_tree, tree_of(children="[0, 0, 0, 0, 0]")), False)
+many_filters = SP_BOX.replace('"filters": []', '"filters": [' + ", ".join(
+    ['{"type": "O2E", "object": 0, "event": 0}'] * (LLM.OCPQ_TREE_MAX_ITEMS["filters"] + 1)) + "]")
+check("a filter list over its bound is REFUSED", accepts(b_tree, tree_of(box=many_filters)), False)
+check("the bounded turn grammar refuses the runaway inside a try_query",
+      accepts(b_turn, '{"tool": "try_query", "args": {"tree": '
+              + tree_of(nodes=LLM.OCPQ_TREE_MAX_ITEMS["nodes"] + 1) + '}}'), False)
+check("the bounded thought grammar still takes the thought first",
+      accepts(b_thought, '{"thought": "orders first", "tool": "sample", "args": {"type": "o"}}'),
+      True)
+check("the decoder compiles with the flag (any_whitespace follows it)",
+      "any_whitespace=not constrained_bounded_shape" in _llm_src, True)
+check("...applies the bounds to whatever source it compiles",
+      "source = json.dumps(_bounded_schema(as_dict))" in _llm_src, True)
+check("...and caches by it", "constrained_any_order,\n           constrained_bounded_shape)"
+      in _llm_src.replace("\r\n", "\n"), True)
+check("off by default: every recorded run compiled the unbounded grammar",
+      LLM.get_constrained_bounded_shape(), False)
 
 print()
 if failures:

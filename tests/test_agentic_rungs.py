@@ -88,8 +88,23 @@ check("five rungs in the case statement", [task for task, _ in blocks], ["0", "1
 decoding = _decoding_suffix(CONFIG["constrained_decoding"], CONFIG["force_root_arity"],
                             CONFIG["generation_token_budget"], CONFIG["type_aware_filters"],
                             CONFIG["constant_root_arity"], CONFIG["structural_validation"],
-                            CONFIG["constrained_any_order"])
-check("the config's decoding suffix", decoding, "_constrained_ordered_tok4000")
+                            CONFIG["constrained_any_order"], CONFIG["constrained_bounded_shape"])
+check("the config's decoding suffix", decoding, "_constrained_ordered_bounded_tok4000")
+# notes 43.8: no free whitespace, bounded tree lists, and a per-turn cap for the loop rungs.
+for _name, _cfg in (("agentic", CONFIG), ("gate", load("configs/eval_config.agentic_gate.json"))):
+    check(f"{_name}: the bounded grammar is on", _cfg["constrained_bounded_shape"], True)
+    check(f"{_name}: the loop's per-turn cap is 2000 tokens", _cfg["agent_turn_token_budget"], 2000)
+check("_bounded is named after _ordered, and not without constrained decoding",
+      (_decoding_suffix(True, False, 4000, any_order=False, bounded=True),
+       _decoding_suffix(False, False, 4000, any_order=False, bounded=True)),
+      ("_constrained_ordered_bounded_tok4000", "_tok4000"))
+check("the per-turn cap names both loop rungs; A0 never runs the loop, so it keeps its id",
+      (_agent_suffix("agentic-log-tools", 8, 12, False, 2000),
+       _agent_suffix("agentic-self-refine", 8, 12, False, 2000),
+       _agent_suffix("schema-allowed-entities-only", 8, 12, False, 2000)),
+      ("_turns8_tools12_turntok2000", "_turns8_turntok2000", ""))
+check("no cap keeps every earlier id", _agent_suffix("agentic-log-tools", 8, 12, True),
+      "_turns8_tools12_thought")
 # notes 43.7: any_order=True admits a repeated key, and base Llama looped on one in 58/70 turns.
 check("both agentic configs compile the ORDERED grammar",
       (CONFIG["constrained_any_order"], load("configs/eval_config.agentic_gate.json")
