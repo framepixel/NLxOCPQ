@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
-#SBATCH --time=24:00:00
+#SBATCH --time=20:00:00
 #SBATCH --array=0-4
 #SBATCH --account=thes2358
 #SBATCH --export=ALL
