@@ -1825,3 +1825,38 @@
     * Unverified: whether the OpenAI-compatible route the `custom-endpoint` backend uses supports
       json_object, prompt caching, usage and finish_reason for these models; else a native
       Anthropic backend (small, behind the backend switch).
+
+- OPEN, NEXT: THE SECOND AGENTIC ARM, MUSE GLIMMER-30B (model index 8), notes 43.16. Decided
+  2026-09-27: NF4 4-bit, reasoning strength low, all five rungs, the FROZEN protocol (pFBEXL, same
+  hashes, budgets, caps; lever C off). Code done and tested locally (27/27 runnable tests pass;
+  the 4 xgrammar tests need the cluster). On the cluster, in order:
+    1. git pull. Storage: $HOME is 150 GB with ~108 GB used, so Glimmer's ~60 GB go to $HPCWORK.
+       Check that quota first (r_quota / df -h $HPCWORK). Optional $HOME cleanup if needed:
+       ~/envs (7 GB, the superseded virtualenv), NLxOCPQ/logs (6.3 GB), core_dumps (0.6 GB).
+    2. ENV (login node): OCPQ_ENV_VARIANT=glimmer bash scripts/make_eval_env.sh
+       -> clones nlxocpq-eval-v5 to nlxocpq-eval-glimmer and installs transformers==5.17.0 ONLY.
+       STOP if it reports any other package CHANGED (torch above all) -- do not work around it.
+       It ends with "transformers knows muse_glimmer" and writes requirements.eval-glimmer.txt.
+    3. WEIGHTS (login node): bash scripts/prefetch_glimmer.sh && VERIFY=1 bash scripts/prefetch_glimmer.sh
+       (~60 GB into $HPCWORK/nlxocpq-hf, pinned commit a4e59da from the config).
+    4. TESTS in the new env (conda activate nlxocpq-eval-glimmer; export HF_HOME=$HPCWORK/nlxocpq-hf):
+         python tests/test_constrained_decoding.py   <- THE risk: xgrammar 0.2.5 on transformers 5.17
+         python tests/test_model_chat_options.py
+         python tests/test_agent_turn_budget.py
+         python tests/test_agentic_rungs.py && python tests/test_agent_stage5.py
+       and, in the OLD env, test_constrained_decoding.py once more (nothing there should move).
+    5. LOAD SMOKE, 2 dev cases: sbatch --array=8 slurm/submit_agentic_gate.sh --case-shard 0/19
+       Read: which auto class loaded it ([model load] line), load time, GPU memory, s/turn, the
+       first turns' raw output (JSON, ending at the object; completion tokens ~ JSON length),
+       malformed and cap-hit counts, manifest `libraries` (transformers 5.17.0).
+    6. GATE: sbatch --array=8,9 slurm/submit_agentic_gate.sh (38 dev cases x thought off/on).
+       Compliance + s/turn + cap hits ONLY (dev F1 not quotable). A2 fits the 600 s cap only if
+       s/turn stays under ~30. Only the CHAT settings (prefix, reasoning strength) may change here,
+       never the protocol; then FREEZE them (notes + pin in test_model_chat_options.py).
+    7. RUNG SMOKE: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 8 --case-shard 8/11
+       (check prompt_sha256 = the frozen table, oracle_conditions [], libraries), smoke_check.py.
+    8. FULL RUN: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 8
+       (~2x Ministral: A2 ~8-9 h, the others 3-6.5 h; ~35 GPU-h with the gate).
+    9. ANALYSIS as pre-registered in notes 43.16: compliance first; A1 - A1' headline; the three
+       mechanism measures against Ministral's (empty-result revision 1/20, population change
+       4/17, try_query 1.05/case); cross-arm comparison descriptive only.

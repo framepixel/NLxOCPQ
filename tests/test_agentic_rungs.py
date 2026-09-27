@@ -175,10 +175,15 @@ for name, cfg in (("agentic", CONFIG), ("gate", GATE_CONFIG)):
     check(f"{name}: case_timeout_sec is the matrix's 600", cfg["case_timeout_sec"], 600)
 check("the rungs pass no per-rung cap (one config, one cap)", "--case-timeout" in RUNGS_SCRIPT,
       False)
-check("the model list is the non-oracle arm's, so an index means the same model",
-      (CONFIG["models"], CONFIG["fine_tune_map"]),
-      (load("configs/eval_config.non_oracle.json")["models"],
-       load("configs/eval_config.non_oracle.json")["fine_tune_map"]))
+_non_oracle = load("configs/eval_config.non_oracle.json")
+# Models the agentic arm adds are APPENDED (Muse Glimmer, notes 43.16), so every index the two
+# configs share still means the same model -- a prefix, not equality.
+check("the model list starts with the non-oracle arm's, so a shared index means the same model",
+      (CONFIG["models"][:len(_non_oracle["models"])], CONFIG["fine_tune_map"]),
+      (_non_oracle["models"], _non_oracle["fine_tune_map"]))
+check("...and what it appends is Muse Glimmer only",
+      [m["label"] for m in CONFIG["models"][len(_non_oracle["models"]):]],
+      ["muse-glimmer-30b-base"])
 
 print("\n--- the gate: dev set only, and its own directory ---")
 check("the gate reads the dev set", GATE_CONFIG["testset_path"], "data/agent_devset.json")
@@ -264,6 +269,50 @@ else:
           (0, "OK 0"))
     check("the argument coexists with --case-shard",
           guard(["--case-shard", "8/11", "--model-idx", "0"]), (0, "OK 0"))
+    check("--model-idx 8 (Muse Glimmer base, the second arm): runs",
+          guard(["--model-idx", "8"]), (0, "OK 8"))
+    check("--model-idx 9 (nothing: Glimmer has no adapter): refuses",
+          guard(["--model-idx", "9"])[0], 1)
+
+print("\n--- the runtime follows the MODEL: Glimmer in its own env, on $HPCWORK (notes 43.16) ---")
+check("index 8 is Muse Glimmer in the expansion", labels[8], "muse-glimmer-30b-base")
+RUNTIME = script_text("slurm/model_runtime.sh")
+check("model_runtime.sh: no CR characters", RUNTIME.count("\r"), 0)
+for name, text, known in (("rungs", RUNGS_SCRIPT, 'echo "Model index: ${MODEL_IDX}"'),
+                          ("gate", GATE_SCRIPT, '8|9) MODEL_IDX=8;')):
+    check(f"{name}: sources the runtime and activates what it chose",
+          ('source "$SCRIPT_DIR/model_runtime.sh"' in text
+           and 'conda activate "$OCPQ_RUNTIME_ENV"' in text
+           and 'export HF_HOME="$OCPQ_RUNTIME_HF_HOME"' in text), True)
+    check(f"{name}: no environment is activated before the model is known",
+          text.index("conda activate") > text.index(known), True)
+    check(f"{name}: ...and nothing runs python before it",
+          re.search(r"^python ", text[:text.index("conda activate")], re.M), None)
+check("gate: tasks 8/9 are Glimmer, thought off/on",
+      '8|9) MODEL_IDX=8; MODEL_NAME="muse-glimmer-30b-base"' in GATE_SCRIPT, True)
+if _bash is not None:
+    def runtime(idx, **env_over):
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("OCPQ_EVAL_ENV", "HF_HOME", "HF_HUB_CACHE", "HPCWORK")}
+        env.update(env_over)
+        env.setdefault("HOME", "/home/u")
+        snippet = (RUNTIME + '\nocpq_model_runtime "$1" || exit 1\n'
+                   'echo "$OCPQ_RUNTIME_ENV|$OCPQ_RUNTIME_HF_HOME|$OCPQ_RUNTIME_HF_HUB_CACHE"\n')
+        proc = subprocess.run([_bash, "-c", snippet, "runtime", idx], env=env,
+                              capture_output=True, text=True)
+        return proc.returncode, proc.stdout.strip()
+    check("index 2 runs exactly where it did before",
+          runtime("2", HOME="/home/u"),
+          (0, "nlxocpq-eval-v5|/home/u/.cache/huggingface|/home/u/.cache/huggingface/hub"))
+    check("...honouring the variables it honoured before",
+          runtime("2", OCPQ_EVAL_ENV="e", HF_HOME="/h"), (0, "e|/h|/h/hub"))
+    check("index 8 runs in the Glimmer env with its cache on $HPCWORK",
+          runtime("8", HPCWORK="/w"),
+          (0, "nlxocpq-eval-glimmer|/w/nlxocpq-hf|/w/nlxocpq-hf/hub"))
+    check("...whatever OCPQ_EVAL_ENV and HF_HOME say",
+          runtime("8", HPCWORK="/w", OCPQ_EVAL_ENV="nlxocpq-eval-v5", HF_HOME="/h"),
+          (0, "nlxocpq-eval-glimmer|/w/nlxocpq-hf|/w/nlxocpq-hf/hub"))
+    check("index 8 without $HPCWORK refuses", runtime("8")[0], 1)
 
 print()
 if failures:

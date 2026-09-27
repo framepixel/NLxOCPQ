@@ -52,6 +52,16 @@
     {
       "name": "models/adapters/gemma3-4b-base-16bit",
       "label": "gemma3-4b-base"
+    },
+    {
+      "name": "meta-models/Muse-Glimmer-30B",
+      "label": "muse-glimmer-30b-base",
+      "revision": "a4e59da52a7bc87ae7251dd5545c0dd437c44b68",
+      "finetuned": false,
+      "chat_template_kwargs": {
+        "reasoning_strength": "low"
+      },
+      "generation_prefix": " to=user<|message|>"
     }
   ],
   "schema_enforced": [
@@ -93,5 +103,6 @@
   "agent_probe_load_timeout_sec": 300,
   "agent_probe_max_restarts_per_case": 2,
   "agent_probe_max_restarts_per_run": 10,
-  "agent_record_turn_char_cap": 600
+  "agent_record_turn_char_cap": 600,
+  "models_note": "Index order is load-bearing: the submit scripts select by the EXPANDED index (even = base, odd = its adapter). Muse Glimmer (notes 43.16) is appended LAST so every earlier index is unchanged; it has no adapter (finetuned: false), so it is index 8 and nothing follows it. Its revision pins the hub commit; chat_template_kwargs and generation_prefix are its chat settings, frozen after its model gate."
 }

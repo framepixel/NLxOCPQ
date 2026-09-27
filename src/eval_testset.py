@@ -52,6 +52,7 @@ from LLM import (
     set_schema_level,
     set_hf_client,
     set_local_gpu_client,
+    set_local_model_options,
     reset_llm_call_stats,
     get_llm_call_stats,
     reset_query_exec_stats,
@@ -1531,6 +1532,25 @@ def _std(values):
     return math.sqrt(variance)
 
 
+_RECORDED_LIBRARIES = ("torch", "transformers", "tokenizers", "xgrammar", "bitsandbytes",
+                       "accelerate", "peft")
+
+
+def _library_versions():
+    """Installed versions of the generation stack, None for a package that is absent. Never raises:
+    provenance that can crash a run gets switched off, and then records nothing."""
+    from importlib.metadata import PackageNotFoundError, version
+    found = {}
+    for name in _RECORDED_LIBRARIES:
+        try:
+            found[name] = version(name)
+        except PackageNotFoundError:
+            found[name] = None
+        except Exception:  # noqa: BLE001 - informational only
+            found[name] = "unknown"
+    return found
+
+
 def _configure_backend(model_cfg, global_cfg):
     backend = model_cfg.get("backend") or global_cfg.get("backend")
     hf_provider = model_cfg.get("hf_provider") or global_cfg.get("hf_provider")
@@ -1539,6 +1559,13 @@ def _configure_backend(model_cfg, global_cfg):
     local_dtype = model_cfg.get("local_dtype") or global_cfg.get("local_dtype")
     local_quantization = model_cfg.get("local_quantization") or global_cfg.get("local_quantization") or "4bit"
 
+    # Per-model chat settings (notes 43.16), set -- or cleared -- for EVERY model before it is
+    # selected, so no model inherits another's. Absent from every model before Muse Glimmer.
+    set_local_model_options(
+        revision=model_cfg.get("revision"),
+        chat_template_kwargs=model_cfg.get("chat_template_kwargs"),
+        generation_prefix=model_cfg.get("generation_prefix"),
+    )
     if backend == "local-gpu":
         set_local_gpu_client(
             model_name=model_cfg["name"],
@@ -2274,6 +2301,10 @@ def run_evaluation(config_path_or_config):
         # The evaluator itself: OCPQ source revision, dirty flag, and the sha256 of the ocpq_cli
         # (and web-server) binaries. Added 2026-09-22; earlier runs record none of it.
         "ocpq": ocpq,
+        # The generation stack (notes 43.16): the Glimmer arm runs on a newer transformers than
+        # the Ministral arm, so which stack produced a run is a fact of the run, not of the repo.
+        # Outside `config_fingerprint`, so it cannot block a resume.
+        "libraries": _library_versions(),
         "repeats": repeats,
         # Stated per run, not only in the config, because a timeout rate is meaningless without
         # the budget it was measured against. Also enters `config_fingerprint`, so two shards

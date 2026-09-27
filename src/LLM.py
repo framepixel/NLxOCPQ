@@ -211,6 +211,12 @@ local_model_key = None
 local_gpu_device = "cuda"
 local_gpu_dtype = "auto"
 local_gpu_quantization = "4bit"
+# Per-model chat settings (notes 43.16), set from a model's config entry. All three are empty for
+# every model before Muse Glimmer, which leaves the local path byte-identical to what every recorded
+# run used (tests/test_model_chat_options.py).
+local_model_revision = None          # a hub commit, so every job loads the same weights
+local_chat_template_kwargs = {}      # extra variables for the chat template
+local_generation_prefix = None       # text appended after the generation prompt
 
 def set_hf_client(
     token=None,
@@ -261,7 +267,7 @@ def set_hf_client(
         # Only evict the cached model when the configuration actually changes.
         # Without this guard, calling set_local_gpu_client() in every eval loop
         # iteration resets local_model to None each case, forcing a full reload.
-        new_key = (hf_model, hf_token, new_device, new_dtype, new_quantization)
+        new_key = _local_model_key(hf_model, hf_token, new_device, new_dtype, new_quantization)
         if local_model_key != new_key:
             local_model = None
             local_tokenizer = None
@@ -748,6 +754,24 @@ def get_hf_backend_description():
     if hf_backend == "hf-provider":
         return f"HF provider ({hf_provider or 'auto'})"
     return "HF default"
+
+
+def set_local_model_options(revision=None, chat_template_kwargs=None, generation_prefix=None):
+    """Set the per-model chat settings for the local backend (notes 43.16); None clears each one.
+
+    Called for every model before it is selected, so a model without the settings never inherits
+    another model's. Set BEFORE `set_local_gpu_client`: the revision is part of the cached model's
+    key, and a key computed without it would keep serving the wrong weights.
+    """
+    global local_model_revision, local_chat_template_kwargs, local_generation_prefix
+    local_model_revision = revision or None
+    local_chat_template_kwargs = dict(chat_template_kwargs or {})
+    local_generation_prefix = generation_prefix or None
+
+
+def _local_model_key(model, token, device, dtype, quantization):
+    """What identifies the loaded local model. One function for both places that compare it."""
+    return (model, token, device, dtype, quantization, local_model_revision)
 
 
 def set_local_gpu_client(model_name=None, token=None, device="cuda", dtype="auto", quantization="4bit"):
@@ -1307,7 +1331,21 @@ def _load_text_generation_model(model_name, **kwargs):
             f"[model load] {model_name} is not registered for AutoModelForCausalLM; "
             "loading via AutoModelForImageTextToText (multimodal checkpoint)."
         )
-        return AutoModelForImageTextToText.from_pretrained(model_name, **kwargs)
+        try:
+            return AutoModelForImageTextToText.from_pretrained(model_name, **kwargs)
+        except ValueError as exc2:
+            # Muse Glimmer's card loads it with AutoModelForMultimodalLM (transformers 5.x), and
+            # it may be registered only there (notes 43.16). Reached only when BOTH classes
+            # above reject the config, so no model that loaded before takes this path.
+            if "Unrecognized configuration class" not in str(exc2):
+                raise
+            try:
+                from transformers import AutoModelForMultimodalLM
+            except ImportError:
+                raise exc2
+            print(f"[model load] {model_name} is not registered for AutoModelForImageTextToText "
+                  "either; loading via AutoModelForMultimodalLM.")
+            return AutoModelForMultimodalLM.from_pretrained(model_name, **kwargs)
 
 
 def _as_tokenizer(tokenizer_or_processor):
@@ -1330,7 +1368,8 @@ def _ensure_local_gpu_model_loaded():
     global local_tokenizer
     global local_model_key
 
-    model_key = (hf_model, hf_token, local_gpu_device, local_gpu_dtype, local_gpu_quantization)
+    model_key = _local_model_key(hf_model, hf_token, local_gpu_device, local_gpu_dtype,
+                                 local_gpu_quantization)
     if local_model is not None and local_tokenizer is not None and local_model_key == model_key:
         return
 
@@ -1508,11 +1547,13 @@ def _ensure_local_gpu_model_loaded():
             )
 
     else:
-        # Normal HF hub id or remote model
-        tokenizer = _as_tokenizer(AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs))
+        # Normal HF hub id or remote model. A pinned revision (notes 43.16) reaches the tokenizer
+        # and the weights alike; without one the kwargs are exactly what every earlier run passed.
+        rev_kwargs = {"revision": local_model_revision} if local_model_revision else {}
+        tokenizer = _as_tokenizer(AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs, **rev_kwargs))
         if tokenizer.pad_token is None and tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = _load_text_generation_model(hf_model, **auth_kwargs, **model_kwargs)
+        model = _load_text_generation_model(hf_model, **auth_kwargs, **rev_kwargs, **model_kwargs)
 
     if not any(param.is_cuda for param in model.parameters()):
         raise RuntimeError(
@@ -1832,9 +1873,19 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
             normalized_messages,
             add_generation_prompt=True,
             return_tensors="pt",
+            **local_chat_template_kwargs,
         )
         if not isinstance(input_ids, torch.Tensor):
             input_ids = input_ids["input_ids"]
+        if local_generation_prefix:
+            # Opens the answer channel of a model whose generation prompt stops before it (Muse
+            # Glimmer: `<|start|>assistant`, then ` to=user<|message|>` or a reasoning channel).
+            # Constrained decoding would otherwise force `{` where the model expects a channel
+            # header. The prefix is the text the template itself writes for a plain assistant
+            # turn, so the model's current turn looks exactly like its history (notes 43.16).
+            prefix_ids = local_tokenizer.encode(local_generation_prefix, add_special_tokens=False)
+            input_ids = torch.cat(
+                [input_ids, torch.tensor([prefix_ids], dtype=input_ids.dtype)], dim=-1)
         input_ids = input_ids.to(local_model.device)
         attention_mask = torch.ones_like(input_ids)
     else:

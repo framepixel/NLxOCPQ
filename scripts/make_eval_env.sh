@@ -15,14 +15,36 @@
 # — a silently upgraded numpy is exactly the failure this separation exists to prevent.
 set -euo pipefail
 
-SRC_ENV="${OCPQ_TRAIN_ENV:-nlxocpq-train-v5}"
-DST_ENV="${OCPQ_EVAL_ENV:-nlxocpq-eval-v5}"
-# Only these may be added. Anything else that changes version is a collateral upgrade.
-# xgrammar added 2026-09-02 for constrained decoding. It pulls apache-tvm-ffi and
-# nothing else; verified locally that torch, transformers, pydantic and peft all stay
-# put. The check below is what proves that on the cluster too -- if it reports a moved
-# package, stop rather than working around it: the adapters were written by that stack.
-NEW_PACKAGES=(scikit-learn openai xgrammar)
+# OCPQ_ENV_VARIANT=glimmer builds the SECOND arm's environment (notes 43.16) instead:
+#     OCPQ_ENV_VARIANT=glimmer bash scripts/make_eval_env.sh
+# Muse Glimmer's model type (`muse_glimmer`) exists only from transformers 5.15, and the eval env
+# is on 5.5.0 -- the stack every recorded run used. So Glimmer gets a clone of the eval env with
+# ONE intended change, transformers, and the check below still refuses any other move (torch
+# above all). The completed Ministral arm's environment is not touched.
+VARIANT="${OCPQ_ENV_VARIANT:-default}"
+case "$VARIANT" in
+  default)
+    SRC_ENV="${OCPQ_TRAIN_ENV:-nlxocpq-train-v5}"
+    DST_ENV="${OCPQ_EVAL_ENV:-nlxocpq-eval-v5}"
+    # Only these may be added. Anything else that changes version is a collateral upgrade.
+    # xgrammar added 2026-09-02 for constrained decoding. It pulls apache-tvm-ffi and
+    # nothing else; verified locally that torch, transformers, pydantic and peft all stay
+    # put. The check below is what proves that on the cluster too -- if it reports a moved
+    # package, stop rather than working around it: the adapters were written by that stack.
+    NEW_PACKAGES=(scikit-learn openai xgrammar)
+    MAY_CHANGE=""
+    REQUIREMENTS_OUT="requirements.eval-v5.txt" ;;
+  glimmer)
+    SRC_ENV="nlxocpq-eval-v5"
+    DST_ENV="nlxocpq-eval-glimmer"
+    NEW_PACKAGES=("transformers==5.17.0")
+    # transformers moves these with it; they are part of the same intended change.
+    MAY_CHANGE="transformers tokenizers huggingface-hub safetensors"
+    REQUIREMENTS_OUT="requirements.eval-glimmer.txt" ;;
+  *)
+    echo "FATAL: OCPQ_ENV_VARIANT must be 'default' or 'glimmer' (got '$VARIANT')." >&2
+    exit 1 ;;
+esac
 
 # Resolve relative to this script rather than the caller's cwd.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -72,11 +94,18 @@ pip install --disable-pip-version-check "${NEW_PACKAGES[@]}"
 echo "== Verifying the eval imports"
 # Uses the same checker the jobs run, so a green build here means a green pre-flight there.
 python "$DEPS_CHECK" --verbose
+if [ "$VARIANT" = "glimmer" ]; then
+  # The reason this environment exists: can this transformers build Glimmer's architecture? A
+  # config-only check -- it needs neither the weights nor the network.
+  python -c "from transformers import AutoConfig; AutoConfig.for_model('muse_glimmer'); print('   transformers knows muse_glimmer')"
+fi
 
 echo "== Checking nothing else moved"
 AFTER="$(mktemp)"
 pip freeze --disable-pip-version-check > "$AFTER"
-python - "$BEFORE" "$AFTER" "${NEW_PACKAGES[@]}" <<'PY'
+OCPQ_MAY_CHANGE="$MAY_CHANGE" python - "$BEFORE" "$AFTER" "${NEW_PACKAGES[@]}" <<'PY'
+import os
+import re
 import sys
 
 def parse(path):
@@ -90,10 +119,22 @@ def parse(path):
             out[name.strip().lower().replace("_", "-")] = ver.strip()
     return out
 
-before, after = parse(sys.argv[1]), parse(sys.argv[2])
-allowed = {p.lower().replace("_", "-") for p in sys.argv[3:]}
+def norm(name):
+    return re.split(r"[=<>!~ ]", name, 1)[0].strip().lower().replace("_", "-")
 
-changed = {n: (before[n], after[n]) for n in before if n in after and before[n] != after[n]}
+before, after = parse(sys.argv[1]), parse(sys.argv[2])
+allowed = {norm(p) for p in sys.argv[3:]}
+# The glimmer variant's ONE intended change and what moves with it. Empty for the default build.
+may_change = {norm(p) for p in os.environ.get("OCPQ_MAY_CHANGE", "").split()}
+
+intended = {n: (before[n], after[n]) for n in before
+            if n in after and before[n] != after[n] and n in may_change}
+if intended:
+    print(f"   intended ({len(intended)}):")
+    for n, (b, a) in sorted(intended.items()):
+        print(f"     {n}: {b} -> {a}")
+changed = {n: (before[n], after[n]) for n in before
+           if n in after and before[n] != after[n] and n not in may_change}
 removed = sorted(set(before) - set(after))
 added = sorted(set(after) - set(before))
 
@@ -119,13 +160,17 @@ if problems:
           "training version and re-run, or fall back to installing nothing and guarding the "
           "imports in LLM.py instead.", file=sys.stderr)
     sys.exit(1)
-print("   no pre-existing package changed version — eval stack matches training")
+print("   no other pre-existing package changed version — the stack matches its source env")
 PY
 
-pip freeze --disable-pip-version-check > "$SCRIPT_DIR/../requirements/requirements.eval-v5.txt"
-echo "== Wrote requirements/requirements.eval-v5.txt ($(wc -l < "$SCRIPT_DIR/../requirements/requirements.eval-v5.txt") packages)"
+pip freeze --disable-pip-version-check > "$SCRIPT_DIR/../requirements/$REQUIREMENTS_OUT"
+echo "== Wrote requirements/$REQUIREMENTS_OUT ($(wc -l < "$SCRIPT_DIR/../requirements/$REQUIREMENTS_OUT") packages)"
 
 ENV_PATH="$(python -c 'import sys, pathlib; print(pathlib.Path(sys.prefix))')"
 echo "== Disk: $(du -sh "$ENV_PATH" 2>/dev/null | cut -f1) at $ENV_PATH"
 echo
-echo "Done. The eval scripts default to OCPQ_EVAL_ENV=$DST_ENV."
+if [ "$VARIANT" = "glimmer" ]; then
+  echo "Done. The agentic scripts run model index 8 in $DST_ENV (slurm/model_runtime.sh)."
+else
+  echo "Done. The eval scripts default to OCPQ_EVAL_ENV=$DST_ENV."
+fi

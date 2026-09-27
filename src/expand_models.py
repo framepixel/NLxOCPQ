@@ -24,6 +24,10 @@ def expand_models(cfg: Dict[str, Any]) -> Dict[str, Any]:
         expanded.append(m)
         name = m.get("name")
         label = m.get("label", name)
+        if m.get("finetuned") is False:
+            # A base model with no adapter (Muse Glimmer, notes 43.16). Without this the default
+            # below would invent `<name>-finetuned`, a model index that loads nothing.
+            continue
 
         if name in ft_map:
             mapped = ft_map[name]

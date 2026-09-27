@@ -55,6 +55,14 @@
 #   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
 #   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2
 #
+# THE SECOND ARM (notes 43.16): model index 8 is Muse Glimmer-30B, the same five rungs and the same
+# frozen protocol. It runs in its own conda env with its weights on $HPCWORK (slurm/model_runtime.sh).
+# Prerequisites, on a login node: OCPQ_ENV_VARIANT=glimmer bash scripts/make_eval_env.sh, then
+# bash scripts/prefetch_glimmer.sh && VERIFY=1 bash scripts/prefetch_glimmer.sh. Its model gate
+# (slurm/submit_agentic_gate.sh, tasks 8,9) comes first, then:
+#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 8 --case-shard 8/11
+#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 8
+#
 set -u
 # SLURM copies the batch script into its spool directory before executing it, so
 # ${BASH_SOURCE[0]} points at /var/spool/slurm/... and NOT at this file in the repo. The reorg
@@ -94,38 +102,8 @@ module load Python/3.12.3
 unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER
 unset PYTHONHOME PYTHONPATH
 
-# Same stack as the fine-tuning runs, so the adapters are loaded by what wrote them.
-# A conda env, not the old $HOME/envs/nlxocpq-venv virtualenv.
-source "$HOME/miniforge3/etc/profile.d/conda.sh"
-# The eval environment is a clone of the fine-tuning env plus scikit-learn and openai,
-# which the eval path needs and training does not. Built by scripts/make_eval_env.sh, which
-# verifies no package shared with training changed version. Falls back to the training
-# env only if you have installed those two into it yourself.
-conda activate "${OCPQ_EVAL_ENV:-nlxocpq-eval-v5}"
-export LD_LIBRARY_PATH="/cvmfs/software.hpc.rwth.de/Linux/RH8/x86_64/intel/skylake_avx512/software/intel-compilers/2024.2.0/compiler/2024.2/lib:${LD_LIBRARY_PATH:-}"
-
-if [ ! -f "$PROJECT_DIR/src/check_eval_deps.py" ]; then
-  echo "FATAL: $PROJECT_DIR/src/check_eval_deps.py not found — copy the current NLxOCPQ files to the cluster." >&2
-  exit 1
-fi
-python "$PROJECT_DIR/src/check_eval_deps.py" --verbose || exit 1
-
-# SLURM does not source ~/.bashrc — load the token explicitly.
-[ -f "$HOME/.hf_token" ] && export HF_TOKEN="$(cat "$HOME/.hf_token")"
-
-if [ -z "${HF_TOKEN:-}" ]; then
-  echo "HF_TOKEN not set — ensure HF provider runs are disabled or token provided in config."
-fi
-
-# Offline by design, as in the training jobs: a multi-day matrix must not be able to die on a hub
-# outage or rate limit partway through. Requires the cache to be populated first:
-#     bash scripts/prefetch_models.sh && VERIFY=1 bash scripts/prefetch_models.sh
-# Set OCPQ_ALLOW_HUB=1 to disable if a model is genuinely missing from the cache.
-export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"
-export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
-if [ "${OCPQ_ALLOW_HUB:-0}" != "1" ]; then
-  export HF_HUB_OFFLINE=1
-fi
+# The conda environment and the HF cache are chosen per MODEL, so they are set up after the
+# model index is known (below the guard; slurm/model_runtime.sh, notes 43.16).
 
 # Keep ocpq_cli scratch on node-local storage. Correctness does not depend on it (every
 # invocation gets its own mkdtemp), but 24 concurrent tasks writing multi-hundred-MB exports
@@ -207,7 +185,7 @@ while [ "$#" -gt 0 ]; do
     --case-shard=*) OCPQ_CASE_SHARD="${1#*=}" ;;
     --model-idx)
       shift
-      [ "$#" -gt 0 ] || { echo "FATAL: --model-idx needs a value (0 or 2)" >&2; exit 1; }
+      [ "$#" -gt 0 ] || { echo "FATAL: --model-idx needs a value (0, 2 or 8)" >&2; exit 1; }
       MODEL_IDX="$1" ;;
     --model-idx=*) MODEL_IDX="${1#*=}" ;;
     *) echo "Warning: ignoring unrecognised argument '$1'" >&2 ;;
@@ -216,15 +194,53 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$MODEL_IDX" in
-  0|2) ;;
-  1|3) echo "FATAL: model index ${MODEL_IDX} is a fine-tuned adapter. The agentic arm runs on the" >&2
-       echo "       base model the gate picked (0 llama31-8b-base, 2 ministral3-14b-base)." >&2
+  0|2|8) ;;
+  1|3) echo "FATAL: model index ${MODEL_IDX} is a fine-tuned adapter. The agentic arm runs on a" >&2
+       echo "       base model (0 llama31-8b-base, 2 ministral3-14b-base, 8 muse-glimmer-30b-base)." >&2
        exit 1 ;;
-  *) echo "FATAL: pass --model-idx with the base model the gate picked" >&2
-     echo "       (0 llama31-8b-base, 2 ministral3-14b-base); '${MODEL_IDX}' is not one." >&2
+  *) echo "FATAL: pass --model-idx with a base model of the arm" >&2
+     echo "       (0 llama31-8b-base, 2 ministral3-14b-base, 8 muse-glimmer-30b-base); '${MODEL_IDX}' is not one." >&2
      exit 1 ;;
 esac
 echo "Model index: ${MODEL_IDX}"
+
+# Same stack as the fine-tuning runs, so the adapters are loaded by what wrote them.
+# A conda env, not the old $HOME/envs/nlxocpq-venv virtualenv.
+source "$HOME/miniforge3/etc/profile.d/conda.sh"
+# The eval environment is a clone of the fine-tuning env plus scikit-learn and openai,
+# which the eval path needs and training does not. Built by scripts/make_eval_env.sh, which
+# verifies no package shared with training changed version. Falls back to the training
+# env only if you have installed those two into it yourself.
+# Index 8 (Muse Glimmer) runs in its own clone on a newer transformers; every other index runs
+# exactly where it did before (slurm/model_runtime.sh).
+source "$SCRIPT_DIR/model_runtime.sh"
+ocpq_model_runtime "$MODEL_IDX" || exit 1
+conda activate "$OCPQ_RUNTIME_ENV"
+echo "Runtime: conda env ${OCPQ_RUNTIME_ENV}, HF cache ${OCPQ_RUNTIME_HF_HUB_CACHE}"
+export LD_LIBRARY_PATH="/cvmfs/software.hpc.rwth.de/Linux/RH8/x86_64/intel/skylake_avx512/software/intel-compilers/2024.2.0/compiler/2024.2/lib:${LD_LIBRARY_PATH:-}"
+
+if [ ! -f "$PROJECT_DIR/src/check_eval_deps.py" ]; then
+  echo "FATAL: $PROJECT_DIR/src/check_eval_deps.py not found — copy the current NLxOCPQ files to the cluster." >&2
+  exit 1
+fi
+python "$PROJECT_DIR/src/check_eval_deps.py" --verbose || exit 1
+
+# SLURM does not source ~/.bashrc — load the token explicitly.
+[ -f "$HOME/.hf_token" ] && export HF_TOKEN="$(cat "$HOME/.hf_token")"
+
+if [ -z "${HF_TOKEN:-}" ]; then
+  echo "HF_TOKEN not set — ensure HF provider runs are disabled or token provided in config."
+fi
+
+# Offline by design, as in the training jobs: a multi-day matrix must not be able to die on a hub
+# outage or rate limit partway through. Requires the cache to be populated first:
+#     bash scripts/prefetch_models.sh && VERIFY=1 bash scripts/prefetch_models.sh
+# Set OCPQ_ALLOW_HUB=1 to disable if a model is genuinely missing from the cache.
+export HF_HOME="$OCPQ_RUNTIME_HF_HOME"
+export HF_HUB_CACHE="$OCPQ_RUNTIME_HF_HUB_CACHE"
+if [ "${OCPQ_ALLOW_HUB:-0}" != "1" ]; then
+  export HF_HUB_OFFLINE=1
+fi
 
 RESUME_ARGS=()
 if [ "$OCPQ_RESUME_REQUESTED" = "1" ]; then

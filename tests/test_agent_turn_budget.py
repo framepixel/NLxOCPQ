@@ -8,9 +8,12 @@ way the bounded grammar forces it -- standard `", "` / `": "` separators, no fre
 schema order -- wrapped in the LONGEST turn that carries a tree (`try_query`), tokenised with each
 gate model's tokenizer, and required to fit within HEADROOM of the cap.
 
-Tokenizers: the base model's own, from the HF cache (the cluster). Where that is absent, the
+Tokenizers: the base model's own, from the HF cache (the cluster), at the config's pinned revision
+when it has one. Where transformers cannot build it (Muse Glimmer's tokenizer class needs
+transformers 5.x), its tokenizer.json from the same cache. Where the base model is absent, the
 fine-tuned adapter's copy in models/adapters/, which is the same tokenizer (an adapter changes
-weights, not the vocabulary); the output says which one was used.
+weights, not the vocabulary). The output says which one was used. On the cluster, Glimmer's cache
+is on $HPCWORK:  HF_HOME=$HPCWORK/nlxocpq-hf python tests/test_agent_turn_budget.py
 
 Run from the repo root:  python tests/test_agent_turn_budget.py
 """
@@ -27,7 +30,8 @@ from ocpq_schema import BindingBoxTree  # noqa: E402
 # The largest gold turn must fit in this share of the cap. The rest is room for a thought, for a
 # tree slightly larger than any gold one, and for tokenizer differences across models.
 HEADROOM = 0.75
-GATE_MODEL_INDICES = (0, 2)   # the base models the rung script accepts (submit_agentic_rungs.sh)
+# The base models the rung script accepts (submit_agentic_rungs.sh); 8 is Muse Glimmer (notes 43.16).
+GATE_MODEL_INDICES = (0, 2, 8)
 
 failures = []
 
@@ -70,10 +74,21 @@ adapters = cfg.get("fine_tune_map", {})
 
 def load_tokenizer(model):
     """`(count_tokens, source)`, or `(None, None)` if neither tokenizer can be found."""
+    rev = {"revision": model["revision"]} if model.get("revision") else {}
     try:
-        tok = AutoTokenizer.from_pretrained(model["name"], local_files_only=True)
+        tok = AutoTokenizer.from_pretrained(model["name"], local_files_only=True, **rev)
         return (lambda text: len(tok(text, add_special_tokens=False)["input_ids"])), "base, cached"
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError: a tokenizer class this transformers does not know (Glimmer's, before 5.x).
+        pass
+    try:
+        from huggingface_hub import hf_hub_download
+        from tokenizers import Tokenizer
+        path = hf_hub_download(model["name"], "tokenizer.json", local_files_only=True, **rev)
+        tok = Tokenizer.from_file(path)
+        return ((lambda text: len(tok.encode(text, add_special_tokens=False).ids)),
+                "base, cached tokenizer.json")
+    except Exception:  # noqa: BLE001 - not cached; try the adapter's copy below
         pass
     mapped = adapters.get(model["name"], {})
     adapter = REPO / (mapped.get("name") if isinstance(mapped, dict) else mapped or "")
