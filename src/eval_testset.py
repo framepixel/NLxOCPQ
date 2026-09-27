@@ -276,6 +276,8 @@ AGENT_LEVERS = (
     ("agent_finalise_evaluated", "finalise_evaluated", "E"),
     ("agent_worked_example", "worked_example", "X"),
     ("agent_reserve_last_turn", "reserve_last_turn", "L"),
+    # Added after the scored run (notes 43.15), last so the frozen rungs' "FBEXL" is unchanged.
+    ("agent_cap_feedback", "cap_feedback", "C"),
 )
 
 
@@ -1327,6 +1329,12 @@ def _truncation_counts(records) -> dict:
     }
 
 
+def _cap_hit_rate(agents):
+    counted = [a for _, a in agents if a.get("cap_hits") is not None]
+    turns = sum(int(a.get("turns") or 0) for a in counted)
+    return (sum(int(a["cap_hits"]) for a in counted) / turns) if turns else None
+
+
 def _agent_compliance(records) -> dict:
     """The agentic arm's compliance block -- PRE-REGISTERED to be reported before any F1 (notes 43).
 
@@ -1396,6 +1404,9 @@ def _agent_compliance(records) -> dict:
         "agent_final_bounce_rate": _mean([1 if a.get("final_bounced") else 0 for _, a in agents]),
         "agent_mean_check_tree_calls": _mean([a.get("check_tree_calls") for _, a in agents
                                               if a.get("check_tree_calls") is not None]),
+        # Turns the per-turn cap cut off (notes 43.15), over the turns of the records that count
+        # them. Before 43.15 they were filed as malformed and not told apart: None there, not 0.
+        "agent_cap_hit_turn_rate": _cap_hit_rate(agents),
     }
 
 
@@ -1713,6 +1724,9 @@ def _compact_agent_turns(trajectory, cap):
         turn = {"turn": entry.get("turn"), "action": entry.get("action")}
         if entry.get("malformed"):
             turn["malformed"] = str(entry["malformed"])[:cap]
+        if entry.get("hit_cap"):
+            # Cut off at the per-turn cap, not malformed by the model (notes 43.15).
+            turn["hit_cap"] = True
         if entry.get("error"):
             turn["error"] = str(entry["error"])[:cap]
         if entry.get("thought"):
@@ -2766,6 +2780,8 @@ def run_evaluation(config_path_or_config):
                                 # tree whatever the levers, so it compares across conditions.
                                 "final_bounced": bool(agent_state.get("final_bounced")),
                                 "check_tree_calls": int(agent_state.get("check_tree_calls") or 0),
+                                # Turns cut off at the per-turn cap (notes 43.15).
+                                "cap_hits": agent_state.get("cap_hits"),
                                 "final_blocking_defects": (
                                     len(blocking_defects(structural_defects(ocpq_json)))
                                     if isinstance(ocpq_json, dict) else None),

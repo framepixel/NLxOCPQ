@@ -28,7 +28,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import LLM  # noqa: E402
 from eval_testset import (  # noqa: E402
-    AGENT_LEVERS, _agent_budget, _agent_compliance, _agent_levers, _agent_suffix)
+    AGENT_LEVERS, _agent_budget, _agent_compliance, _agent_levers, _agent_protocol, _agent_suffix,
+    _compact_agent_turns)
 from ocpq_schema import (  # noqa: E402
     DEFECT_HINTS, PROBE_TOOL_NAMES, AgentTurn, BindingBoxTree, agent_turn_model,
     blocking_defects, structural_defects)
@@ -95,8 +96,19 @@ OUT = ROOT / "eval_runs" / "_agent_stage5_test_query.json"
 OUT.parent.mkdir(parents=True, exist_ok=True)
 
 
-def run(replies, probe=None, max_turns=4, thought=False, **levers):
-    model = ScriptedModel(replies)
+class CutModel(ScriptedModel):
+    """Its first reply stops at the cap, reported as the local backend does: exactly `cap` tokens."""
+
+    def __call__(self, model, messages, max_tokens, response_format, **kwargs):
+        first = not self.sent
+        out = super().__call__(model, messages, max_tokens, response_format, **kwargs)
+        if first:
+            out.usage = SimpleNamespace(completion_tokens=max_tokens)
+        return out
+
+
+def run(replies, probe=None, max_turns=4, thought=False, model_cls=ScriptedModel, **levers):
+    model = model_cls(replies)
     LLM.call_hf_with_retry = model
     LLM.extract_ocel_schema = lambda path: {"event_types": ["pay"], "object_types": ["orders"],
                                             "event_attributes": {}, "object_attributes": {},
@@ -156,7 +168,8 @@ check("every lever set that changes the prompt changes the hash (B and E change 
 LLM.set_agent_protocol()
 
 print("\n--- names: every lever set is its own directory; A0 keeps its id ---")
-cfg = {key: True for key, _lever, _letter in AGENT_LEVERS}
+# The five Stage 5 levers the scored rungs run; C (notes 43.15) is tested on its own below.
+cfg = {key: True for key, lever, _letter in AGENT_LEVERS if lever != "cap_feedback"}
 check("letters in a fixed order", _agent_levers(cfg), "FBEXL")
 check("none -> no suffix part", _agent_levers({}), "")
 check("the suffix carries them after the turn cap, before the thought",
@@ -338,6 +351,46 @@ check("final blocking rate, clean tree-turn rate, bounce rate, mean check_tree c
 check("last_evaluated_probe appears in the final-source counts",
       block["agent_final_source"].get("last_evaluated_probe"), 1)
 
+print("\n--- C: a turn cut off at the per-turn cap is told so (notes 43.15) ---")
+CUT = '{"tool": "sample", "args": {"type": "ord'
+check("its letter comes last, so the frozen rungs' suffix is unchanged",
+      (_agent_levers(dict(cfg, agent_cap_feedback=True)), _agent_levers(cfg)), ("FBEXLC", "FBEXL"))
+model, outcome, error, state = run([CUT, final(CLEAN)], max_turns=3, model_cls=CutModel)
+check("off: the cut is recorded, and counted apart from the malformed turns",
+      (state["trajectory"][0].get("hit_cap"), state["cap_hits"], state["malformed_actions"]),
+      (True, 1, 1))
+check("off: the reply is the pre-43.15 one",
+      "do not truncate the object" in model.sent[1][-1]["content"], True)
+model, outcome, error, state = run([CUT, final(CLEAN)], max_turns=3, model_cls=CutModel,
+                                   cap_feedback=True)
+feedback = model.sent[1][-1]["content"]
+check("on: the model is told it hit the limit, and not that it truncated",
+      ("token limit for one reply" in feedback, "do not truncate" in feedback), (True, False))
+check("...naming the cap the turn ran under", "2000-token limit" in feedback, True)
+check("...and the case still ends on its declared answer", state["final_source"], "declared")
+model, outcome, error, state = run([CUT, final(CLEAN)], max_turns=3, cap_feedback=True)
+check("on: malformed but NOT at the cap keeps the parse error, and counts no cap hit",
+      ("do not truncate the object" in model.sent[1][-1]["content"], state["cap_hits"]), (True, 0))
+check("an endpoint's finish_reason 'length' counts as a cap hit",
+      LLM._turn_hit_cap(SimpleNamespace(choices=[SimpleNamespace(finish_reason="length")],
+                                        usage=None), 2000), True)
+check("the compact turn keeps hit_cap",
+      _compact_agent_turns([{"turn": 1, "malformed": "x", "hit_cap": True}], 200)[0]["hit_cap"],
+      True)
+block = _agent_compliance([{"status": "success", "agent": {"turns": 4, "cap_hits": 1}},
+                           {"status": "success", "agent": {"turns": 4, "cap_hits": 0}}])
+check("the cap-hit rate is over the turns of the records that count hits",
+      block["agent_cap_hit_turn_rate"], 0.125)
+check("...and None, not 0, for a run from before 43.15",
+      _agent_compliance([{"status": "success", "agent": {"turns": 4}}])["agent_cap_hit_turn_rate"],
+      None)
+LLM.set_agent_thought(False)
+LLM.set_agent_protocol(**dict(_agent_protocol(cfg), cap_feedback=True))
+check("C changes no prompt text: the tool rung's hash is still the frozen A1/A2 one",
+      LLM.agent_prompt_sha256(True),
+      "f70eb067d54d5d5e4fce3c9d34c57093330b6bc5de4e3f0b5b49943e0084b780")
+LLM.set_agent_protocol()
+
 print("\n--- THE FROZEN PROTOCOL (notes 43.14): the prompt the scored rungs run ---")
 # Frozen 2026-09-26 after the Stage 5 dev run (notes 43.13), BEFORE any scored agentic run. The
 # tool-rung hashes equal the ones the cluster recorded in that run's manifests (f70eb067...,
@@ -355,6 +408,8 @@ rung_cfg = json.load(open(ROOT / "configs" / "eval_config.agentic.json", encodin
 gate_cfg = json.load(open(ROOT / "configs" / "eval_config.agentic_gate.json", encoding="utf-8"))
 check("the rung config runs the levers the dev run measured",
       _agent_protocol(rung_cfg), _agent_protocol(gate_cfg))
+check("...and not C, which came after the scored run (notes 43.15)",
+      _agent_protocol(rung_cfg)["cap_feedback"], False)
 for (thought, with_tools), want in FROZEN.items():
     LLM.set_agent_thought(thought)
     LLM.set_agent_protocol(**_agent_protocol(rung_cfg))
@@ -368,4 +423,4 @@ print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")
     sys.exit(1)
-print("RESULT: PASS -> five levers, each doing what it says, none leaking when off")
+print("RESULT: PASS -> six levers, each doing what it says, none leaking when off")

@@ -197,6 +197,7 @@ AGENT_PROTOCOL_DEFAULTS = {
     "finalise_evaluated": False,      # E: fall back to the last tree the probe EVALUATED first
     "worked_example": False,          # X: how a tree links boxes, and one worked example
     "reserve_last_turn": False,       # L: the last turn admits a final answer only
+    "cap_feedback": False,            # C: a turn cut off at the per-turn cap is told so (43.15)
 }
 agent_protocol = dict(AGENT_PROTOCOL_DEFAULTS)
 _last_agent_trajectory = None
@@ -4058,6 +4059,28 @@ AGENT_CHECK_TREE_SPEC = {
                     "scope), each with how to fix it."),
 }
 AGENT_LAST_TURN_NOTE = "This is your LAST turn: answer now with {\"final_tree\": {...}}."
+# C (notes 43.15). Without it, a turn the harness cut at the cap is answered "do not truncate the
+# object" -- blaming the model for a cut it did not make, and not saying the object was too LONG.
+# On the angular log that was nearly every malformed turn of the scored run: ~70 event types listed
+# in one variable, or a dozen full commit messages in one `is_in`.
+AGENT_CAP_FEEDBACK = ("it reached the {cap}-token limit for one reply before its JSON object "
+                      "closed, so it was cut off. The object is too long, not malformed: write a "
+                      "much shorter one. Bind the one type each variable needs instead of listing "
+                      "every type, and filter on a few values, not a long list copied from a "
+                      "sample")
+
+
+def _turn_hit_cap(response, cap):
+    """Did this turn stop at the token cap instead of finishing its object?
+
+    An endpoint says so (`finish_reason == "length"`); the local backend reports only how many
+    tokens it generated, and it stops at exactly `cap` when the cap is what stopped it.
+    """
+    choice = response.choices[0]
+    if getattr(choice, "finish_reason", None) == "length":
+        return True
+    used = getattr(getattr(response, "usage", None), "completion_tokens", None)
+    return used is not None and cap is not None and used >= cap
 _STRUCTURE_REPORT_CAP = 8
 
 
@@ -4366,6 +4389,7 @@ def _run_pipeline_agentic(
         ("check_tree",) if levers["structural_feedback"] else ())
     final_bounced = False
     check_tree_calls = 0
+    cap_hits = 0
     turns_used = 0
 
     # Published BEFORE the loop and updated every turn, so a case the per-case cap kills mid-loop
@@ -4402,6 +4426,7 @@ def _run_pipeline_agentic(
         return AgentTurnWithThought if thought_on else AgentTurn
 
     previous_schema = get_constrained_schema()
+    turn_cap = agent_turn_token_budget or get_generation_token_budget() or 2000
     for turn in range(agent_max_turns):
         turns_used = turn + 1
         turn_model = grammar_for(turn)
@@ -4413,6 +4438,7 @@ def _run_pipeline_agentic(
                                 + AGENT_LAST_TURN_NOTE)
         _last_agent_trajectory["turns"] = turns_used
         _last_agent_trajectory["malformed_actions"] = malformed
+        _last_agent_trajectory["cap_hits"] = cap_hits
         _last_agent_trajectory["tool_calls"] = 0 if probe is None else probe.tool_calls
         try:
             # Constrain to the PROTOCOL, not to a tree. Without this the xgrammar processor masks
@@ -4426,7 +4452,7 @@ def _run_pipeline_agentic(
                 messages=messages,
                 # The endpoint backend honours this directly; the local one applies the same rule
                 # in `_effective_max_tokens`.
-                max_tokens=(agent_turn_token_budget or get_generation_token_budget() or 2000),
+                max_tokens=turn_cap,
                 # A union cannot be expressed in OpenAI strict mode (no root-level anyOf, and a
                 # free-form `args` cannot satisfy additionalProperties:false), so endpoint backends
                 # get plain JSON mode and the schema is enforced on the FINAL tree instead.
@@ -4453,6 +4479,12 @@ def _run_pipeline_agentic(
 
         if action is None:
             malformed += 1
+            # Recorded whatever the levers, so every condition's cap hits can be counted.
+            if _turn_hit_cap(response, turn_cap):
+                cap_hits += 1
+                entry["hit_cap"] = True
+                if levers["cap_feedback"]:
+                    reason = AGENT_CAP_FEEDBACK.format(cap=turn_cap)
             entry["malformed"] = reason
             trajectory.append(entry)
             messages.append({"role": "assistant", "content": content})
@@ -4563,6 +4595,7 @@ def _run_pipeline_agentic(
         "tool_trajectory": [] if probe is None else list(probe.trajectory),
         "final_bounced": final_bounced,
         "check_tree_calls": check_tree_calls,
+        "cap_hits": cap_hits,
     })
 
     if final_tree is None:

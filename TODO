@@ -1752,7 +1752,7 @@
   tests/test_agent_stage5.py (A1/A2 f70eb067..., A1' 093b2eb0..., A1+thought d46ba7c2...); A2 =
   16 turns / 24 tool calls, a committed constant (A2_SIZED=1) in slurm/submit_agentic_rungs.sh.
 
-- OPEN, NEXT (step 3): THE SCORED AGENTIC RUNS, Ministral 3 14B base (--model-idx 2), frozen pFBEXL.
+- DONE (step 3): THE SCORED AGENTIC RUNS, Ministral 3 14B base (--model-idx 2), frozen pFBEXL.
     a. On the cluster: git pull; python tests/test_agent_stage5.py (the frozen hashes must PASS
        there too) and python tests/test_agentic_rungs.py.
     b. RUNG SMOKE on a testset slice (small logs):
@@ -1767,3 +1767,61 @@
        compliance BEFORE any F1; paired bootstrap A1 - A1' (log access, the headline), A2 - A1
        (budget), A1+thought - A1 (reasoning), A1 - A0 (the whole arm vs one-shot, incl. the
        prompt's structure block); skill beside F1; mechanism (population vs syntax revisions).
+  DONE (2026-09-27, notes 43.15). Smoke clean; full run 5 x 169/169, one pipeline fingerprint
+  (d1329a46), one corpus, one OCPQ (333bdca), oracle_conditions [] x5, frozen hashes x4.
+  Discriminating 135, floor 0.7250: A0 0.0001 | A1' 0.0908 | A1 0.1104 | A1+thought 0.1111 |
+  A2 0.1179. Paired: A1-A1' +0.0196 [-0.037, +0.077] (null; evaluated +51/-16, p<0.001);
+  A2-A1 +0.0075 (null); A1+thought-A1 +0.0007 (null); A1-A0 +0.1103 [+0.067, +0.159], of which
+  A1'-A0 is +0.0908. Mechanism: revisions mostly syntactic (root population changed in 4 of 17
+  multi-try cases); an empty try_query result was left empty in 19 of 20 cases.
+
+- DONE (2026-09-27, notes 43.15) CAP FEEDBACK, lever C (`agent_cap_feedback`, suffix letter C,
+  appended after L so "FBEXL" is unchanged). The angular log caused nearly every malformed turn of
+  the scored run (62/62 A1', 31/32 A1, 39/39 A2), all 7 A1' no-answers and A2's one timeout: the
+  model lists ~70 event types in one variable or copies commit messages into `is_in`, runs into
+  the 2000-token per-turn cap, and was then told "do not truncate the object" -- blaming it for a
+  cut the harness made. Now: every cut turn is recorded (`hit_cap` per turn, `cap_hits` per case,
+  `agent_cap_hit_turn_rate` in the compliance block, None for runs before 43.15); with C on, the
+  reply names the cap and says the object is too long. C changes no prompt text (the A1/A2 hash
+  is unchanged) and NO scored rung runs it; tests/test_agent_stage5.py pins both.
+  OPEN DECISION: whether a future arm (the frontier arm) runs C. On = a different protocol from the
+  scored open-model arm, so its rungs are compared among themselves, not across the two arms.
+
+- OPEN (cluster, 5 min): PROBE vs CLI ON THE ANGULAR LOG. A1's 7 disagreements (agreement 0.94):
+  one is case 73 (hospital, bindings skipped -- the pre-registered exemption; and OCPQ's counts
+  are NOT deterministic once it skips bindings: laptop CLI 41 then 46, server 38 then 44). The six
+  others are ONE tree, declared for six different questions (root = node 2, which re-declares the
+  variables its children bind). Cluster: server 51, CLI 45 root situations. Laptop, byte-identical
+  log (sha256 491a50aa...), OCPQ 50f60c1: 17 from both, every time, and the 17 are a strict subset
+  of the cluster CLI's 45 (event 7667 linked to 17 files on the laptop, 45 on the cluster). So the
+  builds differ on this XML's E2O links (import is the likeliest place); the two front ends agree when
+  built together (laptop). No F1 can move (all six scored 0 against the 45, which contain the 17),
+  but on the cluster the server and the CLI disagree, and the laptop disagrees with both. Steps:
+    1. python src/probe_cli_diff.py --run-dir eval_runs/agentic/<A1 dir> --disagreements --repeats 3
+       (prints OCPQ rev, both binaries' sha256 + mtime, the log digest vs the run, and per-node
+       counts from both front ends).
+    2. If the server still says 51 and the CLI 45: the server binary (mtime 2026-09-23 11:43) is
+       older than the CLI (18:23). Rebuild BOTH from 333bdca (cargo build --release in
+       backend/web-server and backend/ocpq_cli), re-run step 1, and record the new digests.
+    3. Record in notes 43.15 which build is right, and whether any GOLD on the three XML logs
+       changes under the rebuilt CLI (gold is scored by the cluster CLI, so this is the question
+       that matters beyond the probe). Do NOT re-run scored rungs to fix six zero-F1 cases.
+
+- OPEN, NEXT: DECIDE THE FRONTIER ARM (Stage 6), notes 43.15. The open model does not use the
+  tools; the question the supervisor asked is whether a strong model does. Same config with
+  backend custom-endpoint, no code change. Rungs A0, A1, A1' (the headline repeated), A2 optional.
+  Budget from the scored run's measured tokens (A1: 50k prompt + 1.7k completion per case).
+  CHECKED 2026-09-27 (platform.claude.com pricing + Opus 5.5 migration guide):
+    * Opus 5.5 AND Sonnet 5 reject temperature/top_p/top_k != default (HTTP 400). The frontier arm
+      CANNOT be greedy: the harness must omit `temperature` (a config flag, recorded in the
+      manifest), and the arm is sampled -> decide repeats (CLAUDE.md: ask) before spending.
+    * Opus 5.5 thinks on every request (thinking cannot be disabled; `effort` controls it) and
+      `max_tokens` covers thinking + text, so the 2000-token per-turn cap would be eaten by
+      thinking -> a different per-turn budget = a different protocol. Sonnet 5 accepts
+      thinking {type: disabled}: the closest replication of the frozen protocol.
+    * Prices /MTok: Opus 5.5 $4 in, $20 out, cache read $0.20, 5-min write $5; Sonnet 5 $2/$10,
+      cache read $0.20. Estimated per repeat for A0+A1'+A1+A2 (x1.3 tokenizer, unmeasured):
+      Sonnet 5 no thinking ~$45-80; Opus 5.5 ~$120-310 depending on effort and caching.
+    * Unverified: whether the OpenAI-compatible route the `custom-endpoint` backend uses supports
+      json_object, prompt caching, usage and finish_reason for these models; else a native
+      Anthropic backend (small, behind the backend switch).
