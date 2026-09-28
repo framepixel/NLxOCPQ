@@ -30,8 +30,9 @@ from ocpq_schema import BindingBoxTree  # noqa: E402
 # The largest gold turn must fit in this share of the cap. The rest is room for a thought, for a
 # tree slightly larger than any gold one, and for tokenizer differences across models.
 HEADROOM = 0.75
-# The base models the rung script accepts (submit_agentic_rungs.sh); 8 is Muse Glimmer (notes 43.16).
-GATE_MODEL_INDICES = (0, 2, 8)
+# The base models the rung script accepts (submit_agentic_rungs.sh): 8 Muse Glimmer (notes 43.16),
+# 9 Qwen3.8-27B and 10 Gemma 4 31B-it (notes 43.18).
+GATE_MODEL_INDICES = (0, 2, 8, 9, 10)
 
 failures = []
 
@@ -78,8 +79,9 @@ def load_tokenizer(model):
     try:
         tok = AutoTokenizer.from_pretrained(model["name"], local_files_only=True, **rev)
         return (lambda text: len(tok(text, add_special_tokens=False)["input_ids"])), "base, cached"
-    except (OSError, ValueError):
-        # ValueError: a tokenizer class this transformers does not know (Glimmer's, before 5.x).
+    except Exception:  # noqa: BLE001 - fall through to the vocabulary file itself
+        # A tokenizer class this transformers cannot build: ValueError for Glimmer's before 5.x,
+        # AttributeError for Gemma 4's on 4.x. The vocabulary, read below, is what counts.
         pass
     try:
         from huggingface_hub import hf_hub_download

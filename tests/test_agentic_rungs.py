@@ -137,10 +137,9 @@ check("A1, A2 and A1+thought share strategy 1 -- and still get three different s
 check("the resume glob is built from RUNG_SUFFIX in this run's directory",
       f"{CONFIG['output_dir']}/shard_m${{MODEL_IDX}}_s${{STRATEGY_IDX}}_e${{SCHEMA_IDX}}"
       "${RUNG_SUFFIX}_*" in RUNGS_SCRIPT, True)
-# notes 43.17: the pFBEXLR runs never share a directory with the completed pFBEXL run of 43.15 --
-# A0's name carries no lever, so in one directory the two protocols' A0 would be indistinguishable.
-check("the rungs write to eval_runs/agentic_r, not to the completed run's eval_runs/agentic",
-      CONFIG["output_dir"], "eval_runs/agentic_r")
+# notes 43.18: R is off again, so every model of evaluation 1 runs pFBEXL, beside the 43.15 run.
+check("the rungs write to eval_runs/agentic, beside the scored run on the same protocol",
+      CONFIG["output_dir"], "eval_runs/agentic")
 
 print("\n--- the rung table is the intended experiment ---")
 by_task = dict(blocks)
@@ -185,9 +184,9 @@ _non_oracle = load("configs/eval_config.non_oracle.json")
 check("the model list starts with the non-oracle arm's, so a shared index means the same model",
       (CONFIG["models"][:len(_non_oracle["models"])], CONFIG["fine_tune_map"]),
       (_non_oracle["models"], _non_oracle["fine_tune_map"]))
-check("...and what it appends is Muse Glimmer only",
+check("...and what it appends is Glimmer, Qwen3.8 and Gemma 4, in that order",
       [m["label"] for m in CONFIG["models"][len(_non_oracle["models"]):]],
-      ["muse-glimmer-30b-base"])
+      ["muse-glimmer-30b-base", "qwen3.8-27b-base", "gemma4-31b-base"])
 
 print("\n--- the gate: dev set only, and its own directory ---")
 check("the gate reads the dev set", GATE_CONFIG["testset_path"], "data/agent_devset.json")
@@ -275,11 +274,15 @@ else:
           guard(["--case-shard", "8/11", "--model-idx", "0"]), (0, "OK 0"))
     check("--model-idx 8 (Muse Glimmer base, the second arm): runs",
           guard(["--model-idx", "8"]), (0, "OK 8"))
-    check("--model-idx 9 (nothing: Glimmer has no adapter): refuses",
-          guard(["--model-idx", "9"])[0], 1)
+    check("--model-idx 9 (Qwen3.8 base, notes 43.18): runs", guard(["--model-idx", "9"]),
+          (0, "OK 9"))
+    check("--model-idx 10 (Gemma 4 base, notes 43.18): runs", guard(["--model-idx", "10"]),
+          (0, "OK 10"))
+    check("--model-idx 11 (nothing: no model there): refuses", guard(["--model-idx", "11"])[0], 1)
 
 print("\n--- the runtime follows the MODEL: Glimmer in its own env, on $HPCWORK (notes 43.16) ---")
-check("index 8 is Muse Glimmer in the expansion", labels[8], "muse-glimmer-30b-base")
+check("indices 8, 9, 10 are Glimmer, Qwen3.8 and Gemma 4 in the expansion", labels[8:],
+      ["muse-glimmer-30b-base", "qwen3.8-27b-base", "gemma4-31b-base"])
 RUNTIME = script_text("slurm/model_runtime.sh")
 check("model_runtime.sh: no CR characters", RUNTIME.count("\r"), 0)
 for name, text, known in (("rungs", RUNGS_SCRIPT, 'echo "Model index: ${MODEL_IDX}"'),
@@ -292,8 +295,10 @@ for name, text, known in (("rungs", RUNGS_SCRIPT, 'echo "Model index: ${MODEL_ID
           text.index("conda activate") > text.index(known), True)
     check(f"{name}: ...and nothing runs python before it",
           re.search(r"^python ", text[:text.index("conda activate")], re.M), None)
-check("gate: tasks 8/9 are Glimmer, thought off/on",
-      '8|9) MODEL_IDX=8; MODEL_NAME="muse-glimmer-30b-base"' in GATE_SCRIPT, True)
+check("gate: tasks 8/9 are Glimmer, 10/11 Qwen3.8, 12/13 Gemma 4 (thought off/on by parity)",
+      ['8|9) MODEL_IDX=8; MODEL_NAME="muse-glimmer-30b-base"' in GATE_SCRIPT,
+       '10|11) MODEL_IDX=9; MODEL_NAME="qwen3.8-27b-base"' in GATE_SCRIPT,
+       '12|13) MODEL_IDX=10; MODEL_NAME="gemma4-31b-base"' in GATE_SCRIPT], [True, True, True])
 if _bash is not None:
     def runtime(idx, **env_over):
         env = {k: v for k, v in os.environ.items()
@@ -317,6 +322,13 @@ if _bash is not None:
           runtime("8", HPCWORK="/w", OCPQ_EVAL_ENV="nlxocpq-eval-v5", HF_HOME="/h"),
           (0, "nlxocpq-eval-glimmer|/w/nlxocpq-hf|/w/nlxocpq-hf/hub"))
     check("index 8 without $HPCWORK refuses", runtime("8")[0], 1)
+    check("index 9 (Qwen3.8, qwen3_5 needs transformers >= 5.8) runs in the newer env, on $HPCWORK",
+          runtime("9", HPCWORK="/w"),
+          (0, "nlxocpq-eval-glimmer|/w/nlxocpq-hf|/w/nlxocpq-hf/hub"))
+    check("index 10 (Gemma 4, written for 5.5.0) stays on the stack of record, weights on $HPCWORK",
+          runtime("10", HPCWORK="/w", HOME="/home/u"),
+          (0, "nlxocpq-eval-v5|/w/nlxocpq-hf|/w/nlxocpq-hf/hub"))
+    check("index 10 without $HPCWORK refuses", runtime("10")[0], 1)
 
 print()
 if failures:

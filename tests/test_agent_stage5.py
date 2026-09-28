@@ -183,8 +183,9 @@ check("A0 never runs the loop, so the levers never name it",
 check("_agent_budget reads them from the config", _agent_budget(cfg)[4], "FBEXL")
 for name in ("eval_config.agentic.json", "eval_config.agentic_gate.json"):
     conf = json.load(open(ROOT / "configs" / name, encoding="utf-8"))
-    check(f"{name}: the five Stage 5 levers and R on, C off (pFBEXLR, notes 43.17)",
-          _agent_levers(conf), "FBEXLR")
+    # R failed its gate (notes 43.18), so evaluation 1 stays on the scored run's pFBEXL: C and R off.
+    check(f"{name}: the five Stage 5 levers on, C and R off (pFBEXL, notes 43.18)",
+          _agent_levers(conf), "FBEXL")
 
 print("\n--- X: the worked example is valid, well-formed, and borrowed from nothing ---")
 example = LLM.AGENT_WORKED_EXAMPLE

@@ -62,6 +62,24 @@
         "reasoning_strength": "low"
       },
       "generation_prefix": " to=user<|message|>"
+    },
+    {
+      "name": "Qwen/Qwen3.8-27B",
+      "label": "qwen3.8-27b-base",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+      "finetuned": false,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    {
+      "name": "google/gemma-4-31B-it",
+      "label": "gemma4-31b-base",
+      "revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+      "finetuned": false,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
     }
   ],
   "schema_enforced": [
@@ -93,7 +111,7 @@
   "agent_finalise_evaluated": true,
   "agent_worked_example": true,
   "agent_reserve_last_turn": true,
-  "agent_repeat_guard": true,
+  "agent_repeat_guard": false,
   "agent_protocol_note": "Stage 5 levers (notes 43.12), letters FBEXL in the directory suffix: F structure report on try_query + a static check_tree tool in BOTH loop rungs (A1 - A1' isolates log access); B a final tree with blocking defects is returned once; E fall back to the last tree the probe EVALUATED first (amends the pre-registered rule); X tree-linking rules + one worked example (invented domain; A0 keeps B0's prompt, so A1 - A0 includes it); L the last turn admits a final answer only. All false reproduces the model gate of notes 43.11. The prompt hash is recorded in the manifest (agentic.prompt_sha256).",
   "agent_turn_token_budget_note": "Per-TURN cap for the loop rungs (A1, A1-prime, A2, A1+thought); A0 keeps generation_token_budget. Bounds what a runaway turn costs (~48 s instead of ~95 s), not an answer: tests/test_agent_turn_budget.py checks every gold tree fits with margin in each evaluated model's own tokens. Notes 43.8.",
   "agent_budget_note": "Defaults = A1. A2's budget is passed by flag and must be SIZED FROM THE MODEL GATE's measured per-case wall clock so it fits case_timeout_sec (600), which CLAUDE.md 6 requires to be the same on every compared arm. See TODO, Stage 4 item 7.",
@@ -103,8 +121,8 @@
   "agent_probe_max_restarts_per_case": 2,
   "agent_probe_max_restarts_per_run": 10,
   "agent_record_turn_char_cap": 600,
-  "models_note": "Index order is load-bearing: the submit scripts select by the EXPANDED index (even = base, odd = its adapter). Muse Glimmer (notes 43.16) is appended LAST so every earlier index is unchanged; it has no adapter (finetuned: false), so it is index 8 and nothing follows it. Its revision pins the hub commit; chat_template_kwargs and generation_prefix are its chat settings, frozen after its model gate.",
-  "agent_repeat_guard_note": "R (notes 43.17), letter R after L (C stays off): an action identical to an earlier one of the same case -- same tool, same arguments, the thought ignored -- is not re-run; the model is told which turn made it and that nothing new would come back. It adds no prompt text, so the three frozen prompt hashes are unchanged. Added after Muse Glimmer's gate (57% of its turns repeated an earlier action) and run on BOTH models, so the two arms share one protocol, pFBEXLR. The completed Ministral pFBEXL run (notes 43.15, eval_runs/agentic) is not replaced; this config writes to eval_runs/agentic_r so the two protocols never share a directory.",
+  "models_note": "Index order is load-bearing: the submit scripts select by the EXPANDED index (even = base, odd = its adapter, for the first four). Models added for the agentic arm are appended LAST with no adapter (finetuned: false), so no earlier index moves: 8 Muse Glimmer-30B (notes 43.16; failed its gate, 43.17-43.18), 9 Qwen3.8-27B and 10 Gemma 4 31B-it (notes 43.18). Each pins its hub commit (revision); chat_template_kwargs / generation_prefix are its chat settings, frozen after its gate. Qwen and Gemma run with their trained non-thinking mode (enable_thinking: false): evaluation 1 has no native reasoning phase for any model.",
+  "agent_repeat_guard_note": "R (notes 43.17), letter R: an action identical to an earlier one of the case is not re-run. OFF (notes 43.18): on the dev gate it did not break Muse Glimmer's loops (57% -> 56% of turns repeated; after the note Glimmer resent the same action 128 of 167 times) and barely touched Ministral (4% -> 3%), so evaluation 1 stays on the protocol Ministral's scored run used, pFBEXL. Repeats are still recorded (agent_repeat_turn_rate) whatever this flag says.",
   "preload_model": true,
   "preload_model_note": "Load the model before the case loop, outside case_timeout_sec (notes 43.17). Lazily it loads inside the first case's cap, which a 60 GB checkpoint (Muse Glimmer) can exhaust. Changes no output, only where the load time is counted."
 }

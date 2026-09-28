@@ -55,20 +55,17 @@
 #   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
 #   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2
 #
-# THE PROTOCOL IS pFBEXLR (notes 43.17): the frozen Stage 5 protocol plus R, the repeat guard, added
-# after Muse Glimmer's gate and run on BOTH models so the two arms share one protocol. The prompts
-# are the frozen ones (R adds no text). Runs write to eval_runs/agentic_r; the completed Ministral
-# pFBEXL run of notes 43.15 stays in eval_runs/agentic and is not replaced. Both models, in order:
-#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11   # Ministral
-#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2
-#
-# THE SECOND ARM (notes 43.16): model index 8 is Muse Glimmer-30B, the same five rungs and the same
-# protocol. It runs in its own conda env with its weights on $HPCWORK (slurm/model_runtime.sh).
-# Prerequisites, on a login node: OCPQ_ENV_VARIANT=glimmer bash scripts/make_eval_env.sh, then
-# bash scripts/prefetch_glimmer.sh && VERIFY=1 bash scripts/prefetch_glimmer.sh. Its model gate
-# (slurm/submit_agentic_gate.sh, tasks 8,9) comes first, then:
-#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 8 --case-shard 8/11
-#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 8
+# EVALUATION 1 STAYS ON pFBEXL (notes 43.18), the protocol of Ministral's scored run: R (43.17) did not
+# break Muse Glimmer's loops on the dev gate, so it is off. Further models run the same five rungs on the
+# same protocol, each after passing its own gate (slurm/submit_agentic_gate.sh):
+#   8  Muse Glimmer-30B   failed its gate (repetition loops, notes 43.17-43.18); not run here
+#   9  Qwen3.8-27B        non-thinking mode; gate tasks 10,11
+#   10 Gemma 4 31B-it     non-thinking mode; gate tasks 12,13
+# Their runtime (conda env, weights on $HPCWORK) follows the index: slurm/model_runtime.sh.
+# Prerequisites on a login node: bash scripts/prefetch_pinned_models.sh (and VERIFY=1). A model that
+# passes its gate, smoke then full run:
+#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 9 --case-shard 8/11
+#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 9
 #
 set -u
 # SLURM copies the batch script into its spool directory before executing it, so
@@ -154,11 +151,11 @@ case "$TASK" in
   1) RUNG_NAME="A1 / tool loop, 8 turns, 12 tool calls"
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --no-agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXLR" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL" ;;
   2) RUNG_NAME="A1-prime / same loop, 8 turns, NO tools (compute-matched control)"
      STRATEGY_IDX=2
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --no-agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXLR" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXL" ;;
   3) RUNG_NAME="A2 / tool loop, ${A2_TURNS} turns, ${A2_TOOL_CALLS} tool calls"
      if [ "${A2_SIZED}" != "1" ]; then
        echo "FATAL: A2's budget is not marked as sized (A2_SIZED). Size it from a dev run so A2" >&2
@@ -167,11 +164,11 @@ case "$TASK" in
      fi
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns "${A2_TURNS}" --agent-max-tool-calls "${A2_TOOL_CALLS}" --no-agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns${A2_TURNS}_tools${A2_TOOL_CALLS}_turntok2000_pFBEXLR" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns${A2_TURNS}_tools${A2_TOOL_CALLS}_turntok2000_pFBEXL" ;;
   4) RUNG_NAME="A1+thought / A1 with a thought field"
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXLR_thought" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought" ;;
   *) echo "FATAL: task ${TASK} is not a rung; this array is 0-4." >&2; exit 1 ;;
 esac
 
@@ -192,7 +189,7 @@ while [ "$#" -gt 0 ]; do
     --case-shard=*) OCPQ_CASE_SHARD="${1#*=}" ;;
     --model-idx)
       shift
-      [ "$#" -gt 0 ] || { echo "FATAL: --model-idx needs a value (0, 2 or 8)" >&2; exit 1; }
+      [ "$#" -gt 0 ] || { echo "FATAL: --model-idx needs a value (0, 2, 8, 9 or 10)" >&2; exit 1; }
       MODEL_IDX="$1" ;;
     --model-idx=*) MODEL_IDX="${1#*=}" ;;
     *) echo "Warning: ignoring unrecognised argument '$1'" >&2 ;;
@@ -201,12 +198,12 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$MODEL_IDX" in
-  0|2|8) ;;
+  0|2|8|9|10) ;;
   1|3) echo "FATAL: model index ${MODEL_IDX} is a fine-tuned adapter. The agentic arm runs on a" >&2
-       echo "       base model (0 llama31-8b-base, 2 ministral3-14b-base, 8 muse-glimmer-30b-base)." >&2
+       echo "       base model (0 llama31-8b, 2 ministral3-14b, 8 muse-glimmer-30b, 9 qwen3.8-27b, 10 gemma4-31b)." >&2
        exit 1 ;;
   *) echo "FATAL: pass --model-idx with a base model of the arm" >&2
-     echo "       (0 llama31-8b-base, 2 ministral3-14b-base, 8 muse-glimmer-30b-base); '${MODEL_IDX}' is not one." >&2
+     echo "       (0 llama31-8b, 2 ministral3-14b, 8 muse-glimmer-30b, 9 qwen3.8-27b, 10 gemma4-31b); '${MODEL_IDX}' is not one." >&2
      exit 1 ;;
 esac
 echo "Model index: ${MODEL_IDX}"
@@ -253,7 +250,7 @@ RESUME_ARGS=()
 if [ "$OCPQ_RESUME_REQUESTED" = "1" ]; then
   # Must include the rung suffix: A1, A2 and A1+thought share model/strategy/schema indices, so the
   # bare prefix matches every rung and `ls -t | head -1` would resume the wrong one.
-  SHARD_GLOB="$PROJECT_DIR/eval_runs/agentic_r/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}${RUNG_SUFFIX}_*"
+  SHARD_GLOB="$PROJECT_DIR/eval_runs/agentic/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}${RUNG_SUFFIX}_*"
   RESUME_DIR="$(ls -1dt $SHARD_GLOB 2>/dev/null | head -n 1)"
   if [ -z "$RESUME_DIR" ] || [ ! -d "$RESUME_DIR" ]; then
     echo "FATAL: --resume given but no run directory matches ${SHARD_GLOB}" >&2

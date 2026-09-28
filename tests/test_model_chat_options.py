@@ -1,4 +1,4 @@
-"""Per-model chat settings (notes 43.16): Muse Glimmer gets them, no earlier model is touched.
+"""Per-model chat settings (notes 43.16, 43.18): the pinned models get them, no earlier model is touched.
 
 Muse Glimmer-30B's chat template ends the generation prompt at `<|start|>assistant`; the model then
 chooses a channel -- ` to=user<|message|>` to answer, ` to=self<|message|>` to reason. Constrained
@@ -12,13 +12,16 @@ and the weights are pinned to one hub commit (`revision`). Asserted here:
   * On Glimmer's REAL template and tokenizer (the pinned revision, from the HF cache): the prefix is
     what the template itself writes for a plain assistant turn, so the current turn looks exactly
     like the model's history -- also token for token, with no merge across the boundary.
-  * The configs: Glimmer is appended LAST (index 8 after expansion), identical in both agentic
-    configs, has no adapter, and no earlier model carries any of the new keys.
+  * Qwen3.8-27B and Gemma 4 31B-it (notes 43.18) run their TRAINED non-thinking mode
+    (`enable_thinking: false`): on their real templates the generation prompt closes an empty
+    thought block, so the answer -- and the grammar -- starts at once, and no prefix is needed.
+  * The configs: the pinned models are appended LAST (Glimmer 8, Qwen 9, Gemma 10 after expansion),
+    identical in both agentic configs, without adapters, and no earlier model carries a new key.
 
-The template section reads Glimmer's files from the HF cache at the pinned revision. On the laptop
-they are cached by `hf_hub_download`; on the cluster run it as
+The template section reads the models' files from the HF cache at their pinned revisions. On the
+laptop they are cached by `hf_hub_download`; on the cluster run it as
     HF_HOME=$HPCWORK/nlxocpq-hf python tests/test_model_chat_options.py
-after scripts/prefetch_glimmer.sh.
+after scripts/prefetch_pinned_models.sh.
 
 Run from the repo root:  python tests/test_model_chat_options.py
 """
@@ -50,28 +53,38 @@ def check(name, got, want):
 
 CONFIGS = {name: json.loads((ROOT / "configs" / name).read_text(encoding="utf-8"))
            for name in ("eval_config.agentic.json", "eval_config.agentic_gate.json")}
-GLIMMER = next(m for m in CONFIGS["eval_config.agentic.json"]["models"]
-               if m.get("label") == "muse-glimmer-30b-base")
+PINNED = {m["label"]: m for m in CONFIGS["eval_config.agentic.json"]["models"] if m.get("revision")}
+GLIMMER = PINNED["muse-glimmer-30b-base"]
 NEW_KEYS = {"revision", "finetuned", "chat_template_kwargs", "generation_prefix"}
+# The decided settings, one row per pinned model (notes 43.16, 43.18).
+DECIDED = {
+    "muse-glimmer-30b-base": ({"reasoning_strength": "low"}, " to=user<|message|>"),
+    "qwen3.8-27b-base": ({"enable_thinking": False}, None),
+    "gemma4-31b-base": ({"enable_thinking": False}, None),
+}
 
-print("--- the configs: Glimmer appended last, pinned, and no earlier model touched ---")
+print("--- the configs: the pinned models appended last, and no earlier model touched ---")
 for name, cfg in CONFIGS.items():
     labels = [m["label"] for m in expand_models(cfg)["models"]]
-    check(f"{name}: Glimmer is index 8 after expansion, and nothing follows it",
-          (labels.index("muse-glimmer-30b-base"), len(labels)), (8, 9))
+    check(f"{name}: Glimmer 8, Qwen 9, Gemma 10 after expansion, and nothing follows them",
+          (labels[8:], len(labels)),
+          (["muse-glimmer-30b-base", "qwen3.8-27b-base", "gemma4-31b-base"], 11))
     check(f"{name}: indices 0-7 are what they were",
           labels[:8], ["llama31-8b-base", "llama31-8b-finetuned", "ministral3-14b-base",
                        "ministral3-14b-finetuned", "ministral3-3b-base", "ministral3-3b-finetuned",
                        "gemma3-4b-base", "gemma3-4b-finetuned"])
     check(f"{name}: no earlier model carries a per-model chat key",
-          [m["label"] for m in cfg["models"][:-1] if NEW_KEYS & set(m)], [])
-    check(f"{name}: the Glimmer entry is the same in both configs",
-          next(m for m in cfg["models"] if m.get("label") == "muse-glimmer-30b-base"), GLIMMER)
-check("the revision is a full 40-hex commit", bool(re.fullmatch(r"[0-9a-f]{40}",
-                                                                GLIMMER["revision"])), True)
-check("the chat settings are the decided ones (notes 43.16)",
-      (GLIMMER["chat_template_kwargs"], GLIMMER["generation_prefix"], GLIMMER["finetuned"]),
-      ({"reasoning_strength": "low"}, " to=user<|message|>", False))
+          [m["label"] for m in cfg["models"][:4] if NEW_KEYS & set(m)], [])
+    check(f"{name}: the pinned entries are the same in both configs",
+          {m["label"]: m for m in cfg["models"] if m.get("revision")}, PINNED)
+check("the pinned models are exactly Glimmer, Qwen and Gemma", sorted(PINNED), sorted(DECIDED))
+for label, (kwargs, prefix) in DECIDED.items():
+    entry = PINNED[label]
+    check(f"{label}: a full 40-hex commit, no adapter",
+          (bool(re.fullmatch(r"[0-9a-f]{40}", entry["revision"])), entry["finetuned"]),
+          (True, False))
+    check(f"{label}: the decided chat settings",
+          (entry.get("chat_template_kwargs"), entry.get("generation_prefix")), (kwargs, prefix))
 check("expand_models: a model with finetuned=false gets no invented adapter",
       [m["name"] for m in expand_models({"models": [{"name": "x", "finetuned": False}]})["models"]],
       ["x"])
@@ -165,7 +178,8 @@ try:
 except Exception as exc:  # noqa: BLE001 - reported as a failure with the way to fix it
     files = None
     check(f"Glimmer's template and tokenizer are cached ({type(exc).__name__}); run "
-          "scripts/prefetch_glimmer.sh and HF_HOME=$HPCWORK/nlxocpq-hf on the cluster", False, True)
+          "scripts/prefetch_pinned_models.sh and HF_HOME=$HPCWORK/nlxocpq-hf on the cluster",
+          False, True)
 
 if files:
     from jinja2.ext import loopcontrols
@@ -208,6 +222,51 @@ if files:
     check("the prefix ends on the <|message|> special token",
           tok.encode(GLIMMER["generation_prefix"], add_special_tokens=False).tokens[-1],
           "<|message|>")
+
+print("\n--- Qwen3.8 and Gemma 4: their trained non-thinking mode, on their REAL templates (43.18) ---")
+# The tail each template must end the generation prompt with when thinking is off: an EMPTY thought
+# block, closed -- so the first generated token is the answer, which the grammar then constrains.
+NO_THINK_TAIL = {
+    "qwen3.8-27b-base": "<|im_start|>assistant\n<think>\n\n</think>\n\n",
+    "gemma4-31b-base": "<|turn>model\n<|channel>thought\n<channel|>",
+}
+import datetime  # noqa: E402
+
+from jinja2.ext import loopcontrols  # noqa: E402
+from jinja2.sandbox import ImmutableSandboxedEnvironment  # noqa: E402
+
+for label, tail in NO_THINK_TAIL.items():
+    entry = PINNED[label]
+    try:
+        from huggingface_hub import hf_hub_download
+        path = hf_hub_download(entry["name"], "chat_template.jinja", revision=entry["revision"],
+                               local_files_only=True)
+    except Exception as exc:  # noqa: BLE001 - reported as a failure with the way to fix it
+        check(f"{label}: its chat template is cached ({type(exc).__name__}); run "
+              "scripts/prefetch_pinned_models.sh and HF_HOME=$HPCWORK/nlxocpq-hf on the cluster",
+              False, True)
+        continue
+    env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True,
+                                        extensions=[loopcontrols])
+    env.filters["tojson"] = lambda x, **kw: json.dumps(x, ensure_ascii=False)
+    env.globals["raise_exception"] = lambda message: (_ for _ in ()).throw(ValueError(message))
+    env.globals["strftime_now"] = lambda fmt: datetime.datetime.now().strftime(fmt)
+    template = env.from_string(Path(path).read_text(encoding="utf-8"))
+    task = [{"role": "system", "content": "SYSTEM"}, {"role": "user", "content": "TASK"}]
+    off = template.render(messages=task, add_generation_prompt=True, bos_token="",
+                          **entry["chat_template_kwargs"])
+    on = template.render(messages=task, add_generation_prompt=True, bos_token="",
+                         enable_thinking=True)
+    check(f"{label}: thinking off closes an EMPTY thought block, so the answer starts at once",
+          off.endswith(tail), True)
+    check(f"{label}: ...where thinking on would open one (the setting is what switches it)",
+          on.endswith(tail), False)
+    history = template.render(messages=task + [{"role": "assistant", "content": "ACTION"},
+                                               {"role": "user", "content": "RESULT"}],
+                              add_generation_prompt=True, bos_token="",
+                              **entry["chat_template_kwargs"])
+    check(f"{label}: an earlier action stays in the transcript as written",
+          "ACTION" in history and history.endswith(tail), True)
 
 print("\n--- the loader: causal LM, then image-text-to-text, then multimodal (Glimmer's card) ---")
 import transformers  # noqa: E402
@@ -298,4 +357,4 @@ print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")
     sys.exit(1)
-print("RESULT: PASS -> Glimmer's chat settings apply to Glimmer only; every other model is unchanged")
+print("RESULT: PASS -> each pinned model's chat settings apply to it only; every other model is unchanged")

@@ -18,9 +18,11 @@
 #   task  model                       thought
 #   0/1   llama31-8b-base    (idx 0)  off / on
 #   4/5   ministral3-14b-base (idx 2) off / on
-#   R (notes 43.17): the gate config now runs pFBEXLR, so a new gate writes new directories; the
-#   pFBEXL gates of notes 43.13 and 43.16 stay as they are. R's gate is both models:
-#       sbatch --array=4,5,8,9 slurm/submit_agentic_gate.sh
+#   10/11 qwen3.8-27b-base   (idx 9)  off / on   notes 43.18, non-thinking mode
+#   12/13 gemma4-31b-base    (idx 10) off / on   notes 43.18, non-thinking mode
+#         sbatch --array=10-13 slurm/submit_agentic_gate.sh
+#   The gate config is back on pFBEXL (R off after its own gate, notes 43.18); the pFBEXLR gate
+#   directories of 2026-09-28 stay as they are.
 #   8/9   muse-glimmer-30b-base (idx 8) off / on   the second arm's gate (notes 43.16), run on its
 #                                                  own: sbatch --array=8,9 slurm/submit_agentic_gate.sh
 #                                                  It reads compliance and s/turn, and fixes Glimmer's
@@ -110,7 +112,10 @@ case "$TASK" in
   6|7) MODEL_IDX=3; MODEL_NAME="ministral3-14b-finetuned" ;;
   # The second arm's gate (notes 43.16): sbatch --array=8,9 slurm/submit_agentic_gate.sh
   8|9) MODEL_IDX=8; MODEL_NAME="muse-glimmer-30b-base" ;;
-  *) echo "FATAL: task ${TASK} is not a gate task (0-9; the gate is 0,1,4,5, and 8,9 for Glimmer)." >&2; exit 1 ;;
+  # Notes 43.18: sbatch --array=10-13 slurm/submit_agentic_gate.sh
+  10|11) MODEL_IDX=9; MODEL_NAME="qwen3.8-27b-base" ;;
+  12|13) MODEL_IDX=10; MODEL_NAME="gemma4-31b-base" ;;
+  *) echo "FATAL: task ${TASK} is not a gate task (0-13; 0,1,4,5 the first gate, 8,9 Glimmer, 10-13 Qwen and Gemma)." >&2; exit 1 ;;
 esac
 
 # Same stack as the fine-tuning runs, so the adapters are loaded by what wrote them.
@@ -152,10 +157,10 @@ if [ "${OCPQ_ALLOW_HUB:-0}" != "1" ]; then
 fi
 if [ $((TASK % 2)) -eq 0 ]; then
   THOUGHT_ARGS=(--no-agent-thought)
-  RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXLR"
+  RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL"
 else
   THOUGHT_ARGS=(--agent-thought)
-  RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXLR_thought"
+  RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought"
 fi
 RUNG_NAME="${MODEL_NAME} / A1 ${THOUGHT_ARGS[*]}"
 AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 "${THOUGHT_ARGS[@]}")

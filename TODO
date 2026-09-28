@@ -1907,3 +1907,42 @@
        first; A1 - A1' headline; mechanism incl. de-duplicated tries); R's effect on Ministral
        (pFBEXL vs pFBEXLR, paired, descriptive, read against the A0 - A0 run-to-run baseline);
        Glimmer vs Ministral descriptive only. Both protocols reported; none chosen by scored F1.
+  DONE 2026-09-28, step 2 (R's gate, pFBEXLR, job 4495606, eval_runs/agentic_gate/shard_m{2,8}_*_20260928_*):
+  R FAILED its criterion. Glimmer 57.0% -> 55.6% repeated turns; after the note it resent the same
+  action 128/167 times. Ministral 4.0% -> 2.9% (never repeats after a note). Preload did not run
+  (global_cfg bug, fixed in f288240). Notes 43.18. Steps 3-5 above are SUPERSEDED by the next entry.
+
+- OPEN, NEXT: EVALUATION 1 WITH QWEN3.8-27B (idx 9) AND GEMMA 4 31B-IT (idx 10), notes 43.18.
+  Decided 2026-09-28: evaluation 1 stays on pFBEXL (R off; rungs back to eval_runs/agentic, beside
+  43.15); no Ministral rerun; Glimmer out (dev-set negative result). Both new models run their
+  TRAINED non-thinking mode (enable_thinking: false), pinned commits, NF4, all five rungs.
+  Native reasoning (two-step turns) is EVALUATION 2, to design with the supervisor (TODO below).
+  PRE-REGISTERED (43.18): every candidate that passes its gate is run; none chosen among passers.
+  Pass = malformed <= 5%; repeated turns <= 10% (thought off); no loop-driven timeout; p90 s/turn
+  <= 30 (off) / <= 60 (on); >= 90% declared; probe = CLI. On the cluster:
+    1. git pull. Check the envs know the model types:
+         conda activate nlxocpq-eval-glimmer && python -c "from transformers import AutoConfig; AutoConfig.for_model('qwen3_5'); print('qwen3_5 ok')"
+         conda activate nlxocpq-eval-v5 && python -c "from transformers import AutoConfig; AutoConfig.for_model('gemma4'); print('gemma4 ok')"
+       If gemma4 is missing on 5.5.0: move index 10 to the newer env (slurm/model_runtime.sh) and say so
+       in the notes.
+    2. WEIGHTS (login node): bash scripts/prefetch_pinned_models.sh qwen3.8-27b-base gemma4-31b-base
+       && VERIFY=1 bash scripts/prefetch_pinned_models.sh   (~118 GB into $HPCWORK/nlxocpq-hf)
+    3. TESTS, HF_HOME set per command, never exported (an exported HF_HOME breaks Ministral's jobs):
+         in both envs: HF_HOME=$HPCWORK/nlxocpq-hf python tests/test_model_chat_options.py
+                       HF_HOME=$HPCWORK/nlxocpq-hf python tests/test_agent_turn_budget.py
+                       python tests/test_agentic_rungs.py && python tests/test_agent_stage5.py
+         in nlxocpq-eval-glimmer also: python tests/test_constrained_decoding.py
+    4. LOAD SMOKES, 2 dev cases each: sbatch --array=10,12 slurm/submit_agentic_gate.sh --case-shard 0/19
+       Read: Runtime line (10 -> glimmer env; 12 -> eval-v5, both $HPCWORK cache), "loaded in Ns,
+       outside the case time limit", [model load] class, clean JSON turns, no thinking text, s/turn.
+    5. GATE: sbatch --array=10-13 slurm/submit_agentic_gate.sh; apply the pass rule (43.18).
+    6. Each passing model: rung smoke (--model-idx 9 / 10 --case-shard 8/11), smoke_check.py, full
+       run (--array=0-4), analysis as pre-registered in 43.15/43.16 (within model; cross-model
+       descriptive only).
+
+- OPEN (design, with the supervisor): EVALUATION 2, "UNLEASHED". Two-step turns (free reasoning in the
+  model's own channel under a token budget, then the constrained action); its own rules: reasoning
+  budget, case cap (the 600 s cap cannot hold 16 turns x ~30 s of reasoning on 27-31B NF4), greedy or
+  sampled decoding. Candidates: the open reasoning models (Glimmer, Qwen3.8 thinking on, Gemma 4 with
+  <|think|>, Ministral's reasoning variant if one fits) and the frontier arm (Opus 5.5, high
+  reasoning). Evaluation 1's frozen protocol is not modified for it.
