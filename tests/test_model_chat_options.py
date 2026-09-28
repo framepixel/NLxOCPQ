@@ -257,6 +257,24 @@ for name, cfg in CONFIGS.items():
 check("the main matrix config does not preload (its runs are unchanged)",
       json.loads((ROOT / "configs" / "eval_config.json").read_text(encoding="utf-8"))
       .get("preload_model"), None)
+# The 2026-09-28 gate: preload_model was on in the config and never ran, because run_evaluation
+# builds `global_cfg` from a fixed key list and the key was not on it. So: every key the harness
+# READS from global_cfg must be one that run_evaluation PUTS into it.
+import ast  # noqa: E402
+
+_tree = ast.parse((ROOT / "src" / "eval_testset.py").read_text(encoding="utf-8"))
+_set = next({k.value for k in n.value.keys if isinstance(k, ast.Constant)}
+            for n in ast.walk(_tree)
+            if isinstance(n, ast.Assign) and isinstance(n.value, ast.Dict)
+            and any(isinstance(t, ast.Name) and t.id == "global_cfg" for t in n.targets))
+_read = {n.args[0].value for n in ast.walk(_tree)
+         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+         and n.func.attr == "get" and isinstance(n.func.value, ast.Name)
+         and n.func.value.id == "global_cfg" and n.args and isinstance(n.args[0], ast.Constant)}
+check("every key read from global_cfg is set in it (else the config value is silently ignored)",
+      sorted(_read - _set), [])
+check("...preload_model among them", "preload_model" in _set, True)
+
 loads = []
 _real_ensure = LLM._ensure_local_gpu_model_loaded
 LLM._ensure_local_gpu_model_loaded = lambda: loads.append(1)

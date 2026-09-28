@@ -2024,6 +2024,12 @@ def run_evaluation(config_path_or_config):
         "result_store_max_situations": int(
             config.get("result_store_max_situations", result_store.DEFAULT_MAX_SITUATIONS)
         ),
+        # Both were READ from global_cfg but never put into it, so both were silently ignored:
+        # the preload never ran in the 2026-09-28 gate (notes 43.17), and a top-level base_url
+        # would have sent the frontier arm nowhere. tests/test_model_chat_options.py now checks
+        # that every key read from global_cfg is set here.
+        "preload_model": bool(config.get("preload_model", False)),
+        "base_url": config.get("base_url"),
     }
 
     models = config.get("models") or []
