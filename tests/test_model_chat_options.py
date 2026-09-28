@@ -251,6 +251,24 @@ check("any other error is raised, never papered over",
       load_with(fake_class("", UNREGISTERED), fake_class("", "out of memory"), fake_class("mm")),
       "raised: out of memory")
 
+print("\n--- the model loads before the case timer, in the agentic configs only (notes 43.17) ---")
+for name, cfg in CONFIGS.items():
+    check(f"{name}: preload_model is on", cfg.get("preload_model"), True)
+check("the main matrix config does not preload (its runs are unchanged)",
+      json.loads((ROOT / "configs" / "eval_config.json").read_text(encoding="utf-8"))
+      .get("preload_model"), None)
+loads = []
+_real_ensure = LLM._ensure_local_gpu_model_loaded
+LLM._ensure_local_gpu_model_loaded = lambda: loads.append(1)
+saved_backend = LLM.hf_backend
+LLM.hf_backend = "local-gpu"
+check("local backend: it loads, and says how long it took",
+      (isinstance(LLM.preload_local_model(), float), len(loads)), (True, 1))
+LLM.hf_backend = "custom-endpoint"
+check("an endpoint backend has nothing to load", (LLM.preload_local_model(), len(loads)), (None, 1))
+LLM.hf_backend = saved_backend
+LLM._ensure_local_gpu_model_loaded = _real_ensure
+
 print("\n--- the manifest records the generation stack ---")
 versions = _library_versions()
 check("every recorded library has an entry (None when absent)",

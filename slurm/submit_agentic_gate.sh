@@ -18,6 +18,9 @@
 #   task  model                       thought
 #   0/1   llama31-8b-base    (idx 0)  off / on
 #   4/5   ministral3-14b-base (idx 2) off / on
+#   R (notes 43.17): the gate config now runs pFBEXLR, so a new gate writes new directories; the
+#   pFBEXL gates of notes 43.13 and 43.16 stay as they are. R's gate is both models:
+#       sbatch --array=4,5,8,9 slurm/submit_agentic_gate.sh
 #   8/9   muse-glimmer-30b-base (idx 8) off / on   the second arm's gate (notes 43.16), run on its
 #                                                  own: sbatch --array=8,9 slurm/submit_agentic_gate.sh
 #                                                  It reads compliance and s/turn, and fixes Glimmer's
@@ -149,10 +152,10 @@ if [ "${OCPQ_ALLOW_HUB:-0}" != "1" ]; then
 fi
 if [ $((TASK % 2)) -eq 0 ]; then
   THOUGHT_ARGS=(--no-agent-thought)
-  RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL"
+  RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXLR"
 else
   THOUGHT_ARGS=(--agent-thought)
-  RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought"
+  RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXLR_thought"
 fi
 RUNG_NAME="${MODEL_NAME} / A1 ${THOUGHT_ARGS[*]}"
 AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 "${THOUGHT_ARGS[@]}")

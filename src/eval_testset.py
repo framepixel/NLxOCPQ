@@ -53,6 +53,7 @@ from LLM import (
     set_hf_client,
     set_local_gpu_client,
     set_local_model_options,
+    preload_local_model,
     reset_llm_call_stats,
     get_llm_call_stats,
     reset_query_exec_stats,
@@ -279,6 +280,8 @@ AGENT_LEVERS = (
     ("agent_reserve_last_turn", "reserve_last_turn", "L"),
     # Added after the scored run (notes 43.15), last so the frozen rungs' "FBEXL" is unchanged.
     ("agent_cap_feedback", "cap_feedback", "C"),
+    # Added after Muse Glimmer's model gate (notes 43.17), last, so every earlier suffix is unchanged.
+    ("agent_repeat_guard", "repeat_guard", "R"),
 )
 
 
@@ -1331,9 +1334,15 @@ def _truncation_counts(records) -> dict:
 
 
 def _cap_hit_rate(agents):
-    counted = [a for _, a in agents if a.get("cap_hits") is not None]
+    return _counted_turn_rate(agents, "cap_hits")
+
+
+def _counted_turn_rate(agents, field):
+    """`field` summed over the records that count it, per turn those records took; None when no
+    record counts it (a run from before the field existed), never 0."""
+    counted = [a for _, a in agents if a.get(field) is not None]
     turns = sum(int(a.get("turns") or 0) for a in counted)
-    return (sum(int(a["cap_hits"]) for a in counted) / turns) if turns else None
+    return (sum(int(a[field]) for a in counted) / turns) if turns else None
 
 
 def _agent_compliance(records) -> dict:
@@ -1408,6 +1417,9 @@ def _agent_compliance(records) -> dict:
         # Turns the per-turn cap cut off (notes 43.15), over the turns of the records that count
         # them. Before 43.15 they were filed as malformed and not told apart: None there, not 0.
         "agent_cap_hit_turn_rate": _cap_hit_rate(agents),
+        # Turns that repeated an earlier action of the case exactly (notes 43.17), whether or not
+        # R guarded them; None for runs before 43.17, which did not count them.
+        "agent_repeat_turn_rate": _counted_turn_rate(agents, "repeat_turns"),
     }
 
 
@@ -1754,6 +1766,11 @@ def _compact_agent_turns(trajectory, cap):
         if entry.get("hit_cap"):
             # Cut off at the per-turn cap, not malformed by the model (notes 43.15).
             turn["hit_cap"] = True
+        if entry.get("repeat_of") is not None:
+            # The same action as that earlier turn (notes 43.17); `guarded` when R did not re-run it.
+            turn["repeat_of"] = entry["repeat_of"]
+            if entry.get("guarded"):
+                turn["guarded"] = True
         if entry.get("error"):
             turn["error"] = str(entry["error"])[:cap]
         if entry.get("thought"):
@@ -2485,6 +2502,14 @@ def run_evaluation(config_path_or_config):
             set_constrained_any_order(constrained_any_order)
             set_constrained_bounded_shape(constrained_bounded_shape)
             set_generation_token_budget(generation_token_budget)
+            if global_cfg.get("preload_model"):
+                # Load the model here, OUTSIDE the case time limit (notes 43.17): lazily it loads on
+                # the first generation, inside the first case's cap, and a 60 GB checkpoint can
+                # time that case out. Returns at once when the model is already loaded.
+                preload_sec = preload_local_model()
+                if preload_sec:
+                    _log_phase("generation", f"model {resolved_model.get('label')} loaded in "
+                                             f"{preload_sec:.0f}s, outside the case time limit")
 
             for strategy_idx, prompt_strategy in enumerate(prompt_strategies, start=1):
                 for schema_idx, schema_enforced in enumerate(schema_enforced_values, start=1):
@@ -2813,6 +2838,8 @@ def run_evaluation(config_path_or_config):
                                 "check_tree_calls": int(agent_state.get("check_tree_calls") or 0),
                                 # Turns cut off at the per-turn cap (notes 43.15).
                                 "cap_hits": agent_state.get("cap_hits"),
+                                # Turns repeating an earlier action of the case (notes 43.17).
+                                "repeat_turns": agent_state.get("repeat_turns"),
                                 "final_blocking_defects": (
                                     len(blocking_defects(structural_defects(ocpq_json)))
                                     if isinstance(ocpq_json, dict) else None),

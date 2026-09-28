@@ -198,6 +198,7 @@ AGENT_PROTOCOL_DEFAULTS = {
     "worked_example": False,          # X: how a tree links boxes, and one worked example
     "reserve_last_turn": False,       # L: the last turn admits a final answer only
     "cap_feedback": False,            # C: a turn cut off at the per-turn cap is told so (43.15)
+    "repeat_guard": False,            # R: an action identical to an earlier one is not re-run (43.17)
 }
 agent_protocol = dict(AGENT_PROTOCOL_DEFAULTS)
 _last_agent_trajectory = None
@@ -767,6 +768,22 @@ def set_local_model_options(revision=None, chat_template_kwargs=None, generation
     local_model_revision = revision or None
     local_chat_template_kwargs = dict(chat_template_kwargs or {})
     local_generation_prefix = generation_prefix or None
+
+
+def preload_local_model():
+    """Load (and quantize) the selected local model now; seconds taken, 0 if it was loaded already.
+
+    Loading is otherwise lazy -- on the first generation -- which puts it inside the first case's
+    time limit. For a pre-quantized 8 GB checkpoint that is seconds; for Muse Glimmer's 60 GB of bf16
+    read from $HPCWORK and quantized to NF4 it is minutes, charged to whichever case comes first
+    (notes 43.17). Called by `eval_testset` only when the config sets `preload_model`. None when the
+    backend is not local.
+    """
+    if hf_backend != "local-gpu":
+        return None
+    started = time.time()
+    _ensure_local_gpu_model_loaded()
+    return round(time.time() - started, 3)
 
 
 def _local_model_key(model, token, device, dtype, quantization):
@@ -4121,6 +4138,16 @@ AGENT_CAP_FEEDBACK = ("it reached the {cap}-token limit for one reply before its
                       "sample")
 
 
+# R (notes 43.17). Muse Glimmer's model gate: without it, 172 of 302 turns repeated an earlier
+# action of the same case exactly -- one try_query sent seven times -- and a 4.7k-character
+# check_tree repeated six times timed a case out. Greedy decoding cannot leave that loop by
+# itself: the repeat's result is the same, so the next context invites the same action again.
+AGENT_REPEAT_NOTE = ("You already ran exactly this action in turn {turn}, and its result, shown "
+                     "after that turn, has not changed. Running it again tells you nothing new. "
+                     "Change the tree or the arguments to test something different, or answer "
+                     "with {{\"final_tree\": {{...}}}}.")
+
+
 def _turn_hit_cap(response, cap):
     """Did this turn stop at the token cap instead of finishing its object?
 
@@ -4441,6 +4468,9 @@ def _run_pipeline_agentic(
     final_bounced = False
     check_tree_calls = 0
     cap_hits = 0
+    # R: every tool action of this case by (tool, arguments), with the turn it was first made in.
+    seen_actions = {}
+    repeat_turns = 0
     turns_used = 0
 
     # Published BEFORE the loop and updated every turn, so a case the per-case cap kills mid-loop
@@ -4490,6 +4520,7 @@ def _run_pipeline_agentic(
         _last_agent_trajectory["turns"] = turns_used
         _last_agent_trajectory["malformed_actions"] = malformed
         _last_agent_trajectory["cap_hits"] = cap_hits
+        _last_agent_trajectory["repeat_turns"] = repeat_turns
         _last_agent_trajectory["tool_calls"] = 0 if probe is None else probe.tool_calls
         try:
             # Constrain to the PROTOCOL, not to a tree. Without this the xgrammar processor masks
@@ -4567,6 +4598,26 @@ def _run_pipeline_agentic(
             break
 
         entry["action"] = action.tool
+        # R (notes 43.17): the same tool with the same arguments as an earlier turn of this case.
+        # Recorded whatever the levers, so every condition's repeat rate can be counted; the
+        # thought is not part of the action, so a new thought on an old action is still a repeat.
+        action_key = (action.tool, json.dumps(action.args or {}, sort_keys=True, default=str))
+        first_turn = seen_actions.setdefault(action_key, turns_used)
+        if first_turn != turns_used:
+            repeat_turns += 1
+            entry["repeat_of"] = first_turn
+            if levers["repeat_guard"]:
+                # Not re-run: no probe call, no tool budget, no check_tree count -- the turn is
+                # spent, and the model is told why nothing new came back.
+                if action.tool in ("check_tree", "try_query"):
+                    entry["tree_blocking"] = _tree_blocking_count((action.args or {}).get("tree"))
+                note = AGENT_REPEAT_NOTE.format(turn=first_turn)
+                entry["guarded"] = True
+                entry["result"] = {"repeat_of": first_turn, "note": note}
+                trajectory.append(entry)
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content": note})
+                continue
         if action.tool == "check_tree" and "check_tree" in available_tools:
             tree = (action.args or {}).get("tree")
             entry["tree_blocking"] = _tree_blocking_count(tree)
@@ -4647,6 +4698,7 @@ def _run_pipeline_agentic(
         "final_bounced": final_bounced,
         "check_tree_calls": check_tree_calls,
         "cap_hits": cap_hits,
+        "repeat_turns": repeat_turns,
     })
 
     if final_tree is None:

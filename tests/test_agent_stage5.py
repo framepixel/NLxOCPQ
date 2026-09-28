@@ -168,8 +168,9 @@ check("every lever set that changes the prompt changes the hash (B and E change 
 LLM.set_agent_protocol()
 
 print("\n--- names: every lever set is its own directory; A0 keeps its id ---")
-# The five Stage 5 levers the scored rungs run; C (notes 43.15) is tested on its own below.
-cfg = {key: True for key, lever, _letter in AGENT_LEVERS if lever != "cap_feedback"}
+# The five Stage 5 levers; C (notes 43.15) and R (notes 43.17) are tested on their own below.
+cfg = {key: True for key, lever, _letter in AGENT_LEVERS
+       if lever not in ("cap_feedback", "repeat_guard")}
 check("letters in a fixed order", _agent_levers(cfg), "FBEXL")
 check("none -> no suffix part", _agent_levers({}), "")
 check("the suffix carries them after the turn cap, before the thought",
@@ -182,7 +183,8 @@ check("A0 never runs the loop, so the levers never name it",
 check("_agent_budget reads them from the config", _agent_budget(cfg)[4], "FBEXL")
 for name in ("eval_config.agentic.json", "eval_config.agentic_gate.json"):
     conf = json.load(open(ROOT / "configs" / name, encoding="utf-8"))
-    check(f"{name}: all five levers on", _agent_levers(conf), "FBEXL")
+    check(f"{name}: the five Stage 5 levers and R on, C off (pFBEXLR, notes 43.17)",
+          _agent_levers(conf), "FBEXLR")
 
 print("\n--- X: the worked example is valid, well-formed, and borrowed from nothing ---")
 example = LLM.AGENT_WORKED_EXAMPLE
@@ -391,6 +393,74 @@ check("C changes no prompt text: the tool rung's hash is still the frozen A1/A2 
       "f70eb067d54d5d5e4fce3c9d34c57093330b6bc5de4e3f0b5b49943e0084b780")
 LLM.set_agent_protocol()
 
+print("\n--- R: an action identical to an earlier one is not re-run (notes 43.17) ---")
+check("its letter comes after L and C, so every earlier suffix is unchanged",
+      (_agent_levers(dict(cfg, agent_repeat_guard=True)),
+       _agent_levers(dict(cfg, agent_cap_feedback=True, agent_repeat_guard=True))),
+      ("FBEXLR", "FBEXLCR"))
+TWICE = [tool("try_query", CLEAN), tool("try_query", CLEAN), final(CLEAN)]
+probe = FakeProbe()
+model, outcome, error, state = run(TWICE, probe=probe)
+check("off: the repeat is re-run, as in every run before 43.17", probe.calls,
+      ["try_query", "try_query"])
+check("off: ...but recorded, with the turn it repeats",
+      (state["trajectory"][1].get("repeat_of"), state["trajectory"][1].get("guarded"),
+       state["repeat_turns"]), (1, None, 1))
+probe = FakeProbe()
+model, outcome, error, state = run(TWICE, probe=probe, repeat_guard=True)
+check("on: the repeat is NOT re-run, and spends no tool budget",
+      (probe.calls, probe.tool_calls), (["try_query"], 1))
+check("on: the model is told which turn made it",
+      model.sent[2][-1]["content"], LLM.AGENT_REPEAT_NOTE.format(turn=1))
+check("on: ...the roles still alternate",
+      all(a["role"] != b["role"] for a, b in zip(model.sent[2][1:], model.sent[2][2:])), True)
+check("on: the turn is spent and recorded as guarded, and the case still ends on its answer",
+      (state["trajectory"][1].get("guarded"), state["repeat_turns"], state["final_source"]),
+      (True, 1, "declared"))
+probe = FakeProbe()
+model, outcome, error, state = run([tool("try_query", CLEAN), tool("try_query", TWO_ROOTS),
+                                    final(CLEAN)], probe=probe, repeat_guard=True)
+check("on: the same tool on a different tree is a new action, and runs",
+      (probe.calls, state["repeat_turns"]), (["try_query", "try_query"], 0))
+probe = FakeProbe()
+model, outcome, error, state = run([tool("try_query", CLEAN), tool("check_tree", CLEAN),
+                                    tool("try_query", CLEAN), final(CLEAN)], probe=probe,
+                                   repeat_guard=True, structural_feedback=True)
+check("on: a repeat of any EARLIER turn is caught, not only of the last one (A B A)",
+      ([t.get("repeat_of") for t in state["trajectory"]], probe.calls),
+      ([None, None, 1, None], ["try_query"]))
+thought_turn = lambda text: json.dumps({"thought": text, "tool": "try_query",  # noqa: E731
+                                        "args": {"tree": CLEAN}})
+probe = FakeProbe()
+model, outcome, error, state = run([thought_turn("first"), thought_turn("a new idea"),
+                                    final(CLEAN)], probe=probe, thought=True, repeat_guard=True)
+check("on: a new thought on the same action is still the same action",
+      (probe.calls, state["trajectory"][1].get("repeat_of")), (["try_query"], 1))
+model, outcome, error, state = run([tool("check_tree", CYCLIC), tool("check_tree", CYCLIC),
+                                    final(CLEAN)], repeat_guard=True, structural_feedback=True)
+check("on: the no-tools control rung is guarded too (its check_tree), counted once",
+      (state["trajectory"][1].get("guarded"), state["check_tree_calls"]), (True, 1))
+for thought, with_tools, label in ((False, True, "A1/A2"), (False, False, "A1-prime"),
+                                   (True, True, "A1+thought")):
+    LLM.set_agent_thought(thought)
+    LLM.set_agent_protocol(**_agent_protocol(cfg))
+    without = LLM.agent_prompt_sha256(with_tools)
+    LLM.set_agent_protocol(**dict(_agent_protocol(cfg), repeat_guard=True))
+    check(f"R changes no prompt text ({label})", LLM.agent_prompt_sha256(with_tools), without)
+LLM.set_agent_protocol()
+LLM.set_agent_thought(False)
+check("the compact turn keeps repeat_of and guarded",
+      _compact_agent_turns([{"turn": 2, "action": "try_query", "repeat_of": 1, "guarded": True}],
+                           200)[0], {"turn": 2, "action": "try_query", "repeat_of": 1,
+                                     "guarded": True})
+block = _agent_compliance([{"status": "success", "agent": {"turns": 8, "repeat_turns": 2}},
+                           {"status": "success", "agent": {"turns": 2, "repeat_turns": 0}}])
+check("the repeat rate is over the turns of the records that count repeats",
+      block["agent_repeat_turn_rate"], 0.2)
+check("...and None, not 0, for a run from before 43.17",
+      _agent_compliance([{"status": "success", "agent": {"turns": 4}}])["agent_repeat_turn_rate"],
+      None)
+
 print("\n--- THE FROZEN PROTOCOL (notes 43.14): the prompt the scored rungs run ---")
 # Frozen 2026-09-26 after the Stage 5 dev run (notes 43.13), BEFORE any scored agentic run. The
 # tool-rung hashes equal the ones the cluster recorded in that run's manifests (f70eb067...,
@@ -423,4 +493,4 @@ print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")
     sys.exit(1)
-print("RESULT: PASS -> six levers, each doing what it says, none leaking when off")
+print("RESULT: PASS -> seven levers, each doing what it says, none leaking when off")

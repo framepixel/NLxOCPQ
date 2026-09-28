@@ -1840,15 +1840,30 @@
     3. WEIGHTS (login node): bash scripts/prefetch_glimmer.sh && VERIFY=1 bash scripts/prefetch_glimmer.sh
        (~60 GB into $HPCWORK/nlxocpq-hf, pinned commit a4e59da from the config).
     4. TESTS in the new env (conda activate nlxocpq-eval-glimmer; export HF_HOME=$HPCWORK/nlxocpq-hf):
-         python tests/test_constrained_decoding.py   <- THE risk: xgrammar 0.2.5 on transformers 5.17
+         python tests/test_constrained_decoding.py   <- THE risk: xgrammar 0.2.6 on transformers 5.17
          python tests/test_model_chat_options.py
          python tests/test_agent_turn_budget.py
          python tests/test_agentic_rungs.py && python tests/test_agent_stage5.py
        and, in the OLD env, test_constrained_decoding.py once more (nothing there should move).
+  DONE 2026-09-27, steps 1-4: $HPCWORK 1 TB free; nlxocpq-eval-glimmer built (only transformers
+  5.5.0 -> 5.17.0 and tokenizers 0.22.2 -> 0.23.2 moved; pip's unsloth/unsloth-zoo "<=5.5.0"
+  conflict is irrelevant: only train_unsloth.py / merge_gemma.py import them -- never train or merge
+  in this env); 7.5 GB in $HOME. Weights 13 files / 55.5 GiB, VERIFY OK. In the new env all of
+  test_constrained_decoding (xgrammar 0.2.6 on transformers 5.17), test_model_chat_options,
+  test_agent_turn_budget, test_agentic_rungs, test_agent_stage5 PASS. The MiniLM embedding model
+  LLM.py loads at import is now cached on $HPCWORK too (offline jobs find it; non-fatal anyway).
     5. LOAD SMOKE, 2 dev cases: sbatch --array=8 slurm/submit_agentic_gate.sh --case-shard 0/19
        Read: which auto class loaded it ([model load] line), load time, GPU memory, s/turn, the
        first turns' raw output (JSON, ending at the object; completion tokens ~ JSON length),
        malformed and cap-hit counts, manifest `libraries` (transformers 5.17.0).
+  DONE 2026-09-27, step 5 (load smoke, dev cases 0-1, eval_runs/agentic_smoke/shard_m8_*_172245):
+  runtime nlxocpq-eval-glimmer + $HPCWORK cache; loaded via AutoModelForImageTextToText (the 2nd
+  fallback, like Ministral), 1436 tensors in 35 s incl. NF4; manifest libraries transformers 5.17.0
+  / xgrammar 0.2.6; frozen A1 hash; 16/16 turns clean JSON ending at the object (~110-330
+  completion tokens), 0 malformed, 0 cap hits, 2/2 declared, executed, probe = CLI. 13.5 and
+  19.3 s/turn (~2.3x Ministral), ~17 tok/s decode: a turn run to the 2000-token cap costs ~2 min,
+  so cap-hitting cases (the angular log) may time out at 600 s -- watch in the gate. Case 2 re-ran
+  the same try_query three times without revising (n=2; the mechanism measures will say more).
     6. GATE: sbatch --array=8,9 slurm/submit_agentic_gate.sh (38 dev cases x thought off/on).
        Compliance + s/turn + cap hits ONLY (dev F1 not quotable). A2 fits the 600 s cap only if
        s/turn stays under ~30. Only the CHAT settings (prefix, reasoning strength) may change here,
@@ -1860,3 +1875,35 @@
     9. ANALYSIS as pre-registered in notes 43.16: compliance first; A1 - A1' headline; the three
        mechanism measures against Ministral's (empty-result revision 1/20, population change
        4/17, try_query 1.05/case); cross-arm comparison descriptive only.
+  DONE 2026-09-28, step 6 (Glimmer gate, pFBEXL, eval_runs/agentic_gate/shard_m8_*_20260927_193501):
+  format perfect (0 malformed, 0 cap hits, 75/76 declared, probe = CLI), structure far better than
+  Ministral (1/37 blocking finals vs 9/38) -- but REPETITION LOOPS: 57% of thought-off turns repeat
+  an identical earlier action (Ministral 4%); 0/33 multi-try cases changed the population. Both
+  thought-off failures are loops (case 37 bpic2017 timeout; case 31). Notes 43.17. Steps 7-9
+  above are SUPERSEDED by the next entry.
+
+- OPEN, NEXT: pFBEXLR -- LEVER R (repeat guard) ON BOTH MODELS (option 2, decided 2026-09-28),
+  notes 43.17. Code done and tested locally. R: an action identical to an earlier one of the case
+  (tool + args, thought ignored) is not re-run; the model is told which turn made it. No prompt
+  text (the 3 frozen hashes are unchanged). Also preload_model: the model loads before the case
+  timer (Glimmer's 60 GB load was inside case 1's 600 s). Rungs now write to eval_runs/agentic_r;
+  the 43.15 pFBEXL run in eval_runs/agentic is NOT replaced. On the cluster:
+    1. git pull; in each env: python tests/test_agent_stage5.py && python tests/test_agentic_rungs.py
+       && python tests/test_model_chat_options.py (Glimmer env: export HF_HOME=$HPCWORK/nlxocpq-hf).
+    2. GATE on pFBEXLR, both models: sbatch --array=4,5,8,9 slurm/submit_agentic_gate.sh
+       Read ONLY: compliance, agent_repeat_turn_rate, guarded turns, s/turn, the preload line
+       ("loaded in Ns, outside the case time limit"), case-1 duration. Criterion: R must break
+       Glimmer's loops (repeat attempts and population changes vs 43.17's table) without hurting
+       Ministral's compliance. R's note wording may change HERE only; then FREEZE it (pin the
+       AGENT_REPEAT_NOTE sha256 in test_agent_stage5.py, record in notes).
+       If R does not break the loops: fall back to 43.16 (Glimmer on pFBEXL), loop = the finding.
+    3. RUNG SMOKES: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
+       and the same with --model-idx 8; smoke_check.py; manifests: frozen hashes, levers FBEXLR,
+       oracle [], libraries.
+    4. FULL RUNS (one job per model, all five rungs):
+         sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2   (~13 h of GPU)
+         sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 8   (~30-35 h of GPU)
+    5. ANALYSIS (notes 43.17 point 4): within each model on pFBEXLR, as pre-registered (compliance
+       first; A1 - A1' headline; mechanism incl. de-duplicated tries); R's effect on Ministral
+       (pFBEXL vs pFBEXLR, paired, descriptive, read against the A0 - A0 run-to-run baseline);
+       Glimmer vs Ministral descriptive only. Both protocols reported; none chosen by scored F1.

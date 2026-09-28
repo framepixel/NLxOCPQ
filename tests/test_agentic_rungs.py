@@ -135,8 +135,12 @@ same_strategy = [b for s, b in suffixes.values() if s == 1]
 check("A1, A2 and A1+thought share strategy 1 -- and still get three different suffixes",
       (len(same_strategy), len(set(same_strategy))), (3, 3))
 check("the resume glob is built from RUNG_SUFFIX in this run's directory",
-      "eval_runs/agentic/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}${RUNG_SUFFIX}_*"
-      in RUNGS_SCRIPT, True)
+      f"{CONFIG['output_dir']}/shard_m${{MODEL_IDX}}_s${{STRATEGY_IDX}}_e${{SCHEMA_IDX}}"
+      "${RUNG_SUFFIX}_*" in RUNGS_SCRIPT, True)
+# notes 43.17: the pFBEXLR runs never share a directory with the completed pFBEXL run of 43.15 --
+# A0's name carries no lever, so in one directory the two protocols' A0 would be indistinguishable.
+check("the rungs write to eval_runs/agentic_r, not to the completed run's eval_runs/agentic",
+      CONFIG["output_dir"], "eval_runs/agentic_r")
 
 print("\n--- the rung table is the intended experiment ---")
 by_task = dict(blocks)

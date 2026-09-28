@@ -55,8 +55,15 @@
 #   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
 #   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2
 #
+# THE PROTOCOL IS pFBEXLR (notes 43.17): the frozen Stage 5 protocol plus R, the repeat guard, added
+# after Muse Glimmer's gate and run on BOTH models so the two arms share one protocol. The prompts
+# are the frozen ones (R adds no text). Runs write to eval_runs/agentic_r; the completed Ministral
+# pFBEXL run of notes 43.15 stays in eval_runs/agentic and is not replaced. Both models, in order:
+#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11   # Ministral
+#   sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2
+#
 # THE SECOND ARM (notes 43.16): model index 8 is Muse Glimmer-30B, the same five rungs and the same
-# frozen protocol. It runs in its own conda env with its weights on $HPCWORK (slurm/model_runtime.sh).
+# protocol. It runs in its own conda env with its weights on $HPCWORK (slurm/model_runtime.sh).
 # Prerequisites, on a login node: OCPQ_ENV_VARIANT=glimmer bash scripts/make_eval_env.sh, then
 # bash scripts/prefetch_glimmer.sh && VERIFY=1 bash scripts/prefetch_glimmer.sh. Its model gate
 # (slurm/submit_agentic_gate.sh, tasks 8,9) comes first, then:
@@ -147,11 +154,11 @@ case "$TASK" in
   1) RUNG_NAME="A1 / tool loop, 8 turns, 12 tool calls"
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --no-agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXLR" ;;
   2) RUNG_NAME="A1-prime / same loop, 8 turns, NO tools (compute-matched control)"
      STRATEGY_IDX=2
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --no-agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXL" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXLR" ;;
   3) RUNG_NAME="A2 / tool loop, ${A2_TURNS} turns, ${A2_TOOL_CALLS} tool calls"
      if [ "${A2_SIZED}" != "1" ]; then
        echo "FATAL: A2's budget is not marked as sized (A2_SIZED). Size it from a dev run so A2" >&2
@@ -160,11 +167,11 @@ case "$TASK" in
      fi
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns "${A2_TURNS}" --agent-max-tool-calls "${A2_TOOL_CALLS}" --no-agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns${A2_TURNS}_tools${A2_TOOL_CALLS}_turntok2000_pFBEXL" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns${A2_TURNS}_tools${A2_TOOL_CALLS}_turntok2000_pFBEXLR" ;;
   4) RUNG_NAME="A1+thought / A1 with a thought field"
      STRATEGY_IDX=1
      AGENT_ARGS=(--agent-max-turns 8 --agent-max-tool-calls 12 --agent-thought)
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXLR_thought" ;;
   *) echo "FATAL: task ${TASK} is not a rung; this array is 0-4." >&2; exit 1 ;;
 esac
 
@@ -246,7 +253,7 @@ RESUME_ARGS=()
 if [ "$OCPQ_RESUME_REQUESTED" = "1" ]; then
   # Must include the rung suffix: A1, A2 and A1+thought share model/strategy/schema indices, so the
   # bare prefix matches every rung and `ls -t | head -1` would resume the wrong one.
-  SHARD_GLOB="$PROJECT_DIR/eval_runs/agentic/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}${RUNG_SUFFIX}_*"
+  SHARD_GLOB="$PROJECT_DIR/eval_runs/agentic_r/shard_m${MODEL_IDX}_s${STRATEGY_IDX}_e${SCHEMA_IDX}${RUNG_SUFFIX}_*"
   RESUME_DIR="$(ls -1dt $SHARD_GLOB 2>/dev/null | head -n 1)"
   if [ -z "$RESUME_DIR" ] || [ ! -d "$RESUME_DIR" ]; then
     echo "FATAL: --resume given but no run directory matches ${SHARD_GLOB}" >&2
