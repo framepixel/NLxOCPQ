@@ -7,6 +7,7 @@
 import copy
 import typing
 import hashlib
+import contextlib
 import json
 import numpy as np
 import os
@@ -218,6 +219,15 @@ local_gpu_quantization = "4bit"
 local_model_revision = None          # a hub commit, so every job loads the same weights
 local_chat_template_kwargs = {}      # extra variables for the chat template
 local_generation_prefix = None       # text appended after the generation prompt
+# Evaluation 2, "unleashed" (notes 44). All empty unless a model entry sets them, so evaluation 1 and
+# every earlier run generate exactly as before (tests/test_unleashed.py).
+local_system_prompt_prefix = None    # the vendor's own reasoning switch, when it is prompt text
+local_reasoning = None               # {"open", "close", "answer_prefix"}: the native reasoning channel
+local_sampling = {}                  # {"top_p", "top_k"}: the vendor's sampling beside the temperature
+local_sdpa_kernels = None            # attention kernels allowed during generation (memory, notes 43.19)
+# Tokens a model may reason before each generation, in its own channel (notes 44). None: no
+# reasoning step at all -- evaluation 1, and every run before it.
+reasoning_token_budget = None
 
 def set_hf_client(
     token=None,
@@ -757,17 +767,55 @@ def get_hf_backend_description():
     return "HF default"
 
 
-def set_local_model_options(revision=None, chat_template_kwargs=None, generation_prefix=None):
-    """Set the per-model chat settings for the local backend (notes 43.16); None clears each one.
+def set_local_model_options(revision=None, chat_template_kwargs=None, generation_prefix=None,
+                            system_prompt_prefix=None, reasoning=None, sampling=None,
+                            sdpa_kernels=None):
+    """Set the per-model chat settings for the local backend (notes 43.16, 44); None clears each.
 
     Called for every model before it is selected, so a model without the settings never inherits
     another model's. Set BEFORE `set_local_gpu_client`: the revision is part of the cached model's
     key, and a key computed without it would keep serving the wrong weights.
+
+    The evaluation-2 options (notes 44):
+      * `system_prompt_prefix` -- prepended to the system prompt. Ministral 3 Reasoning's switch into
+        reasoning is its vendor system prompt, which its template adds only when NO system prompt
+        is given, and the agent always gives one.
+      * `reasoning` -- {"open", "close", "answer_prefix"}: the text that opens the model's native
+        reasoning channel after the generation prompt, the SINGLE token that closes it, and the
+        text between that and the answer. With `reasoning_token_budget` set, every generation
+        reasons first and then answers (see `_call_local_gpu_chat_completion`).
+      * `sampling` -- {"top_p", "top_k"}: the vendor's recommended values; the temperature is the
+        model entry's own `temperature`, as before.
+      * `sdpa_kernels` -- names in torch.nn.attention.SDPBackend to allow during generation, to
+        keep long prompts from materialising the attention matrix (Gemma 4, notes 43.19).
     """
     global local_model_revision, local_chat_template_kwargs, local_generation_prefix
+    global local_system_prompt_prefix, local_reasoning, local_sampling, local_sdpa_kernels
     local_model_revision = revision or None
     local_chat_template_kwargs = dict(chat_template_kwargs or {})
     local_generation_prefix = generation_prefix or None
+    local_system_prompt_prefix = system_prompt_prefix or None
+    if reasoning is not None and not (isinstance(reasoning, dict) and reasoning.get("close")):
+        raise ValueError("reasoning needs at least a 'close' marker: the token that ends the channel")
+    local_reasoning = dict(reasoning) if reasoning else None
+    unknown = set(sampling or {}) - {"top_p", "top_k"}
+    if unknown:
+        raise ValueError(f"unsupported sampling option(s): {sorted(unknown)} (top_p, top_k only)")
+    local_sampling = dict(sampling or {})
+    local_sdpa_kernels = list(sdpa_kernels) if sdpa_kernels else None
+
+
+def set_reasoning_token_budget(value):
+    """Let every generation reason for up to `value` tokens first (notes 44); None: no reasoning step.
+
+    Only a model that also declares a `reasoning` channel reasons; for any other model it is inert.
+    """
+    global reasoning_token_budget
+    reasoning_token_budget = None if value is None else int(value)
+
+
+def get_reasoning_token_budget():
+    return reasoning_token_budget
 
 
 def preload_local_model():
@@ -1884,6 +1932,16 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
             ] + normalized_messages[1:]
         else:
             normalized_messages = [{"role": "system", "content": json_instruction}] + normalized_messages
+    if local_system_prompt_prefix:
+        # The vendor's reasoning switch, when it is prompt text (Ministral 3 Reasoning, notes 44):
+        # its template adds it only when no system prompt is given. Prepended, so our own prompt --
+        # and its frozen hash -- is unchanged after it.
+        if normalized_messages and normalized_messages[0]["role"] == "system":
+            normalized_messages = [{"role": "system", "content": local_system_prompt_prefix + "\n\n"
+                                    + normalized_messages[0]["content"]}] + normalized_messages[1:]
+        else:
+            normalized_messages = ([{"role": "system", "content": local_system_prompt_prefix}]
+                                   + normalized_messages)
 
     if hasattr(local_tokenizer, "apply_chat_template"):
         input_ids = local_tokenizer.apply_chat_template(
@@ -1935,6 +1993,10 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
     }
     if temperature is not None and temperature > 0:
         generate_kwargs["temperature"] = float(temperature)
+        # The vendor's other sampling values (notes 44); absent for every earlier model.
+        for key in ("top_p", "top_k"):
+            if key in local_sampling:
+                generate_kwargs[key] = local_sampling[key]
     if attention_mask is not None:
         generate_kwargs["attention_mask"] = attention_mask
 
@@ -1953,21 +2015,80 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(generation_seed)
 
-    with torch.no_grad():
+    reasoning_ids, forced_close = None, None
+    if local_reasoning and reasoning_token_budget:
+        # EVALUATION 2 (notes 44): reason first, in the model's own channel and WITHOUT the grammar,
+        # for at most `reasoning_token_budget` tokens; then answer under the grammar as always. The
+        # channel closes on its own marker, or is closed here at the budget ("forced close"). Only
+        # the answer is returned as content, so the transcript keeps actions, never reasoning.
+        close_ids = local_tokenizer.encode(local_reasoning["close"], add_special_tokens=False)
+        if len(close_ids) != 1:
+            raise ValueError(f"reasoning 'close' must be ONE token, got {close_ids} for "
+                             f"{local_reasoning['close']!r}")
+        close_id = close_ids[0]
+        opener = local_tokenizer.encode(local_reasoning.get("open") or "", add_special_tokens=False)
+        reasoning_input = torch.cat(
+            [input_ids, torch.tensor([opener], dtype=input_ids.dtype, device=input_ids.device)],
+            dim=-1) if opener else input_ids
+        stops = [close_id] + _eos_ids()
+        reasoning_kwargs = {k: v for k, v in generate_kwargs.items() if k != "logits_processor"}
+        reasoning_kwargs.update(input_ids=reasoning_input, attention_mask=torch.ones_like(reasoning_input),
+                                max_new_tokens=reasoning_token_budget, eos_token_id=stops)
+        with torch.no_grad(), _sdpa_context():
+            reasoning_out = local_model.generate(**reasoning_kwargs)
+        reasoned = reasoning_out[0][reasoning_input.shape[-1]:].tolist()
+        forced_close = not (reasoned and reasoned[-1] == close_id)
+        while reasoned and (reasoned[-1] == close_id or reasoned[-1] in stops):
+            reasoned = reasoned[:-1]
+        reasoning_ids = reasoned
+        answer_ids = local_tokenizer.encode(local_reasoning.get("answer_prefix") or "",
+                                            add_special_tokens=False)
+        input_ids = torch.cat([reasoning_input, torch.tensor(
+            [reasoned + [close_id] + answer_ids], dtype=input_ids.dtype, device=input_ids.device)],
+            dim=-1)
+        _check_context_budget(int(input_ids.shape[-1]), max_tokens)
+        generate_kwargs["input_ids"] = input_ids
+        generate_kwargs["attention_mask"] = torch.ones_like(input_ids)
+
+    with torch.no_grad(), _sdpa_context():
         output_ids = local_model.generate(**generate_kwargs)
 
     generated_ids = output_ids[0][input_ids.shape[-1]:]
     content = local_tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
-    completion_tokens = int(generated_ids.shape[-1])
+    action_tokens = int(generated_ids.shape[-1])
+    reasoning_tokens = len(reasoning_ids) if reasoning_ids is not None else 0
+    completion_tokens = action_tokens + reasoning_tokens
     usage = SimpleNamespace(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
     )
-    return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
-        usage=usage,
-    )
+    message = SimpleNamespace(content=content)
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
+    if reasoning_ids is not None:
+        message.reasoning = local_tokenizer.decode(reasoning_ids, skip_special_tokens=True).strip()
+        # Kept apart from the answer's tokens: the per-turn cap is on the ACTION (notes 43.15).
+        response.reasoning_tokens = reasoning_tokens
+        response.action_tokens = action_tokens
+        response.forced_close = forced_close
+    return response
+
+
+def _eos_ids():
+    """The tokenizer's end-of-sequence id(s) as a list, to stop a reasoning step that ends the turn."""
+    eos = getattr(local_tokenizer, "eos_token_id", None)
+    if eos is None:
+        return []
+    return list(eos) if isinstance(eos, (list, tuple)) else [eos]
+
+
+def _sdpa_context():
+    """Restrict attention to the configured kernels while generating (notes 43.19, 44); a no-op
+    for every model that configures none."""
+    if not local_sdpa_kernels:
+        return contextlib.nullcontext()
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+    return sdpa_kernel([getattr(SDPBackend, name.upper()) for name in local_sdpa_kernels])
 
 
 def _extract_usage_from_response(response):
@@ -4157,7 +4278,10 @@ def _turn_hit_cap(response, cap):
     choice = response.choices[0]
     if getattr(choice, "finish_reason", None) == "length":
         return True
-    used = getattr(getattr(response, "usage", None), "completion_tokens", None)
+    # With a reasoning step (notes 44) the usage counts reasoning too; the cap is on the action.
+    used = getattr(response, "action_tokens", None)
+    if used is None:
+        used = getattr(getattr(response, "usage", None), "completion_tokens", None)
     return used is not None and cap is not None and used >= cap
 _STRUCTURE_REPORT_CAP = 8
 
@@ -4552,6 +4676,14 @@ def _run_pipeline_agentic(
         content = response.choices[0].message.content or ""
         action, reason = _parse_agent_action(content, action_model)
         entry = {"turn": turns_used, "raw": content[:_AGENT_RAW_CHAR_CAP]}
+        reasoning_text = getattr(response.choices[0].message, "reasoning", None)
+        if reasoning_text is not None:
+            # Evaluation 2 (notes 44): what the model thought before this action. Kept in the
+            # trajectory for the mechanism analysis (did it SEE the empty result?), never in the
+            # transcript the model is shown next turn.
+            entry["reasoning"] = reasoning_text[:_AGENT_RAW_CHAR_CAP]
+            entry["reasoning_tokens"] = getattr(response, "reasoning_tokens", None)
+            entry["forced_close"] = bool(getattr(response, "forced_close", False))
         if action is not None and _last_agent_parse_normalized:
             entry["normalized"] = list(_last_agent_parse_normalized)
         thought = getattr(action, "thought", None) if action is not None else None

@@ -92,8 +92,17 @@ src = (REPO / "src" / "LLM.py").read_text(encoding="utf-8")
 i = src.index("if do_sample and generation_seed is not None:")
 check("seeding is gated on do_sample", "do_sample and generation_seed is not None" in src[i:i + 60],
       True)
-check("gate sits immediately before generate()",
-      "local_model.generate(**generate_kwargs)" in src[i:i + 400], True)
+# What matters is that NOTHING draws from the RNG between the seed and the first generation. Since
+# evaluation 2 (notes 44) the first generation after the gate may be the reasoning step, and the
+# action step follows it within the same seeded stream; without a reasoning budget it is, as before,
+# the only one. So: find the first generate() after the gate, and check no RNG use lies between.
+_first = src.index("local_model.generate(", i)
+_between = src[i:_first]
+check("the first generate() after the gate comes before any other RNG use",
+      [tok for tok in ("torch.rand", "random.", "np.random", "manual_seed(generation_seed + ")
+       if tok in _between.split("torch.cuda.manual_seed_all(generation_seed)", 1)[-1]], [])
+check("...and it is in the same function, a few lines on (the reasoning step or the only step)",
+      src.rfind("\ndef ", 0, _first) == src.rfind("\ndef ", 0, i) and _first - i < 3500, True)
 
 print()
 if failures:

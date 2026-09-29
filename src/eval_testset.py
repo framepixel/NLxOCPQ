@@ -53,6 +53,7 @@ from LLM import (
     set_hf_client,
     set_local_gpu_client,
     set_local_model_options,
+    set_reasoning_token_budget,
     preload_local_model,
     reset_llm_call_stats,
     get_llm_call_stats,
@@ -232,7 +233,8 @@ _STRATUM_MISS = (None, None, {}, {})
 
 def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_budget,
                      type_aware_filters=False, constant_root_arity=False,
-                     structural_validation=False, any_order=True, bounded=False):
+                     structural_validation=False, any_order=True, bounded=False,
+                     reasoning_budget=None):
     """The suffix that distinguishes decoding rungs, used by BOTH `config_id` and the shard name.
 
     One definition because these had already drifted apart once. `config_id` carried the arity
@@ -263,6 +265,9 @@ def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_bu
         suffix += "_arityconst"
     if generation_token_budget is not None:
         suffix += f"_tok{int(generation_token_budget)}"
+    if reasoning_budget:
+        # Evaluation 2 (notes 44): every generation reasons first, for up to this many tokens.
+        suffix += f"_think{int(reasoning_budget)}"
     return suffix
 
 
@@ -1420,6 +1425,14 @@ def _agent_compliance(records) -> dict:
         # Turns that repeated an earlier action of the case exactly (notes 43.17), whether or not
         # R guarded them; None for runs before 43.17, which did not count them.
         "agent_repeat_turn_rate": _counted_turn_rate(agents, "repeat_turns"),
+        # Evaluation 2 (notes 44): how often the budget, not the model, ended the reasoning, and how
+        # long it reasoned. None for runs without a reasoning step.
+        "agent_forced_close_rate": (_mean([1 if t.get("forced_close") else 0 for t in all_turns
+                                           if t.get("reasoning_tokens") is not None])
+                                    if any(t.get("reasoning_tokens") is not None for t in all_turns)
+                                    else None),
+        "agent_mean_reasoning_tokens": _mean([t.get("reasoning_tokens") for t in all_turns
+                                              if t.get("reasoning_tokens") is not None]),
     }
 
 
@@ -1577,6 +1590,11 @@ def _configure_backend(model_cfg, global_cfg):
         revision=model_cfg.get("revision"),
         chat_template_kwargs=model_cfg.get("chat_template_kwargs"),
         generation_prefix=model_cfg.get("generation_prefix"),
+        # Evaluation 2 (notes 44): the reasoning switch, channel, sampling and attention kernels.
+        system_prompt_prefix=model_cfg.get("system_prompt_prefix"),
+        reasoning=model_cfg.get("reasoning"),
+        sampling=model_cfg.get("sampling"),
+        sdpa_kernels=model_cfg.get("sdpa_kernels"),
     )
     if backend == "local-gpu":
         set_local_gpu_client(
@@ -1766,6 +1784,11 @@ def _compact_agent_turns(trajectory, cap):
         if entry.get("hit_cap"):
             # Cut off at the per-turn cap, not malformed by the model (notes 43.15).
             turn["hit_cap"] = True
+        if entry.get("reasoning_tokens") is not None:
+            # Evaluation 2 (notes 44): the length only; the text is in agent_trajectories.jsonl.
+            turn["reasoning_tokens"] = entry["reasoning_tokens"]
+            if entry.get("forced_close"):
+                turn["forced_close"] = True
         if entry.get("repeat_of") is not None:
             # The same action as that earlier turn (notes 43.17); `guarded` when R did not re-run it.
             turn["repeat_of"] = entry["repeat_of"]
@@ -1978,6 +2001,7 @@ def run_evaluation(config_path_or_config):
             config.get("structural_validation"),
             config.get("constrained_any_order", True),
             config.get("constrained_bounded_shape", False),
+            config.get("reasoning_token_budget"),
         )
         # After the decoding suffix, matching `config_id`'s order. See `_agent_shard_suffix`.
         # The strategies are resolved (and the index validated) further down; this reads the same
@@ -2101,6 +2125,10 @@ def run_evaluation(config_path_or_config):
             f"corpus_check must be one of {CORPUS_CHECK_POLICIES}, got {corpus_check!r}")
     _budget = config.get("generation_token_budget")
     generation_token_budget = None if _budget is None else int(_budget)
+    # Evaluation 2 (notes 44): tokens each generation may reason first, in the model's own channel.
+    # Absent from every earlier config, so nothing before it reasons.
+    _reasoning = config.get("reasoning_token_budget")
+    reasoning_token_budget = int(_reasoning) if _reasoning else None
     # THE AGENTIC ARM (notes 43). Read only when a condition uses it; every value is recorded in the
     # manifest's `agentic` block. `agent_max_turns` and `agent_max_tool_calls` are the rung: A1 and
     # A2 differ in them and in nothing else, which is why they also enter `config_id`.
@@ -2223,6 +2251,8 @@ def run_evaluation(config_path_or_config):
               f"{'   *** ORACLE CONDITION -- ceiling, never system performance ***' if force_root_arity else ''}")
         print(f"Dry run: generation_token_budget = "
               f"{generation_token_budget if generation_token_budget is not None else 'per-pipeline default (1000/2000)'}")
+        print(f"Dry run: reasoning_token_budget = {reasoning_token_budget or 'none (no reasoning step)'}"
+              f"{'   (evaluation 2: each generation reasons first; notes 44)' if reasoning_token_budget else ''}")
         if agent_settings:
             print(f"Dry run: agentic = {agent_settings['strategies']} | "
                   f"max_turns={agent_settings['max_turns']} "
@@ -2310,6 +2340,8 @@ def run_evaluation(config_path_or_config):
         "constrained_any_order": constrained_any_order,
         "constrained_bounded_shape": constrained_bounded_shape,
         "generation_token_budget": generation_token_budget,
+        # Evaluation 2 (notes 44); None for every run that does not reason first.
+        "reasoning_token_budget": reasoning_token_budget,
         "force_root_arity": force_root_arity,
         "type_aware_filters": type_aware_filters,
         "constant_root_arity": constant_root_arity,
@@ -2508,6 +2540,7 @@ def run_evaluation(config_path_or_config):
             set_constrained_any_order(constrained_any_order)
             set_constrained_bounded_shape(constrained_bounded_shape)
             set_generation_token_budget(generation_token_budget)
+            set_reasoning_token_budget(reasoning_token_budget)
             if global_cfg.get("preload_model"):
                 # Load the model here, OUTSIDE the case time limit (notes 43.17): lazily it loads on
                 # the first generation, inside the first case's cap, and a 60 GB checkpoint can
@@ -2536,7 +2569,7 @@ def run_evaluation(config_path_or_config):
                     decoding_suffix = _decoding_suffix(
                         constrained_decoding, force_root_arity, generation_token_budget,
                         type_aware_filters, constant_root_arity, structural_validation,
-                        constrained_any_order, constrained_bounded_shape)
+                        constrained_any_order, constrained_bounded_shape, reasoning_token_budget)
                     agent_suffix = (_agent_suffix(prompt_strategy, agent_settings["max_turns"],
                                                   agent_settings["max_tool_calls"],
                                                   agent_settings["thought"],

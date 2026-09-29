@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Pre-download the agentic arm's pinned models into their cache on $HPCWORK (notes 43.16, 43.18).
 #
-# Which models: every entry of configs/eval_config.agentic.json that pins a hub commit (`revision`) --
-# Muse Glimmer-30B, Qwen3.8-27B, Gemma 4 31B-it -- or only the labels given as arguments. Repo id and
-# commit are read from the config the jobs load, so the download and the run cannot disagree about
-# which weights are meant.
+# Which models: every entry of the agentic configs that pins a hub commit (`revision`) -- evaluation
+# 1's configs/eval_config.agentic.json (Glimmer, Qwen3.8, Gemma 4) and evaluation 2's
+# configs/eval_config.unleashed.json (the same three plus Ministral-3-14B-Reasoning) -- or only the
+# labels given as arguments. A repo at one commit is fetched once, whichever config names it. Repo
+# id and commit are read from the configs the jobs load, so the download and the run cannot disagree
+# about which weights are meant.
 #
 # Why $HPCWORK: each is 55-63 GB in bf16, and $HOME is capped at 150 GB with ~95 GB in use
 # (2026-09-28). slurm/model_runtime.sh points these indices at the same cache, and the jobs run with
@@ -21,7 +23,7 @@ if [ -z "${HPCWORK:-}" ]; then
   exit 1
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="$SCRIPT_DIR/../configs/eval_config.agentic.json"
+CONFIGS=("$SCRIPT_DIR/../configs/eval_config.agentic.json" "$SCRIPT_DIR/../configs/eval_config.unleashed.json")
 
 export HF_HOME="$HPCWORK/nlxocpq-hf"
 export HF_HUB_CACHE="$HF_HOME/hub"
@@ -39,21 +41,32 @@ source "$HOME/miniforge3/etc/profile.d/conda.sh"
 # Any env with huggingface_hub works; this only downloads.
 conda activate "${OCPQ_TRAIN_ENV:-nlxocpq-train-v5}"
 
-python - "$CONFIG" "$@" <<'PY'
+python - "${#CONFIGS[@]}" "${CONFIGS[@]}" "$@" <<'PY'
 import json
 import os
 import sys
 
 from huggingface_hub import snapshot_download
 
-cfg = json.load(open(sys.argv[1], encoding="utf-8"))
-wanted = set(sys.argv[2:])
-pinned = [m for m in cfg["models"] if m.get("revision")]
-unknown = wanted - {m["label"] for m in pinned}
+n_configs = int(sys.argv[1])
+config_paths, wanted = sys.argv[2:2 + n_configs], set(sys.argv[2 + n_configs:])
+pinned, seen = [], {}
+for path in config_paths:
+    for m in json.load(open(path, encoding="utf-8"))["models"]:
+        if not m.get("revision"):
+            continue
+        key = (m["name"], m["revision"])
+        if key in seen:                       # the same weights under another config's label
+            seen[key].setdefault("aliases", []).append(m["label"])
+            continue
+        seen[key] = dict(m)
+        pinned.append(seen[key])
+labels_of = lambda m: {m["label"], *m.get("aliases", [])}
+unknown = wanted - set().union(*(labels_of(m) for m in pinned))
 if unknown:
     raise SystemExit(f"FATAL: no pinned model labelled {sorted(unknown)}; "
                      f"pinned: {[m['label'] for m in pinned]}")
-entries = [m for m in pinned if not wanted or m["label"] in wanted]
+entries = [m for m in pinned if not wanted or labels_of(m) & wanted]
 verify_only = os.environ.get("VERIFY", "0").strip().lower() in {"1", "true", "yes", "on"}
 failures = []
 for entry in entries:
