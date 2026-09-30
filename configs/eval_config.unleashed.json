@@ -96,7 +96,7 @@
         "conda_env": "nlxocpq-eval-glimmer",
         "hf_cache": "hpcwork"
       },
-      "note": "Thinking mode (the template opens <think>). reasoning_effort medium: xhigh, the default, is sized for far more than the 1024-token budget. preserve_thinking false: earlier reasoning is dropped (notes 44). Sampling: the card's thinking-mode values."
+      "note": "Thinking mode (the template opens <think>). reasoning_effort medium: xhigh, the default, is sized for far more than the 2048-token budget. preserve_thinking false: earlier reasoning is dropped (notes 44). Sampling: the card's thinking-mode values."
     },
     {
       "name": "meta-models/Muse-Glimmer-30B",
@@ -164,7 +164,7 @@
   "generation_seed_base": 20260928,
   "case_timeout_sec": 1800,
   "case_timeout_note": "Evaluation 2's own cap (notes 44): 8 turns x up to ~70 s of reasoning. One cap for every arm of evaluation 2.",
-  "reasoning_token_budget": 1024,
+  "reasoning_token_budget": 2048,
   "reasoning_token_budget_note": "Tokens each generation may reason first; closed by the harness at the budget (a forced close). May be changed at the gate only, then frozen (notes 44).",
   "agent_thought": false,
   "agent_cap_feedback": false

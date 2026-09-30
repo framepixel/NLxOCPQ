@@ -14,7 +14,7 @@ Asserted here, without a GPU:
     marker is one token, its reasoning switch reaches the prompt, and earlier turns carry no reasoning.
   * THE AGENT LOOP records the reasoning per turn, keeps it out of the transcript, and counts the
     per-turn action cap on the ACTION's tokens only.
-  * NAMES AND SCRIPTS: `_think1024` names every evaluation-2 condition; the scripts' suffixes are the
+  * NAMES AND SCRIPTS: `_think2048` names every evaluation-2 condition; the scripts' suffixes are the
     ones the harness builds; the shard and runtime mapping is executed in bash.
 
 The template section reads the pinned files from the HF cache; on the cluster run it as
@@ -79,9 +79,9 @@ for name, cfg in (("run", RUN), ("gate", GATE)):
     check(f"{name}: the levers are pFBEXL -- C and R off, no thought field",
           (cfg["agent_cap_feedback"], cfg["agent_repeat_guard"], cfg["agent_thought"]),
           (False, False, False))
-    check(f"{name}: reasoning 1024, temperature 1.0, fixed seeds, the 1800 s cap, preloaded",
+    check(f"{name}: reasoning 2048 (frozen at the gate stage, notes 44.5), temperature 1.0, fixed seeds, the 1800 s cap, preloaded",
           (cfg["reasoning_token_budget"], cfg["temperature"], bool(cfg["generation_seed_base"]),
-           cfg["case_timeout_sec"], cfg["preload_model"]), (1024, 1.0, True, 1800, True))
+           cfg["case_timeout_sec"], cfg["preload_model"]), (2048, 1.0, True, 1800, True))
     check(f"{name}: the four models, in the pre-registered order", [m["label"] for m in cfg["models"]],
           ORDER)
     check(f"{name}: no adapters are expanded", cfg["auto_expand_finetuned"], False)
@@ -313,9 +313,9 @@ LLM.set_agent_protocol()
 out.unlink(missing_ok=True)
 
 print("\n--- names and scripts ---")
-check("_think1024 follows _tok4000 in every evaluation-2 condition name",
-      _decoding_suffix(True, False, 4000, any_order=False, bounded=True, reasoning_budget=1024),
-      "_constrained_ordered_bounded_tok4000_think1024")
+check("_think2048 follows _tok4000 in every evaluation-2 condition name",
+      _decoding_suffix(True, False, 4000, any_order=False, bounded=True, reasoning_budget=2048),
+      "_constrained_ordered_bounded_tok4000_think2048")
 check("...and is absent without a reasoning budget (every earlier name unchanged)",
       _decoding_suffix(True, False, 4000, any_order=False, bounded=True),
       "_constrained_ordered_bounded_tok4000")

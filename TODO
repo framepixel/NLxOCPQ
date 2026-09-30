@@ -1947,7 +1947,7 @@
        descriptive only).
 
 - OPEN, NEXT: EVALUATION 2, "UNLEASHED" -- DESIGNED, PRE-REGISTERED AND BUILT (notes 44, 2026-09-28).
-  The recommended package: every generation first reasons in the model's own channel (<= 1024 tokens,
+  The recommended package: every generation first reasons in the model's own channel (<= 2048 tokens since notes 44.5; was 1024,
   forced close at the budget), then acts under the grammar as in evaluation 1; earlier reasoning
   dropped; vendor sampling, fixed seeds, 2 draws; 1800 s cap; rungs A0*, A1*, A1'* at 8 turns; same
   prompts (frozen hashes), tools, levers pFBEXL, scorer. Models, in the PRE-REGISTERED order:
@@ -1967,6 +1967,9 @@
        kernel" (head dim 512 + grouped K/V); FIXED in _sdpa_context (K/V repeated under sdpa_kernels,
        notes 44.3). RE-RUN Gemma only: sbatch --array=3 slurm/submit_long_prompt_smoke.sh
     4. LOAD SMOKES, 2 dev cases each: sbatch slurm/submit_unleashed_gate.sh --case-shard 0/19
+       DONE at 1024 (2026-09-30, models 0-2): clean mechanics, but forced closes 80% (Ministral-R) and
+       78% (Glimmer) -> BUDGET RAISED TO 2048 FOR ALL FOUR, FROZEN (notes 44.5). Not raised again.
+       Gemma re-smoke (4548761): fits 49k, OOM at 64k. RE-RUN the load smoke for all four at 2048.
        Read: Runtime line, "loaded in", each turn's reasoning (in the model's channel, closed by it or
        forced), clean JSON actions, s/turn, forced-close rate.
        SPEED TRIGGER (notes 44.3, decided before output): median s/turn <= 150 per model. If Qwen is

@@ -18,7 +18,8 @@
 #
 # READ COMPLIANCE, REASONING AND TIME ONLY, against the pass rule of notes 44. NO F1 FROM THIS JOB IS
 # QUOTABLE, and none enters a decision. The reasoning budget (and a model's reasoning effort) may be
-# changed on the evidence of this gate only, then frozen.
+# changed on the evidence of this gate only, then frozen. It was raised 1024 -> 2048 for all four on the
+# load smokes' forced-close rate (Ministral-R 80%, Glimmer 78%; notes 44.5) and is now frozen.
 #
 # Prerequisites on a login node: bash scripts/prefetch_pinned_models.sh (all four are pinned), and
 # python src/long_prompt_smoke.py for Gemma (memory, notes 43.19).
@@ -89,7 +90,7 @@ export OCPQ_SCHEMA_TOKEN_BUDGET="${OCPQ_SCHEMA_TOKEN_BUDGET:-17000}"
 
 STRATEGY_IDX=0   # the gate config carries ONE strategy: agentic-log-tools (A1*)
 SCHEMA_IDX=0
-RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_think1024_turns8_tools12_turntok2000_pFBEXL"
+RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_think2048_turns8_tools12_turntok2000_pFBEXL"
 CASE_ARGS=()
 if [ -n "${OCPQ_CASE_SHARD:-}" ]; then
   case "$OCPQ_CASE_SHARD" in
