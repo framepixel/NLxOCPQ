@@ -2082,13 +2082,31 @@ def _eos_ids():
     return list(eos) if isinstance(eos, (list, tuple)) else [eos]
 
 
+@contextlib.contextmanager
 def _sdpa_context():
     """Restrict attention to the configured kernels while generating (notes 43.19, 44); a no-op
-    for every model that configures none."""
+    for every model that configures none.
+
+    With kernels set, transformers is also made to repeat K/V to the query's head count itself
+    instead of passing `enable_gqa=True`: neither fused kernel accepts grouped K/V, and flash
+    caps the head dimension at 256, so Gemma 4's global layers (32 query heads, 4 K/V heads, head
+    dim 512) would find no kernel at all (the long-prompt smoke of notes 44.3). The attention is
+    the same computation either way; only the kernel differs."""
     if not local_sdpa_kernels:
-        return contextlib.nullcontext()
+        yield
+        return
     from torch.nn.attention import SDPBackend, sdpa_kernel
-    return sdpa_kernel([getattr(SDPBackend, name.upper()) for name in local_sdpa_kernels])
+    import transformers.integrations.sdpa_attention as hf_sdpa
+    if not hasattr(hf_sdpa, "use_gqa_in_sdpa"):
+        raise RuntimeError("sdpa_kernels: this transformers has no sdpa_attention.use_gqa_in_sdpa to "
+                           "turn grouped K/V off; check how its SDPA path handles GQA before running")
+    original = hf_sdpa.use_gqa_in_sdpa
+    hf_sdpa.use_gqa_in_sdpa = lambda *args, **kwargs: False
+    try:
+        with sdpa_kernel([getattr(SDPBackend, name.upper()) for name in local_sdpa_kernels]):
+            yield
+    finally:
+        hf_sdpa.use_gqa_in_sdpa = original
 
 
 def _extract_usage_from_response(response):

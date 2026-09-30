@@ -1963,9 +1963,15 @@
        && VERIFY=1 bash scripts/prefetch_pinned_models.sh   (Ministral-R ~14 GB; the rest are cached)
     3. MEMORY: sbatch slurm/submit_long_prompt_smoke.sh   -- peak GiB at 16k-64k-token prompts per model.
        Gemma (task 3) must fit >= 49k; if it OOMs, stop and fix before its gate.
+       DONE 2026-09-30 (job 4521758): tasks 0-2 fit 64k (peak 31/43/38 GiB). Gemma: "No available
+       kernel" (head dim 512 + grouped K/V); FIXED in _sdpa_context (K/V repeated under sdpa_kernels,
+       notes 44.3). RE-RUN Gemma only: sbatch --array=3 slurm/submit_long_prompt_smoke.sh
     4. LOAD SMOKES, 2 dev cases each: sbatch slurm/submit_unleashed_gate.sh --case-shard 0/19
        Read: Runtime line, "loaded in", each turn's reasoning (in the model's channel, closed by it or
        forced), clean JSON actions, s/turn, forced-close rate.
+       SPEED TRIGGER (notes 44.3, decided before output): median s/turn <= 150 per model. If Qwen is
+       above it: pip install flash-linear-attention causal-conv1d in nlxocpq-eval-glimmer, re-pin,
+       re-smoke Qwen, all before its gate. Gemma above it: no faster exact kernel; the gate decides.
     5. GATE: sbatch slurm/submit_unleashed_gate.sh   (A1*, 38 dev cases, 1 draw; ~5 h per model).
        Apply the notes-44.4 rule; budget/effort may be raised here only, then re-gate and freeze.
     6. Each passing model, in order: sbatch --array=0-2 slurm/submit_unleashed_rungs.sh --model-idx N --smoke

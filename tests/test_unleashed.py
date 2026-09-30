@@ -359,6 +359,35 @@ check("each model's runtime comes from its config entry",
       ["nlxocpq-eval-v5|/w/nlxocpq-hf", "nlxocpq-eval-glimmer|/w/nlxocpq-hf",
        "nlxocpq-eval-glimmer|/w/nlxocpq-hf", "nlxocpq-eval-v5|/w/nlxocpq-hf"])
 
+print("\n--- Gemma 4's attention: a kernel exists for grouped K/V at head dim 512 (notes 44.3) ---")
+# The long-prompt smoke found none: flash caps the head dim at 256 and neither fused kernel takes
+# grouped K/V. Under sdpa_kernels, transformers must repeat K/V itself, and only there.
+import transformers.integrations.sdpa_attention as hf_sdpa  # noqa: E402
+_gqa = hf_sdpa.use_gqa_in_sdpa
+LLM.local_sdpa_kernels = ["flash_attention", "efficient_attention"]
+with LLM._sdpa_context():
+    check("inside: transformers repeats K/V (no enable_gqa)", hf_sdpa.use_gqa_in_sdpa(None, None), False)
+check("after: transformers' own switch is restored", hf_sdpa.use_gqa_in_sdpa is _gqa, True)
+try:
+    with LLM._sdpa_context():
+        raise KeyError("boom")
+except KeyError:
+    pass
+check("...restored even when generation raises", hf_sdpa.use_gqa_in_sdpa is _gqa, True)
+if torch.cuda.is_available():
+    q = torch.randn(1, 32, 512, 512, device="cuda", dtype=torch.bfloat16)
+    kv = torch.randn(1, 4, 512, 512, device="cuda", dtype=torch.bfloat16)
+    layer = SimpleNamespace(num_key_value_groups=8, is_causal=True)
+    with LLM._sdpa_context():
+        out, _ = hf_sdpa.sdpa_attention_forward(layer, q, kv, kv, None)
+    check("GPU: Gemma's global-layer shape runs under the allowed kernels", tuple(out.shape),
+          (1, 512, 32, 512))
+else:
+    print("SKIP  GPU: Gemma's global-layer shape (no CUDA here; the long-prompt smoke covers it)")
+LLM.local_sdpa_kernels = None
+with LLM._sdpa_context():
+    check("no kernels configured: transformers' switch untouched", hf_sdpa.use_gqa_in_sdpa is _gqa, True)
+
 print()
 if failures:
     print(f"RESULT: FAIL -> {len(failures)} check(s): {failures}")
