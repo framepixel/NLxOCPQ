@@ -228,6 +228,13 @@ local_sdpa_kernels = None            # attention kernels allowed during generati
 # Tokens a model may reason before each generation, in its own channel (notes 44). None: no
 # reasoning step at all -- evaluation 1, and every run before it.
 reasoning_token_budget = None
+# What the agent's transcript keeps of each earlier turn's reasoning (notes 44.6). "drop" (None):
+# actions and results only -- every run before 44.6. "keep": each earlier turn's reasoning, rendered
+# the way the model's own template renders reasoning inside a tool loop (the model's
+# `reasoning["history"]` says how).
+REASONING_HISTORY_MODES = ("drop", "keep")
+REASONING_HISTORY_VIAS = ("thinking_chunk", "reasoning_content", "splice")
+reasoning_history = None
 
 def set_hf_client(
     token=None,
@@ -788,6 +795,14 @@ def set_local_model_options(revision=None, chat_template_kwargs=None, generation
         model entry's own `temperature`, as before.
       * `sdpa_kernels` -- names in torch.nn.attention.SDPBackend to allow during generation, to
         keep long prompts from materialising the attention matrix (Gemma 4, notes 43.19).
+      * `reasoning["history"]` (notes 44.6) -- how the model's own template carries an earlier
+        turn's reasoning, used when `reasoning_history` is "keep":
+          {"via": "thinking_chunk"}     the content becomes [thinking chunk, text chunk] (Mistral);
+          {"via": "reasoning_content"}  the message's `reasoning_content` field (Qwen, Glimmer);
+          {"via": "splice", "after": ..., "format": "...{reasoning}..."}  the template renders
+              reasoning only after the LAST user message, and the agent's tool results are user
+              messages, so the harness writes the template's own text after each assistant
+              turn's header (Gemma 4; tests/test_unleashed.py checks it against the template).
     """
     global local_model_revision, local_chat_template_kwargs, local_generation_prefix
     global local_system_prompt_prefix, local_reasoning, local_sampling, local_sdpa_kernels
@@ -797,6 +812,15 @@ def set_local_model_options(revision=None, chat_template_kwargs=None, generation
     local_system_prompt_prefix = system_prompt_prefix or None
     if reasoning is not None and not (isinstance(reasoning, dict) and reasoning.get("close")):
         raise ValueError("reasoning needs at least a 'close' marker: the token that ends the channel")
+    history = (reasoning or {}).get("history")
+    if history is not None:
+        via = history.get("via") if isinstance(history, dict) else None
+        if via not in REASONING_HISTORY_VIAS:
+            raise ValueError(f"reasoning history 'via' must be one of {REASONING_HISTORY_VIAS}, "
+                             f"got {via!r}")
+        if via == "splice" and not (history.get("after")
+                                    and "{reasoning}" in (history.get("format") or "")):
+            raise ValueError("a 'splice' history needs 'after' and a 'format' containing {reasoning}")
     local_reasoning = dict(reasoning) if reasoning else None
     unknown = set(sampling or {}) - {"top_p", "top_k"}
     if unknown:
@@ -816,6 +840,67 @@ def set_reasoning_token_budget(value):
 
 def get_reasoning_token_budget():
     return reasoning_token_budget
+
+
+def set_reasoning_history(mode):
+    """What the agent's transcript keeps of earlier reasoning (notes 44.6); None means "drop"."""
+    global reasoning_history
+    if mode is not None and mode not in REASONING_HISTORY_MODES:
+        raise ValueError(f"reasoning_history must be one of {REASONING_HISTORY_MODES}, got {mode!r}")
+    reasoning_history = None if mode in (None, "drop") else mode
+
+
+def get_reasoning_history():
+    return reasoning_history or "drop"
+
+
+def _render_reasoning_history(messages):
+    """Hand each earlier turn's reasoning to the template the way it renders reasoning in a tool
+    loop (notes 44.6). Returns (messages for the template, reasonings to splice, in order).
+
+    The agent marks an assistant message's reasoning with the private key `_reasoning`, which never
+    reaches a template or an API. Without it every message is passed through unchanged."""
+    if not any("_reasoning" in m for m in messages):
+        return messages, []
+    history = (local_reasoning or {}).get("history")
+    if history is None:
+        raise ValueError("reasoning_history is 'keep' but this model declares no reasoning "
+                         "'history' (how its template carries earlier reasoning)")
+    via, out, splices = history["via"], [], []
+    for message in messages:
+        if "_reasoning" not in message:
+            out.append(message)
+            continue
+        message = dict(message)
+        reasoning = message.pop("_reasoning")
+        if via == "thinking_chunk":
+            message["content"] = [{"type": "thinking", "thinking": reasoning},
+                                  {"type": "text", "text": message["content"]}]
+        elif via == "reasoning_content":
+            message["reasoning_content"] = reasoning
+        else:
+            splices.append(reasoning)
+        out.append(message)
+    return out, splices
+
+
+def _splice_reasoning(rendered, messages, splices):
+    """Write the template's own reasoning text after each earlier assistant turn's header (Gemma 4,
+    notes 44.6). The headers are counted, not searched for by content, and must match exactly: one
+    per assistant message, plus the generation prompt's, which gets none."""
+    history = local_reasoning["history"]
+    after, fmt = history["after"], history["format"]
+    assistant_turns = sum(1 for m in messages if m.get("role") == "assistant")
+    if assistant_turns != len(splices):
+        raise ValueError(f"splice: {len(splices)} reasonings for {assistant_turns} assistant turns")
+    parts = rendered.split(after)
+    if len(parts) - 1 != assistant_turns + 1:
+        raise ValueError(f"splice: {len(parts) - 1} {after!r} headers for {assistant_turns} "
+                         "assistant turns and the generation prompt")
+    out = parts[0]
+    for i, part in enumerate(parts[1:]):
+        out += after + (fmt.format(reasoning=splices[i]) if i < len(splices) else "") + part
+    return out
 
 
 def preload_local_model():
@@ -1943,7 +2028,24 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
             normalized_messages = ([{"role": "system", "content": local_system_prompt_prefix}]
                                    + normalized_messages)
 
-    if hasattr(local_tokenizer, "apply_chat_template"):
+    normalized_messages, splices = _render_reasoning_history(normalized_messages)
+    if hasattr(local_tokenizer, "apply_chat_template") and splices:
+        # Gemma 4 with earlier reasoning kept (notes 44.6): render, write the template's own
+        # reasoning text in, then tokenize as apply_chat_template does (no special tokens added:
+        # the rendered text already carries them).
+        rendered = local_tokenizer.apply_chat_template(
+            normalized_messages, add_generation_prompt=True, tokenize=False,
+            **local_chat_template_kwargs)
+        rendered = _splice_reasoning(rendered, normalized_messages, splices)
+        input_ids = torch.tensor(
+            [local_tokenizer.encode(rendered, add_special_tokens=False)], dtype=torch.long)
+        if local_generation_prefix:
+            prefix_ids = local_tokenizer.encode(local_generation_prefix, add_special_tokens=False)
+            input_ids = torch.cat(
+                [input_ids, torch.tensor([prefix_ids], dtype=input_ids.dtype)], dim=-1)
+        input_ids = input_ids.to(local_model.device)
+        attention_mask = torch.ones_like(input_ids)
+    elif hasattr(local_tokenizer, "apply_chat_template"):
         input_ids = local_tokenizer.apply_chat_template(
             normalized_messages,
             add_generation_prompt=True,
@@ -2020,7 +2122,8 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
         # EVALUATION 2 (notes 44): reason first, in the model's own channel and WITHOUT the grammar,
         # for at most `reasoning_token_budget` tokens; then answer under the grammar as always. The
         # channel closes on its own marker, or is closed here at the budget ("forced close"). Only
-        # the answer is returned as content, so the transcript keeps actions, never reasoning.
+        # the answer is returned as content; the reasoning is returned beside it, and the agent
+        # keeps it in the transcript only under reasoning_history "keep" (notes 44.6).
         close_ids = local_tokenizer.encode(local_reasoning["close"], add_special_tokens=False)
         if len(close_ids) != 1:
             raise ValueError(f"reasoning 'close' must be ONE token, got {close_ids} for "
@@ -2322,6 +2425,8 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
                     continue
                 raise
 
+    # The agent's private reasoning marker (notes 44.6) is for the local templates only.
+    messages = [{k: v for k, v in m.items() if k != "_reasoning"} for m in messages]
     if hf_backend == "custom-endpoint":
         if openai_client is None:
             raise RuntimeError(
@@ -4695,10 +4800,15 @@ def _run_pipeline_agentic(
         action, reason = _parse_agent_action(content, action_model)
         entry = {"turn": turns_used, "raw": content[:_AGENT_RAW_CHAR_CAP]}
         reasoning_text = getattr(response.choices[0].message, "reasoning", None)
+        # This turn's assistant message. Under reasoning_history "keep" (notes 44.6) it carries the
+        # reasoning, in full, for the template to render next turn as it does in a tool loop; under
+        # "drop" the transcript keeps the action only, as before.
+        assistant = {"role": "assistant", "content": content}
+        if reasoning_history == "keep" and reasoning_text:
+            assistant["_reasoning"] = reasoning_text
         if reasoning_text is not None:
-            # Evaluation 2 (notes 44): what the model thought before this action. Kept in the
-            # trajectory for the mechanism analysis (did it SEE the empty result?), never in the
-            # transcript the model is shown next turn.
+            # Evaluation 2 (notes 44): what the model thought before this action, in the trajectory
+            # for the mechanism analysis (did it SEE the empty result?).
             entry["reasoning"] = reasoning_text[:_AGENT_RAW_CHAR_CAP]
             entry["reasoning_tokens"] = getattr(response, "reasoning_tokens", None)
             entry["forced_close"] = bool(getattr(response, "forced_close", False))
@@ -4719,7 +4829,7 @@ def _run_pipeline_agentic(
                     reason = AGENT_CAP_FEEDBACK.format(cap=turn_cap)
             entry["malformed"] = reason
             trajectory.append(entry)
-            messages.append({"role": "assistant", "content": content})
+            messages.append(assistant)
             messages.append({"role": "user", "content":
                              f"That reply could not be used: {reason}. {_agent_protocol_rules()}"})
             continue
@@ -4736,7 +4846,7 @@ def _run_pipeline_agentic(
                 entry["bounced"] = True
                 trajectory.append(entry)
                 report = _structure_report(declared)
-                messages.append({"role": "assistant", "content": content})
+                messages.append(assistant)
                 messages.append({"role": "user", "content":
                                  "Your final_tree cannot be evaluated as written:\n- "
                                  + "\n- ".join(report)
@@ -4765,7 +4875,7 @@ def _run_pipeline_agentic(
                 entry["guarded"] = True
                 entry["result"] = {"repeat_of": first_turn, "note": note}
                 trajectory.append(entry)
-                messages.append({"role": "assistant", "content": content})
+                messages.append(assistant)
                 messages.append({"role": "user", "content": note})
                 continue
         if action.tool == "check_tree" and "check_tree" in available_tools:
@@ -4775,21 +4885,21 @@ def _run_pipeline_agentic(
             result = _check_tree_result(tree)
             entry["result"] = result
             trajectory.append(entry)
-            messages.append({"role": "assistant", "content": content})
+            messages.append(assistant)
             messages.append({"role": "user", "content": json.dumps(result, default=str)})
             continue
         if probe is not None and action.tool not in available_tools:
             # Reachable only without constrained decoding: the grammar offers available tools only.
             entry["result"] = {"error": f"{action.tool} is not a tool in this condition"}
             trajectory.append(entry)
-            messages.append({"role": "assistant", "content": content})
+            messages.append(assistant)
             messages.append({"role": "user", "content": json.dumps(entry["result"])})
             continue
         if probe is None:
             # The control rung: the model asked for a tool it was told it does not have.
             entry["result"] = {"error": "no tools are available in this condition"}
             trajectory.append(entry)
-            messages.append({"role": "assistant", "content": content})
+            messages.append(assistant)
             messages.append({"role": "user", "content":
                              "You have no tools here. Answer with {\"final_tree\": {...}}."})
             continue
@@ -4808,7 +4918,7 @@ def _run_pipeline_agentic(
         except ocpq_probe.ProbeBudgetExhausted as exc:
             entry["result"] = {"error": str(exc)}
             trajectory.append(entry)
-            messages.append({"role": "assistant", "content": content})
+            messages.append(assistant)
             messages.append({"role": "user", "content":
                              "Your tool budget is spent. Answer now with {\"final_tree\": {...}}."})
             continue
@@ -4822,7 +4932,7 @@ def _run_pipeline_agentic(
                 result = dict(result, structure=_structure_report((action.args or {}).get("tree")))
         entry["result"] = result
         trajectory.append(entry)
-        messages.append({"role": "assistant", "content": content})
+        messages.append(assistant)
         messages.append({"role": "user", "content": json.dumps(result, default=str)})
 
     if final_tree is None and levers["finalise_evaluated"] and last_evaluated_tree is not None:

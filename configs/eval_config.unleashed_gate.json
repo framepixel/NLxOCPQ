@@ -60,7 +60,10 @@
       "reasoning": {
         "open": "[THINK]",
         "close": "[/THINK]",
-        "answer_prefix": ""
+        "answer_prefix": "",
+        "history": {
+          "via": "thinking_chunk"
+        }
       },
       "temperature": 1.0,
       "sampling": {
@@ -80,12 +83,15 @@
       "chat_template_kwargs": {
         "enable_thinking": true,
         "reasoning_effort": "medium",
-        "preserve_thinking": false
+        "preserve_thinking": true
       },
       "reasoning": {
         "open": "",
         "close": "</think>",
-        "answer_prefix": "\n\n"
+        "answer_prefix": "\n\n",
+        "history": {
+          "via": "reasoning_content"
+        }
       },
       "temperature": 1.0,
       "sampling": {
@@ -96,7 +102,7 @@
         "conda_env": "nlxocpq-eval-glimmer",
         "hf_cache": "hpcwork"
       },
-      "note": "Thinking mode (the template opens <think>). reasoning_effort medium: xhigh, the default, is sized for far more than the 2048-token budget. preserve_thinking false: earlier reasoning is dropped (notes 44). Sampling: the card's thinking-mode values."
+      "note": "Thinking mode (the template opens <think>). reasoning_effort medium: xhigh, the default, is sized for far more than the 2048-token budget. preserve_thinking true, the template's default: earlier reasoning stays in the transcript (notes 44.6). Sampling: the card's thinking-mode values."
     },
     {
       "name": "meta-models/Muse-Glimmer-30B",
@@ -109,7 +115,10 @@
       "reasoning": {
         "open": " to=self<|message|>",
         "close": "<|eom|>",
-        "answer_prefix": "<|start|>assistant to=user<|message|>"
+        "answer_prefix": "<|start|>assistant to=user<|message|>",
+        "history": {
+          "via": "reasoning_content"
+        }
       },
       "temperature": 1.0,
       "sampling": {
@@ -133,7 +142,12 @@
       "reasoning": {
         "open": "<|channel>thought\n",
         "close": "<channel|>",
-        "answer_prefix": ""
+        "answer_prefix": "",
+        "history": {
+          "via": "splice",
+          "after": "<|turn>model\n",
+          "format": "<|channel>thought\n{reasoning}\n<channel|>"
+        }
       },
       "temperature": 1.0,
       "sampling": {
@@ -148,7 +162,7 @@
         "conda_env": "nlxocpq-eval-v5",
         "hf_cache": "hpcwork"
       },
-      "note": "Thinking on (<|think|> in the system turn); the thought channel is opened explicitly. SDPA restricted to the flash and memory-efficient kernels: its gate OOMed at ~30k tokens when attention materialised (notes 43.19); verified by src/long_prompt_smoke.py before the gate. Sampling: its generation_config."
+      "note": "Thinking on (<|think|> in the system turn); the thought channel is opened explicitly. SDPA restricted to the flash and memory-efficient kernels: its gate OOMed at ~30k tokens when attention materialised (notes 43.19); verified by src/long_prompt_smoke.py before the gate. Sampling: its generation_config. Earlier reasoning (notes 44.6): the template renders it only after the last user message, and tool results are user messages, so the harness writes the template's own thought-channel text after each earlier model-turn header."
     }
   ],
   "models_note": "Index order is load-bearing (submit scripts pass --model-idx); it is also the PRE-REGISTERED run order of notes 44: 0 Ministral-3-14B-Reasoning, 1 Qwen3.8-27B, 2 Muse Glimmer-30B, 3 Gemma 4 31B. Each model's `runtime` names its conda env and HF cache (slurm/unleashed_runtime.sh).",
@@ -164,6 +178,8 @@
   "case_timeout_note": "Evaluation 2's own cap (notes 44): 8 turns x up to ~70 s of reasoning. One cap for every arm of evaluation 2.",
   "reasoning_token_budget": 2048,
   "reasoning_token_budget_note": "Tokens each generation may reason first; closed by the harness at the budget (a forced close). May be changed at the gate only, then frozen (notes 44).",
+  "reasoning_history": "keep",
+  "reasoning_history_note": "Each earlier turn's reasoning stays in the transcript, rendered as the model's own template renders reasoning inside a tool loop (each model's reasoning.history). Replaces the pre-registered 'dropped' before any gate output: the vendors' templates all keep reasoning within a tool loop (notes 44.6).",
   "agent_thought": false,
   "agent_cap_feedback": false
 }

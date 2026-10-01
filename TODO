@@ -1970,6 +1970,16 @@
        DONE at 1024 (2026-09-30, models 0-2): clean mechanics, but forced closes 80% (Ministral-R) and
        78% (Glimmer) -> BUDGET RAISED TO 2048 FOR ALL FOUR, FROZEN (notes 44.5). Not raised again.
        Gemma re-smoke (4548761): fits 49k, OOM at 64k. RE-RUN the load smoke for all four at 2048.
+       DONE at 2048 for 0-2 (notes 44.5): forced 40% / 13% / 11%, <= 90 s/turn, all clean -> GATE 0-2.
+       Gemma (task 3) at 2048: clean, 13% forced, 44-140 s/turn, but 4/13 tool turns repeat (A/B
+       oscillation; notes 44.5) -> criterion 2 at risk; the gate decides. GATE ALL FOUR.
+       SUPERSEDED 2026-10-01 (notes 44.6): earlier reasoning is now KEPT within a case
+       (reasoning_history keep; every vendor template keeps it in a tool loop -- 44.2 was wrong).
+       Conditions are now _think2048keep. PROTOCOL FROZEN. RE-RUN, in order:
+         a. git pull; HF_HOME=$HPCWORK/nlxocpq-hf python tests/test_unleashed.py  (both envs)
+         b. load smokes, all four: sbatch slurm/submit_unleashed_gate.sh --case-shard 0/19
+            read: clean actions, forced closes, repeats, s/turn (trigger 150), prompt tokens/call
+         c. the gate: sbatch slurm/submit_unleashed_gate.sh
        Read: Runtime line, "loaded in", each turn's reasoning (in the model's channel, closed by it or
        forced), clean JSON actions, s/turn, forced-close rate.
        SPEED TRIGGER (notes 44.3, decided before output): median s/turn <= 150 per model. If Qwen is

@@ -82,11 +82,11 @@ else
 fi
 case "$RUNG" in
   0) RUNG_NAME="A0* / one-shot, reasoning first"
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_think2048" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_think2048keep" ;;
   1) RUNG_NAME="A1* / tool loop, reasoning first"
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_think2048_turns8_tools12_turntok2000_pFBEXL" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL" ;;
   2) RUNG_NAME="A1'* / same loop without log access, reasoning first"
-     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_think2048_turns8_turntok2000_pFBEXL" ;;
+     RUNG_SUFFIX="_constrained_ordered_bounded_tok4000_think2048keep_turns8_turntok2000_pFBEXL" ;;
   *) echo "FATAL: task ${TASK} maps to rung ${RUNG}; this array is 0-17 (0-2 with --smoke)." >&2; exit 1 ;;
 esac
 STRATEGY_IDX="$RUNG"   # the config's strategies are in rung order

@@ -11,10 +11,13 @@ Asserted here, without a GPU:
     content; the reasoning comes back beside it. With no reasoning configured, generation is exactly
     what it was (one call, no reasoning).
   * THE REAL TEMPLATES AND TOKENIZERS (pinned revisions, from the HF cache): each model's closing
-    marker is one token, its reasoning switch reaches the prompt, and earlier turns carry no reasoning.
-  * THE AGENT LOOP records the reasoning per turn, keeps it out of the transcript, and counts the
-    per-turn action cap on the ACTION's tokens only.
-  * NAMES AND SCRIPTS: `_think2048` names every evaluation-2 condition; the scripts' suffixes are the
+    marker is one token, its reasoning switch reaches the prompt, an earlier turn carries no
+    reasoning unless it is kept, and a KEPT reasoning is rendered exactly as the model's own template
+    renders reasoning inside a tool loop (notes 44.6) -- Gemma's harness-written text included.
+  * THE AGENT LOOP records the reasoning per turn; under "drop" keeps it out of the transcript, under
+    "keep" hands it to the next turn; counts the per-turn action cap on the ACTION's tokens only; and
+    no API backend ever receives the private reasoning marker.
+  * NAMES AND SCRIPTS: `_think2048keep` names every evaluation-2 condition; the scripts' suffixes are the
     ones the harness builds; the shard and runtime mapping is executed in bash.
 
 The template section reads the pinned files from the HF cache; on the cluster run it as
@@ -84,6 +87,12 @@ for name, cfg in (("run", RUN), ("gate", GATE)):
            cfg["case_timeout_sec"], cfg["preload_model"]), (2048, 1.0, True, 1800, True))
     check(f"{name}: the four models, in the pre-registered order", [m["label"] for m in cfg["models"]],
           ORDER)
+    check(f"{name}: earlier reasoning is KEPT (notes 44.6), and every model says how its template "
+          "carries it", (cfg["reasoning_history"],
+                         [m["reasoning"]["history"]["via"] for m in cfg["models"]]),
+          ("keep", ["thinking_chunk", "reasoning_content", "reasoning_content", "splice"]))
+    check(f"{name}: Qwen's preserve_thinking is its template's default (on)",
+          cfg["models"][1]["chat_template_kwargs"].get("preserve_thinking"), True)
     check(f"{name}: no adapters are expanded", cfg["auto_expand_finetuned"], False)
 check("run: the testset, A0*/A1*/A1'*, two draws, its own directory",
       (RUN["testset_path"], RUN["prompt_strategies"], RUN["repeats"], RUN["output_dir"]),
@@ -197,6 +206,42 @@ try:
     check("a reasoning channel without a closing marker is refused", "accepted", "ValueError")
 except ValueError:
     check("a reasoning channel without a closing marker is refused", "ValueError", "ValueError")
+
+
+class SpliceTok(Tok):
+    """Renders to text, one char per id, as a template with a model-turn header would (Gemma)."""
+
+    def apply_chat_template(self, messages, tokenize=True, **kwargs):
+        self.template_calls.append((messages, kwargs))
+        text = "".join(f"<{m['role']}>{m['content']}" for m in messages) + "<assistant>"
+        return text if tokenize is False else torch.tensor([[10, 11]])
+
+    def encode(self, text, add_special_tokens=True):
+        return self.MAP[text] if text in self.MAP else [ord(c) for c in text]
+
+
+tok, model = SpliceTok(), Model([70, 51])
+LLM.local_tokenizer, LLM.local_model = tok, model
+LLM.set_local_model_options(reasoning={"open": "[OPEN]", "close": "[CLOSE]", "answer_prefix": "ANS",
+                                       "history": {"via": "splice", "after": "<assistant>",
+                                                   "format": "T{reasoning}/T"}})
+LLM.set_reasoning_token_budget(3)
+LLM._call_local_gpu_chat_completion(
+    [{"role": "user", "content": "Q"}, {"role": "assistant", "content": "A", "_reasoning": "R1"},
+     {"role": "user", "content": "RES"}], 50, None)
+check("splice: the reasoning step starts after the spliced prompt and the channel opener",
+      model.calls[0]["input_ids"][0][-1], 50)
+prompt_text = "".join(chr(i) for i in model.calls[0]["input_ids"][0][:-1])
+check("splice (Gemma): the generation prompt carries the kept reasoning after the earlier turn's "
+      "header, and none after the new one", prompt_text,
+      "<user>Q<assistant>TR1/TA<user>RES<assistant>")
+check("splice: the template never sees the private marker",
+      ["_reasoning" in m for m in tok.template_calls[0][0]], [False, False, False])
+try:
+    LLM._splice_reasoning("<assistant>A<user>RES<assistant>", [{"role": "assistant"}], [])
+    check("splice: a count mismatch is refused, never guessed", "accepted", "ValueError")
+except ValueError:
+    check("splice: a count mismatch is refused, never guessed", "ValueError", "ValueError")
 LLM._ocpq_logits_processor = _real_processor
 LLM.set_local_model_options()
 LLM.set_reasoning_token_budget(None)
@@ -253,10 +298,39 @@ if files:
         check(f"{m['label']}: the prompt ends where the reasoning channel begins", prompt.endswith(tail),
               True)
         earlier = prompt.split("ACTION")[0][-40:]
-        check(f"{m['label']}: the earlier turn carries no reasoning (dropped, notes 44)",
+        check(f"{m['label']}: without a kept reasoning, the earlier turn carries none",
               any(mark in earlier for mark in ("[THINK]Your", "to=self", "<|channel>thought\nA")), False)
 
-print("\n--- the agent loop: reasoning recorded, never in the transcript, the cap on the action ---")
+        # KEEP (notes 44.6). The template's NATIVE rendering of a reasoning it keeps: the assistant
+        # turn after the last user message, where every one of the four keeps it.
+        LLM.set_local_model_options(reasoning=m["reasoning"])
+        R = "MY EARLIER REASONING"
+        native_msgs, native_splices = LLM._render_reasoning_history(
+            [{"role": "system", "content": system}, {"role": "user", "content": "TASK"},
+             {"role": "assistant", "content": "ACTION", "_reasoning": R}])
+        if native_splices:   # Gemma: its own field, which it renders after the last user message
+            native_msgs[-1]["reasoning_content"] = native_splices[0]
+        native = template.render(messages=native_msgs, add_generation_prompt=False, bos_token="",
+                                 eos_token="</s>", **m.get("chat_template_kwargs", {}))
+        check(f"{m['label']}: (the template itself renders a reasoning in its last turn)", R in native,
+              True)
+        segment = native[native.index(R) - 40: native.index("ACTION") + len("ACTION")]
+        kept_msgs, splices = LLM._render_reasoning_history(
+            [{"role": "system", "content": system}, {"role": "user", "content": "TASK"},
+             {"role": "assistant", "content": "ACTION", "_reasoning": R},
+             {"role": "user", "content": "RESULT"}])
+        kept = template.render(messages=kept_msgs, add_generation_prompt=True, bos_token="",
+                               eos_token="</s>", **m.get("chat_template_kwargs", {}))
+        if splices:
+            kept = LLM._splice_reasoning(kept, kept_msgs, splices)
+        check(f"{m['label']}: a KEPT earlier reasoning is rendered exactly as the template renders it",
+              segment in kept, True)
+        check(f"{m['label']}: ...once, and the prompt still ends where the reasoning channel begins",
+              (kept.count(R), kept.endswith(tail)), (1, True))
+        LLM.set_local_model_options()
+
+print("\n--- the agent loop: reasoning recorded; dropped or kept; the cap on the action ---")
+REAL_CALL = LLM.call_hf_with_retry
 
 
 class Scripted:
@@ -295,8 +369,9 @@ turn = state["trajectory"][0]
 check("the turn records its reasoning, its length and a forced close",
       (turn.get("reasoning"), turn.get("reasoning_tokens"), turn.get("forced_close")),
       ("I THINK HARD", 1500, True))
-check("the transcript the model sees next holds the action, never the reasoning",
-      any("I THINK HARD" in m["content"] for m in model.sent[1]), False)
+check("drop: the transcript the model sees next holds the action, never the reasoning",
+      (any("I THINK HARD" in str(m) for m in model.sent[1]), "_reasoning" in model.sent[1][2]),
+      (False, False))
 check("1500 reasoning + 100 action tokens under a 2000-token action cap: no cap hit",
       turn.get("hit_cap"), None)
 compact = _compact_agent_turns(state["trajectory"], 200)
@@ -309,12 +384,65 @@ check("compliance: the forced-close rate and the mean reasoning length",
 check("...and None for a run without a reasoning step",
       _agent_compliance([{"status": "success", "agent": {"turns": 1, "turn_summary": [{}]}}])
       ["agent_forced_close_rate"], None)
+# KEEP (notes 44.6): the same case, the reasoning handed to the next turn on the assistant message.
+LLM.set_reasoning_history("keep")
+model = Scripted([(json.dumps({"tool": "check_tree", "args": {"tree": CLEAN}}), "I THINK HARD", True),
+                  (json.dumps({"final_tree": CLEAN}), "DONE THINKING", False)])
+LLM.call_hf_with_retry = model
+LLM._run_pipeline_agentic("Which orders?", None, None, output_file=str(out),
+                          ocel_path="../Logs/order-management.json", model_name="m",
+                          schema_validation=False)
+check("keep: the next turn's assistant message carries this turn's reasoning, in full",
+      (model.sent[1][2]["role"], model.sent[1][2].get("_reasoning")), ("assistant", "I THINK HARD"))
+check("keep: ...and its content is still the action alone",
+      model.sent[1][2]["content"].startswith('{"tool"'), True)
+check("keep: the loop's other messages are untouched", [m.get("_reasoning") for m in model.sent[1]
+                                                        if m["role"] != "assistant"], [None, None, None])
+LLM.set_reasoning_history(None)
+check("set_reasoning_history(None) is drop", LLM.get_reasoning_history(), "drop")
+try:
+    LLM.set_reasoning_history("summarise")
+    check("an unknown reasoning_history is refused", False, True)
+except ValueError:
+    check("an unknown reasoning_history is refused", True, True)
+
+# A model asked to keep reasoning without saying how its template carries it fails loudly.
+LLM.set_local_model_options(reasoning={"close": "</think>"})
+try:
+    LLM._render_reasoning_history([{"role": "assistant", "content": "A", "_reasoning": "R"}])
+    check("keep without a declared 'history' is refused", False, True)
+except ValueError:
+    check("keep without a declared 'history' is refused", True, True)
+plain = [{"role": "user", "content": "Q"}, {"role": "assistant", "content": "A"}]
+check("drop: messages reach the template as they are (the very same list)",
+      LLM._render_reasoning_history(plain)[0] is plain, True)
+LLM.set_local_model_options()
+
+# No API backend receives the private marker.
+sent_kwargs = []
+_saved = (LLM.hf_backend, LLM.openai_client, LLM._record_llm_call)
+LLM.hf_backend = "custom-endpoint"
+LLM.openai_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+    create=lambda **kw: sent_kwargs.append(kw) or SimpleNamespace(choices=[], usage=None))))
+LLM._record_llm_call = lambda **kw: None
+REAL_CALL("m", [{"role": "user", "content": "Q"},
+                {"role": "assistant", "content": "A", "_reasoning": "R"}], 10, None)
+LLM.hf_backend, LLM.openai_client, LLM._record_llm_call = _saved
+check("an endpoint backend never receives the private reasoning marker",
+      [sorted(m) for m in sent_kwargs[0]["messages"]], [["content", "role"], ["content", "role"]])
+LLM.call_hf_with_retry = REAL_CALL
+
 LLM.set_agent_protocol()
 out.unlink(missing_ok=True)
 
 print("\n--- names and scripts ---")
-check("_think2048 follows _tok4000 in every evaluation-2 condition name",
-      _decoding_suffix(True, False, 4000, any_order=False, bounded=True, reasoning_budget=2048),
+check("_think2048keep follows _tok4000 in every evaluation-2 condition name",
+      _decoding_suffix(True, False, 4000, any_order=False, bounded=True, reasoning_budget=2048,
+                       reasoning_history="keep"),
+      "_constrained_ordered_bounded_tok4000_think2048keep")
+check("...and a 'drop' condition keeps the name it had (the 44.5 smokes)",
+      _decoding_suffix(True, False, 4000, any_order=False, bounded=True, reasoning_budget=2048,
+                       reasoning_history="drop"),
       "_constrained_ordered_bounded_tok4000_think2048")
 check("...and is absent without a reasoning budget (every earlier name unchanged)",
       _decoding_suffix(True, False, 4000, any_order=False, bounded=True),
@@ -324,7 +452,8 @@ GATE_SH = (ROOT / "slurm" / "submit_unleashed_gate.sh").read_bytes().decode("utf
 decoding = _decoding_suffix(RUN["constrained_decoding"], False, RUN["generation_token_budget"],
                             any_order=RUN["constrained_any_order"],
                             bounded=RUN["constrained_bounded_shape"],
-                            reasoning_budget=RUN["reasoning_token_budget"])
+                            reasoning_budget=RUN["reasoning_token_budget"],
+                            reasoning_history=RUN["reasoning_history"])
 built = {i: decoding + _agent_suffix(s, *_agent_budget(RUN))
          for i, s in enumerate(RUN["prompt_strategies"])}
 suffixes = dict(re.findall(r'^\s+(\d)\) RUNG_NAME=.*\n\s+RUNG_SUFFIX="([^"]+)"', RUNGS, re.M))

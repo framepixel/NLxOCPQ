@@ -54,6 +54,7 @@ from LLM import (
     set_local_gpu_client,
     set_local_model_options,
     set_reasoning_token_budget,
+    set_reasoning_history,
     preload_local_model,
     reset_llm_call_stats,
     get_llm_call_stats,
@@ -234,7 +235,7 @@ _STRATUM_MISS = (None, None, {}, {})
 def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_budget,
                      type_aware_filters=False, constant_root_arity=False,
                      structural_validation=False, any_order=True, bounded=False,
-                     reasoning_budget=None):
+                     reasoning_budget=None, reasoning_history=None):
     """The suffix that distinguishes decoding rungs, used by BOTH `config_id` and the shard name.
 
     One definition because these had already drifted apart once. `config_id` carried the arity
@@ -268,6 +269,9 @@ def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_bu
     if reasoning_budget:
         # Evaluation 2 (notes 44): every generation reasons first, for up to this many tokens.
         suffix += f"_think{int(reasoning_budget)}"
+        if reasoning_history == "keep":
+            # ...and the agent's transcript keeps each earlier turn's reasoning (notes 44.6).
+            suffix += "keep"
     return suffix
 
 
@@ -2002,6 +2006,7 @@ def run_evaluation(config_path_or_config):
             config.get("constrained_any_order", True),
             config.get("constrained_bounded_shape", False),
             config.get("reasoning_token_budget"),
+            config.get("reasoning_history"),
         )
         # After the decoding suffix, matching `config_id`'s order. See `_agent_shard_suffix`.
         # The strategies are resolved (and the index validated) further down; this reads the same
@@ -2129,6 +2134,13 @@ def run_evaluation(config_path_or_config):
     # Absent from every earlier config, so nothing before it reasons.
     _reasoning = config.get("reasoning_token_budget")
     reasoning_token_budget = int(_reasoning) if _reasoning else None
+    # Notes 44.6: whether the agent's transcript keeps earlier reasoning. Absent (drop) everywhere
+    # before it; "keep" only means something when there is a reasoning step to keep.
+    reasoning_history = config.get("reasoning_history") or "drop"
+    if reasoning_history not in ("drop", "keep"):
+        raise ValueError(f"reasoning_history must be 'drop' or 'keep', got {reasoning_history!r}")
+    if reasoning_history == "keep" and not reasoning_token_budget:
+        raise ValueError("reasoning_history 'keep' needs a reasoning_token_budget (notes 44.6)")
     # THE AGENTIC ARM (notes 43). Read only when a condition uses it; every value is recorded in the
     # manifest's `agentic` block. `agent_max_turns` and `agent_max_tool_calls` are the rung: A1 and
     # A2 differ in them and in nothing else, which is why they also enter `config_id`.
@@ -2253,6 +2265,8 @@ def run_evaluation(config_path_or_config):
               f"{generation_token_budget if generation_token_budget is not None else 'per-pipeline default (1000/2000)'}")
         print(f"Dry run: reasoning_token_budget = {reasoning_token_budget or 'none (no reasoning step)'}"
               f"{'   (evaluation 2: each generation reasons first; notes 44)' if reasoning_token_budget else ''}")
+        print(f"Dry run: reasoning_history = {reasoning_history}"
+              f"{'   (earlier reasoning stays in the transcript; notes 44.6)' if reasoning_history == 'keep' else ''}")
         if agent_settings:
             print(f"Dry run: agentic = {agent_settings['strategies']} | "
                   f"max_turns={agent_settings['max_turns']} "
@@ -2342,6 +2356,8 @@ def run_evaluation(config_path_or_config):
         "generation_token_budget": generation_token_budget,
         # Evaluation 2 (notes 44); None for every run that does not reason first.
         "reasoning_token_budget": reasoning_token_budget,
+        # Notes 44.6; "drop" for every run before it.
+        "reasoning_history": reasoning_history,
         "force_root_arity": force_root_arity,
         "type_aware_filters": type_aware_filters,
         "constant_root_arity": constant_root_arity,
@@ -2541,6 +2557,7 @@ def run_evaluation(config_path_or_config):
             set_constrained_bounded_shape(constrained_bounded_shape)
             set_generation_token_budget(generation_token_budget)
             set_reasoning_token_budget(reasoning_token_budget)
+            set_reasoning_history(reasoning_history)
             if global_cfg.get("preload_model"):
                 # Load the model here, OUTSIDE the case time limit (notes 43.17): lazily it loads on
                 # the first generation, inside the first case's cap, and a 60 GB checkpoint can
@@ -2569,7 +2586,8 @@ def run_evaluation(config_path_or_config):
                     decoding_suffix = _decoding_suffix(
                         constrained_decoding, force_root_arity, generation_token_budget,
                         type_aware_filters, constant_root_arity, structural_validation,
-                        constrained_any_order, constrained_bounded_shape, reasoning_token_budget)
+                        constrained_any_order, constrained_bounded_shape, reasoning_token_budget,
+                        reasoning_history)
                     agent_suffix = (_agent_suffix(prompt_strategy, agent_settings["max_turns"],
                                                   agent_settings["max_tool_calls"],
                                                   agent_settings["thought"],
