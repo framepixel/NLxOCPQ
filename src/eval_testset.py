@@ -55,6 +55,7 @@ from LLM import (
     set_local_model_options,
     set_reasoning_token_budget,
     set_reasoning_history,
+    set_generation_seed_per_call,
     preload_local_model,
     reset_llm_call_stats,
     get_llm_call_stats,
@@ -1437,6 +1438,10 @@ def _agent_compliance(records) -> dict:
                                     else None),
         "agent_mean_reasoning_tokens": _mean([t.get("reasoning_tokens") for t in all_turns
                                               if t.get("reasoning_tokens") is not None]),
+        # Notes 44.7: cases the verified-context limit ended (finalised with their best tree). None
+        # for runs before 44.7, which did not record it.
+        "agent_context_limit_rate": _mean([1 if a.get("context_limit_hit") else 0
+                                           for _, a in agents if "context_limit_hit" in a]),
     }
 
 
@@ -1599,6 +1604,8 @@ def _configure_backend(model_cfg, global_cfg):
         reasoning=model_cfg.get("reasoning"),
         sampling=model_cfg.get("sampling"),
         sdpa_kernels=model_cfg.get("sdpa_kernels"),
+        # Notes 44.7: the context its memory check verified; absent for every earlier model.
+        max_context_tokens=model_cfg.get("max_context_tokens"),
     )
     if backend == "local-gpu":
         set_local_gpu_client(
@@ -2141,6 +2148,9 @@ def run_evaluation(config_path_or_config):
         raise ValueError(f"reasoning_history must be 'drop' or 'keep', got {reasoning_history!r}")
     if reasoning_history == "keep" and not reasoning_token_budget:
         raise ValueError("reasoning_history 'keep' needs a reasoning_token_budget (notes 44.6)")
+    # Notes 44.7: one derived seed per generation of a record; off (the record's seed re-applied to
+    # every generation) for every run before it.
+    generation_seed_per_call = bool(config.get("generation_seed_per_call", False))
     # THE AGENTIC ARM (notes 43). Read only when a condition uses it; every value is recorded in the
     # manifest's `agentic` block. `agent_max_turns` and `agent_max_tool_calls` are the rung: A1 and
     # A2 differ in them and in nothing else, which is why they also enter `config_id`.
@@ -2265,6 +2275,8 @@ def run_evaluation(config_path_or_config):
               f"{generation_token_budget if generation_token_budget is not None else 'per-pipeline default (1000/2000)'}")
         print(f"Dry run: reasoning_token_budget = {reasoning_token_budget or 'none (no reasoning step)'}"
               f"{'   (evaluation 2: each generation reasons first; notes 44)' if reasoning_token_budget else ''}")
+        print(f"Dry run: generation_seed_per_call = {generation_seed_per_call}"
+              f"{'   (one derived seed per generation of a record; notes 44.7)' if generation_seed_per_call else ''}")
         print(f"Dry run: reasoning_history = {reasoning_history}"
               f"{'   (earlier reasoning stays in the transcript; notes 44.6)' if reasoning_history == 'keep' else ''}")
         if agent_settings:
@@ -2358,6 +2370,8 @@ def run_evaluation(config_path_or_config):
         "reasoning_token_budget": reasoning_token_budget,
         # Notes 44.6; "drop" for every run before it.
         "reasoning_history": reasoning_history,
+        # Notes 44.7; False for every run before it.
+        "generation_seed_per_call": generation_seed_per_call,
         "force_root_arity": force_root_arity,
         "type_aware_filters": type_aware_filters,
         "constant_root_arity": constant_root_arity,
@@ -2558,6 +2572,7 @@ def run_evaluation(config_path_or_config):
             set_generation_token_budget(generation_token_budget)
             set_reasoning_token_budget(reasoning_token_budget)
             set_reasoning_history(reasoning_history)
+            set_generation_seed_per_call(generation_seed_per_call)
             if global_cfg.get("preload_model"):
                 # Load the model here, OUTSIDE the case time limit (notes 43.17): lazily it loads on
                 # the first generation, inside the first case's cap, and a 60 GB checkpoint can
@@ -2897,6 +2912,8 @@ def run_evaluation(config_path_or_config):
                                 "cap_hits": agent_state.get("cap_hits"),
                                 # Turns repeating an earlier action of the case (notes 43.17).
                                 "repeat_turns": agent_state.get("repeat_turns"),
+                                # The next call could outgrow the verified context (notes 44.7).
+                                "context_limit_hit": bool(agent_state.get("context_limit_hit")),
                                 "final_blocking_defects": (
                                     len(blocking_defects(structural_defects(ocpq_json)))
                                     if isinstance(ocpq_json, dict) else None),

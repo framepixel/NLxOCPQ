@@ -93,6 +93,10 @@ for name, cfg in (("run", RUN), ("gate", GATE)):
           ("keep", ["thinking_chunk", "reasoning_content", "reasoning_content", "splice"]))
     check(f"{name}: Qwen's preserve_thinking is its template's default (on)",
           cfg["models"][1]["chat_template_kwargs"].get("preserve_thinking"), True)
+    check(f"{name}: one derived seed per generation (notes 44.7)", cfg["generation_seed_per_call"],
+          True)
+    check(f"{name}: each model's context cap is what its memory check verified (notes 44.3, 44.5)",
+          [m["max_context_tokens"] for m in cfg["models"]], [65536, 65536, 65536, 49152])
     check(f"{name}: no adapters are expanded", cfg["auto_expand_finetuned"], False)
 check("run: the testset, A0*/A1*/A1'*, two draws, its own directory",
       (RUN["testset_path"], RUN["prompt_strategies"], RUN["repeats"], RUN["output_dir"]),
@@ -434,6 +438,68 @@ LLM.call_hf_with_retry = REAL_CALL
 
 LLM.set_agent_protocol()
 out.unlink(missing_ok=True)
+
+print("\n--- the verified-context limit (notes 44.7): no warning, the case ends, it is recorded ---")
+LLM.set_local_model_options(reasoning={"close": "</think>"}, max_context_tokens=49152)
+LLM.set_reasoning_token_budget(2048)
+LLM._check_memory_budget(45000, 2000)   # 45000 + 2048 + 2000 = 49048: fits
+try:
+    LLM._check_memory_budget(45200, 2000)   # 49248: could outgrow the verified 49152
+    check("a call that COULD outgrow the verified context is refused before generating", "ran", "raised")
+except LLM.PromptTooLongError:
+    check("a call that COULD outgrow the verified context is refused before generating", "raised",
+          "raised")
+LLM.set_local_model_options(max_context_tokens=49152)   # no reasoning channel: no reasoning budget
+LLM._check_memory_budget(47000, 2000)
+check("...counting the reasoning budget only for a model that reasons", True, True)
+LLM.set_local_model_options()
+LLM._check_memory_budget(10 ** 6, 2000)
+check("...and no limit configured (every earlier model): no check", True, True)
+LLM.set_reasoning_token_budget(None)
+
+
+class Overflowing(Scripted):
+    def __call__(self, model, messages, max_tokens, response_format, **kwargs):
+        if len(self.sent) == 1:
+            self.sent.append(messages)
+            raise LLM.PromptTooLongError("context limit")
+        return super().__call__(model, messages, max_tokens, response_format, **kwargs)
+
+
+TRY = json.dumps({"tool": "check_tree", "args": {"tree": CLEAN}})
+model = Overflowing([(TRY, "R", False)])
+LLM.call_hf_with_retry = model
+LLM.set_agent_max_turns(4)
+LLM.set_agent_protocol(structural_feedback=True)
+try:
+    LLM._run_pipeline_agentic("Which orders?", None, None, output_file=str(out),
+                              ocel_path="../Logs/order-management.json", model_name="m",
+                              schema_validation=False)
+    ended = "finalised"
+except LLM.AgentNoFinalAnswer:
+    ended = "no answer"   # check_tree yields no candidate tree, so there is none to finalise
+state = LLM.get_last_agent_trajectory()
+check("the limit ends the case like running out of turns (no tree here: no answer), recorded, the "
+      "model never warned",
+      (ended, state["context_limit_hit"], state["turns"],
+       any("limit" in str(m.get("content")) for m in model.sent[0])),
+      ("no answer", True, 2, False))
+model = Scripted([(json.dumps({"final_tree": CLEAN}), "R", False)])
+LLM.call_hf_with_retry = model
+LLM._run_pipeline_agentic("Which orders?", None, None, output_file=str(out),
+                          ocel_path="../Logs/order-management.json", model_name="m",
+                          schema_validation=False)
+check("...and a case that does not reach it records False",
+      LLM.get_last_agent_trajectory()["context_limit_hit"], False)
+LLM.call_hf_with_retry = REAL_CALL
+LLM.set_agent_protocol()
+out.unlink(missing_ok=True)
+block = _agent_compliance([{"status": "success", "agent": {"turns": 2, "context_limit_hit": True}},
+                           {"status": "success", "agent": {"turns": 2, "context_limit_hit": False}}])
+check("compliance: the context-limit rate", block["agent_context_limit_rate"], 0.5)
+check("...and None for runs that did not record it",
+      _agent_compliance([{"status": "success", "agent": {"turns": 1}}])["agent_context_limit_rate"],
+      None)
 
 print("\n--- names and scripts ---")
 check("_think2048keep follows _tok4000 in every evaluation-2 condition name",

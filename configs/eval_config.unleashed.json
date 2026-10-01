@@ -69,6 +69,7 @@
       "sampling": {
         "top_p": 0.95
       },
+      "max_context_tokens": 65536,
       "runtime": {
         "conda_env": "nlxocpq-eval-v5",
         "hf_cache": "hpcwork"
@@ -98,6 +99,7 @@
         "top_p": 0.95,
         "top_k": 20
       },
+      "max_context_tokens": 65536,
       "runtime": {
         "conda_env": "nlxocpq-eval-glimmer",
         "hf_cache": "hpcwork"
@@ -125,6 +127,7 @@
         "top_p": 0.95,
         "top_k": 64
       },
+      "max_context_tokens": 65536,
       "runtime": {
         "conda_env": "nlxocpq-eval-glimmer",
         "hf_cache": "hpcwork"
@@ -154,6 +157,7 @@
         "top_p": 0.95,
         "top_k": 64
       },
+      "max_context_tokens": 49152,
       "sdpa_kernels": [
         "flash_attention",
         "efficient_attention"
@@ -165,7 +169,7 @@
       "note": "Thinking on (<|think|> in the system turn); the thought channel is opened explicitly. SDPA restricted to the flash and memory-efficient kernels: its gate OOMed at ~30k tokens when attention materialised (notes 43.19); verified by src/long_prompt_smoke.py before the gate. Sampling: its generation_config. Earlier reasoning (notes 44.6): the template renders it only after the last user message, and tool results are user messages, so the harness writes the template's own thought-channel text after each earlier model-turn header."
     }
   ],
-  "models_note": "Index order is load-bearing (submit scripts pass --model-idx); it is also the PRE-REGISTERED run order of notes 44: 0 Ministral-3-14B-Reasoning, 1 Qwen3.8-27B, 2 Muse Glimmer-30B, 3 Gemma 4 31B. Each model's `runtime` names its conda env and HF cache (slurm/unleashed_runtime.sh).",
+  "models_note": "Index order is load-bearing (submit scripts pass --model-idx); it is also the PRE-REGISTERED run order of notes 44: 0 Ministral-3-14B-Reasoning, 1 Qwen3.8-27B, 2 Muse Glimmer-30B, 3 Gemma 4 31B. Each model's `runtime` names its conda env and HF cache (slurm/unleashed_runtime.sh). Each model's max_context_tokens is the longest context its memory check (src/long_prompt_smoke.py, jobs 4521758 and 4548761) verified; a call that could exceed it ends the case on its best tree, recorded as context_limit_hit (notes 44.7).",
   "prompt_strategies": [
     "schema-allowed-entities-only",
     "agentic-log-tools",
@@ -176,6 +180,8 @@
   "repeats_note": "Sampling: two draws per case, fixed seeds, averaged per case before the paired bootstrap (notes 44). The gate draws once.",
   "temperature": 1.0,
   "generation_seed_base": 20260928,
+  "generation_seed_per_call": true,
+  "generation_seed_per_call_note": "One derived seed per generation of a record (call 0 = the record's seed). Without it every turn of a case replays the same random stream, which coupled consecutive turns in the 44.6 load smokes (notes 44.7).",
   "case_timeout_sec": 1800,
   "case_timeout_note": "Evaluation 2's own cap (notes 44): 8 turns x up to ~70 s of reasoning. One cap for every arm of evaluation 2.",
   "reasoning_token_budget": 2048,

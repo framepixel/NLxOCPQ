@@ -100,9 +100,32 @@ _first = src.index("local_model.generate(", i)
 _between = src[i:_first]
 check("the first generate() after the gate comes before any other RNG use",
       [tok for tok in ("torch.rand", "random.", "np.random", "manual_seed(generation_seed + ")
-       if tok in _between.split("torch.cuda.manual_seed_all(generation_seed)", 1)[-1]], [])
+       if tok in _between.split("torch.cuda.manual_seed_all(seed)", 1)[-1]], [])
+check("...and the seed applied is the one _seed_for_this_call gives (notes 44.7)",
+      "seed = _seed_for_this_call()" in _between and "torch.manual_seed(seed)" in _between, True)
 check("...and it is in the same function, a few lines on (the reasoning step or the only step)",
       src.rfind("\ndef ", 0, _first) == src.rfind("\ndef ", 0, i) and _first - i < 3500, True)
+
+print("\n--- one seed per generation of a record (notes 44.7) ---")
+LLM.set_generation_seed_per_call(False)
+LLM.set_generation_seed(1234)
+check("off: every generation re-applies the record's seed (every run before 44.7)",
+      [LLM._seed_for_this_call() for _ in range(3)], [1234, 1234, 1234])
+LLM.set_generation_seed_per_call(True)
+LLM.set_generation_seed(1234)
+per_call = [LLM._seed_for_this_call() for _ in range(8)]
+check("on: call 0 is the record's seed, so a one-call record (A0*) draws as before",
+      per_call[0], 1234)
+check("on: every generation of the record gets its own seed", len(set(per_call)), 8)
+check("on: all within [0, 2**32)", all(0 <= x < 2 ** 32 for x in per_call), True)
+LLM.set_generation_seed(1234)
+check("on: a new record starts again at call 0 -- reproducible, and independent of the shard",
+      [LLM._seed_for_this_call() for _ in range(8)], per_call)
+LLM.set_generation_seed(4321)
+check("on: another record draws another sequence",
+      set([LLM._seed_for_this_call() for _ in range(8)]) & set(per_call), set())
+LLM.set_generation_seed_per_call(False)
+LLM.set_generation_seed(None)
 
 print()
 if failures:

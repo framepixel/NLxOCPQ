@@ -142,6 +142,12 @@ few_shot_k = DEFAULT_FEW_SHOT_K
 generation_temperature = None
 # Consulted only when sampling is active. See `set_generation_seed`.
 generation_seed = None
+# Notes 44.7: give every generation of a record its own seed, derived from the record's seed and the
+# call's ordinal within the record. Off (False): every generation re-applies the record's seed, as
+# every run before 44.7 did -- harmless for a one-call record, but under sampling it replays the same
+# random stream on every turn of an agent's case, which couples the turns.
+generation_seed_per_call = False
+_generation_call_index = 0
 # When True, generation is constrained to the OCPQ grammar so invalid output cannot be produced.
 # Default False: every run recorded before 2026-09-02 generated freely, and the flag must not
 # change what those runs meant. See `set_constrained_decoding`.
@@ -225,6 +231,7 @@ local_system_prompt_prefix = None    # the vendor's own reasoning switch, when i
 local_reasoning = None               # {"open", "close", "answer_prefix"}: the native reasoning channel
 local_sampling = {}                  # {"top_p", "top_k"}: the vendor's sampling beside the temperature
 local_sdpa_kernels = None            # attention kernels allowed during generation (memory, notes 43.19)
+local_max_context_tokens = None      # prompt + generation the GPU was verified to hold (notes 44.7)
 # Tokens a model may reason before each generation, in its own channel (notes 44). None: no
 # reasoning step at all -- evaluation 1, and every run before it.
 reasoning_token_budget = None
@@ -389,8 +396,9 @@ def set_generation_seed(value):
 
     None leaves the global RNG untouched, reproducing the pre-2026-08-29 behaviour exactly.
     """
-    global generation_seed
+    global generation_seed, _generation_call_index
     generation_seed = None if value is None else int(value)
+    _generation_call_index = 0   # a new record: its first generation is call 0 again (notes 44.7)
 
 
 def set_constrained_decoding(value):
@@ -743,6 +751,33 @@ def get_generation_seed():
     return generation_seed
 
 
+def set_generation_seed_per_call(enabled):
+    """Notes 44.7: derive one seed per generation of a record (True), or re-apply the record's seed
+    to every generation (False, every run before 44.7)."""
+    global generation_seed_per_call
+    generation_seed_per_call = bool(enabled)
+
+
+def get_generation_seed_per_call():
+    return generation_seed_per_call
+
+
+def _seed_for_this_call():
+    """The seed for the next sampled generation, and advance the call ordinal under per-call seeding.
+
+    Call 0 is the record's own seed, so a one-call record (A0*) draws exactly as before; call n > 0
+    is derived from (record seed, n). Still a function of the record's identity and the order of its
+    own calls only, so a shard boundary cannot change it."""
+    global _generation_call_index
+    if not generation_seed_per_call:
+        return generation_seed
+    n = _generation_call_index
+    _generation_call_index += 1
+    if n == 0:
+        return generation_seed
+    return int(hashlib.sha256(f"{generation_seed}:{n}".encode("utf-8")).hexdigest()[:8], 16)
+
+
 def reset_llm_call_stats():
     LLM_CALL_STATS.clear()
 
@@ -776,7 +811,7 @@ def get_hf_backend_description():
 
 def set_local_model_options(revision=None, chat_template_kwargs=None, generation_prefix=None,
                             system_prompt_prefix=None, reasoning=None, sampling=None,
-                            sdpa_kernels=None):
+                            sdpa_kernels=None, max_context_tokens=None):
     """Set the per-model chat settings for the local backend (notes 43.16, 44); None clears each.
 
     Called for every model before it is selected, so a model without the settings never inherits
@@ -803,9 +838,14 @@ def set_local_model_options(revision=None, chat_template_kwargs=None, generation
               reasoning only after the LAST user message, and the agent's tool results are user
               messages, so the harness writes the template's own text after each assistant
               turn's header (Gemma 4; tests/test_unleashed.py checks it against the template).
+      * `max_context_tokens` (notes 44.7) -- the longest context (prompt plus everything this call
+        may generate) the model's memory check verified on the GPU. A call that could exceed it
+        raises PromptTooLongError before generating, which the agent loop treats as the end of the
+        case (finalised with its best tree, recorded as `context_limit_hit`) instead of an OOM.
     """
     global local_model_revision, local_chat_template_kwargs, local_generation_prefix
     global local_system_prompt_prefix, local_reasoning, local_sampling, local_sdpa_kernels
+    global local_max_context_tokens
     local_model_revision = revision or None
     local_chat_template_kwargs = dict(chat_template_kwargs or {})
     local_generation_prefix = generation_prefix or None
@@ -827,6 +867,7 @@ def set_local_model_options(revision=None, chat_template_kwargs=None, generation
         raise ValueError(f"unsupported sampling option(s): {sorted(unknown)} (top_p, top_k only)")
     local_sampling = dict(sampling or {})
     local_sdpa_kernels = list(sdpa_kernels) if sdpa_kernels else None
+    local_max_context_tokens = int(max_context_tokens) if max_context_tokens else None
 
 
 def set_reasoning_token_budget(value):
@@ -1741,6 +1782,23 @@ class PromptTooLongError(RuntimeError):
     """The prompt alone exceeds the model's context, so no generation budget can rescue it."""
 
 
+def _check_memory_budget(prompt_tokens, max_tokens):
+    """Refuse a call whose context could outgrow what the model's memory check verified (notes 44.7).
+
+    Counted conservatively: the prompt, the whole reasoning budget when this model reasons first,
+    and the whole action budget -- so a call that passes cannot run out of memory part-way. No
+    limit configured (every model before 44.7): no check."""
+    if not local_max_context_tokens:
+        return
+    reasoning = reasoning_token_budget if (local_reasoning and reasoning_token_budget) else 0
+    needed = prompt_tokens + reasoning + int(max_tokens or 0)
+    if needed > local_max_context_tokens:
+        raise PromptTooLongError(
+            f"context limit: a {prompt_tokens}-token prompt plus up to {reasoning} reasoning and "
+            f"{int(max_tokens or 0)} answer tokens could reach {needed}, over the "
+            f"{local_max_context_tokens} tokens this model's memory check verified (notes 44.7)")
+
+
 def _check_context_budget(prompt_tokens, max_tokens):
     """Guard the context window: raise when hopeless, warn when merely tight.
 
@@ -2080,6 +2138,7 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
 
     prompt_tokens = int(input_ids.shape[-1])
     _check_context_budget(prompt_tokens, max_tokens)
+    _check_memory_budget(prompt_tokens, max_tokens)
 
     do_sample = False
     temperature = generation_temperature
@@ -2113,9 +2172,10 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
     # (case, condition, repeat) so a shard boundary cannot change it. No-op when sampling is off,
     # where the RNG is not consulted at all.
     if do_sample and generation_seed is not None:
-        torch.manual_seed(generation_seed)
+        seed = _seed_for_this_call()
+        torch.manual_seed(seed)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(generation_seed)
+            torch.cuda.manual_seed_all(seed)
 
     reasoning_ids, forced_close = None, None
     if local_reasoning and reasoning_token_budget:
@@ -4719,6 +4779,8 @@ def _run_pipeline_agentic(
     seen_actions = {}
     repeat_turns = 0
     turns_used = 0
+    # Notes 44.7: the case ended because the next call could outgrow the verified context.
+    context_limit_hit = False
 
     # Published BEFORE the loop and updated every turn, so a case the per-case cap kills mid-loop
     # still leaves the turns it took. Those are exactly the cases whose mechanism matters most, and
@@ -4789,8 +4851,11 @@ def _run_pipeline_agentic(
             )
         except PromptTooLongError as exc:
             # Never retried by design, and the transcript only grows -- so stop and finalise with
-            # whatever the model has already produced rather than losing the case.
+            # whatever the model has already produced rather than losing the case. The model is
+            # not warned beforehand (notes 44.7); the record says the limit ended it.
             trajectory.append({"turn": turns_used, "error": f"prompt too long: {exc}"})
+            context_limit_hit = True
+            _last_agent_trajectory["context_limit_hit"] = True
             break
         finally:
             set_constrained_schema(previous_schema)
@@ -4959,6 +5024,7 @@ def _run_pipeline_agentic(
         "check_tree_calls": check_tree_calls,
         "cap_hits": cap_hits,
         "repeat_turns": repeat_turns,
+        "context_limit_hit": context_limit_hit,
     })
 
     if final_tree is None:
