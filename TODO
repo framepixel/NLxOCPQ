@@ -1984,6 +1984,19 @@
        turns 3/4 identical) -> FIXED: generation_seed_per_call true (notes 44.7). Also added
        max_context_tokens per model (verified memory; Gemma 49152) -> context_limit_hit, no warning.
        RE-RUN b (all four), then c. Gate: context-limit cases count against ">= 90% declared".
+       DONE b again (14:49): seeds decoupled (no copies, 0 repeats for 0-2); Gemma 3/7 repeats, up to
+       140 s/turn and 1136 s/case -- left to the gate. -> RUN THE GATE (c), all four.
+       DONE c, THE GATE (2026-10-01, notes 44.8): ONLY QWEN3.8 PASSES. Ministral-R fails (forced closes
+       73%, 1 probe_unavailable); Glimmer fails (repeats 12.4%); Gemma fails (repeats 22.8%). All 122
+       repeats verified genuine (identical results, evalVersion aside). No re-gating.
+    7. QWEN3.8 SCORED RUN (model index 1):
+         sbatch --array=0-2 slurm/submit_unleashed_rungs.sh --model-idx 1 --smoke   # 3 rungs, slice 8/11
+         then: sbatch slurm/submit_unleashed_rungs.sh --model-idx 1                 # 18 tasks
+         then merge the 6 shards per rung (eval_testset.py --merge-shards), analysis per notes 44.4.
+    8. ASK THE SUPERVISOR (both designs already fixed in notes 44.8, so only go/no-go is open):
+       a. FRONTIER ARM (Opus 5.5, paid) -- needs a native Anthropic backend (not built).
+       b. EXPLORATORY ARM: all three gate failures or none, 1 draw, reported apart (~100 GPU-h).
+       Frontier first if budget is short. Decide without reference to Qwen's scored results.
        Read: Runtime line, "loaded in", each turn's reasoning (in the model's channel, closed by it or
        forced), clean JSON actions, s/turn, forced-close rate.
        SPEED TRIGGER (notes 44.3, decided before output): median s/turn <= 150 per model. If Qwen is
