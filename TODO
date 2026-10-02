@@ -1991,12 +1991,22 @@
        repeats verified genuine (identical results, evalVersion aside). No re-gating.
     7. QWEN3.8 SCORED RUN (model index 1):
          sbatch --array=0-2 slurm/submit_unleashed_rungs.sh --model-idx 1 --smoke   # 3 rungs, slice 8/11
+         DONE smoke (2026-10-02): all three rungs as designed, A1'* check_tree only, no pipeline
+         failures; revised cost ~140 GPU-h (A0* 34, A1* 61, A1'* 44). Smoke dirs are c8of11 -- on the
+         cluster, move them OUT of eval_runs/unleashed before merging.
          then: sbatch slurm/submit_unleashed_rungs.sh --model-idx 1                 # 18 tasks
          then merge the 6 shards per rung (eval_testset.py --merge-shards), analysis per notes 44.4.
     8. ASK THE SUPERVISOR (both designs already fixed in notes 44.8, so only go/no-go is open):
        a. FRONTIER ARM (Opus 5.5, paid) -- needs a native Anthropic backend (not built).
        b. EXPLORATORY ARM: all three gate failures or none, 1 draw, reported apart (~100 GPU-h).
        Frontier first if budget is short. Decide without reference to Qwen's scored results.
+       c. IDEA (follow-up, NOT evaluation 2): an example-lookup tool, search_examples(question), over
+          the FINE-TUNING DATASET only -- never the testset (answer key) or the dev set (too close to
+          the testset; already used to tune and gate the agent). Motivation: OCPQ syntax is learned
+          from examples, which log inspection cannot teach (Gemma invented field names at the gate).
+          Asks: does an agent with textbook examples AND log access do better? Design before running:
+          the tool in both loop rungs or a dedicated rung, pre-registered, gated on the dev set like
+          every condition. Else: thesis future work.
        Read: Runtime line, "loaded in", each turn's reasoning (in the model's channel, closed by it or
        forced), clean JSON actions, s/turn, forced-close rate.
        SPEED TRIGGER (notes 44.3, decided before output): median s/turn <= 150 per model. If Qwen is
