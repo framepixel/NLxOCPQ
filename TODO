@@ -2013,13 +2013,15 @@
           every condition. Else: thesis future work.
           BUILT 2026-10-03 (notes 45): lever S, tool search_examples over data/ocpq_dataset.json
           (3 per call, unseen-next, static), 2x2 reusing evaluation 2's A1*/A1'*. Pre-registered gate:
-          notes 44.4's six + uptake >= 25% of cases. RUN ONLY AFTER THE SUPERVISOR'S GO (~115 GPU-h):
+          notes 44.4's six + uptake >= 25% of cases. NO SUPERVISOR APPROVAL NEEDED (user, 2026-10-03; ~127 GPU-h):
             a. git pull; python tests/test_example_search.py (both envs, HF_HOME per command)
             b. REPRODUCTION (S off, new pipeline): sbatch --array=1 slurm/submit_unleashed_rungs.sh
                --model-idx 1 --smoke -> compare with eval_runs/unleashed_smoke/..._s1_..._c8of11
                (identical predictions expected); move the new dir to eval_runs/unleashed_smoke after.
-            c. load smoke: sbatch slurm/submit_unleashed_examples_gate.sh --case-shard 0/19
-            d. gate:       sbatch slurm/submit_unleashed_examples_gate.sh
+            c. load smoke: sbatch slurm/submit_unleashed_examples_gate.sh --case-shard 0/19   (all four)
+            d. gate:       sbatch slurm/submit_unleashed_examples_gate.sh                     (all four)
+               RULE A (notes 45.5): tasks 0, 2, 3 are DIAGNOSTIC ONLY -- never scored, whatever the
+               result; only Qwen (task 1) can lead to the 2x2. ~17 GPU-h for the four tasks.
             e. if it passes: sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke,
                then sbatch slurm/submit_unleashed_examples_rungs.sh (12 tasks), merge, analysis 45.4.
        Read: Runtime line, "loaded in", each turn's reasoning (in the model's channel, closed by it or

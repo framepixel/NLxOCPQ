@@ -235,8 +235,14 @@ check("rungs: every RUNG_SUFFIX is the suffix the harness builds", suffixes,
       {str(i): b for i, b in built.items()})
 check("gate: its RUNG_SUFFIX is A1*+S's", re.search(r'^RUNG_SUFFIX="([^"]+)"', GATE_SH, re.M).group(1),
       built[0])
-check("both scripts run Qwen3.8 only (model index 1)",
-      ("MODEL_IDX=1" in GATE_SH, "MODEL_IDX=1" in RUNGS, '  1) ;;' in RUNGS), (True, True, True))
+check("the gate runs all four models, one task each (rule A, notes 45.5)",
+      ("#SBATCH --array=0-3" in GATE_SH, 'MODEL_IDX="$TASK"' in GATE_SH), (True, True))
+check("the scored rungs run Qwen3.8 only (model index 1)",
+      ("MODEL_IDX=1" in RUNGS, '  1) ;;' in RUNGS, "  0|1|2|3) ;;" in RUNGS), (True, True, False))
+GATE_CFG = load("eval_config.unleashed_examples_gate.json")
+check("the gate config lists the four models in evaluation 2's order, so task t is model t",
+      [m["label"] for m in GATE_CFG["models"]],
+      [m["label"] for m in load("eval_config.unleashed_gate.json")["models"]])
 check("both scripts read their own configs and write their own directories",
       ("eval_config.unleashed_examples_gate.json" in GATE_SH, "eval_config.unleashed_examples.json" in RUNGS,
        "eval_runs/unleashed_examples_gate/" in GATE_SH, "eval_runs/unleashed_examples/" in RUNGS),
