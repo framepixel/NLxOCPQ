@@ -1996,6 +1996,10 @@
          cluster, move them OUT of eval_runs/unleashed before merging.
          then: sbatch slurm/submit_unleashed_rungs.sh --model-idx 1                 # 18 tasks
          then merge the 6 shards per rung (eval_testset.py --merge-shards), analysis per notes 44.4.
+         DONE 2026-10-03 (notes 44.9): merged into eval_runs/unleashed/merged_m1_s{0,1,2} (clean).
+         HEADLINE A1* - A1'* = +0.0453 [+0.0087, +0.0848], 39/22 -- resolved, just under the >=0.05 bar;
+         executed F1 rises (0.1735 vs 0.1265), evaluation does not. A1* 0.1536, A1'* 0.1083, A0* 0.0207.
+         Open: manual annotation of a reasoning sample (the keyword divergence measure is uninformative).
     8. ASK THE SUPERVISOR (both designs already fixed in notes 44.8, so only go/no-go is open):
        a. FRONTIER ARM (Opus 5.5, paid) -- needs a native Anthropic backend (not built).
        b. EXPLORATORY ARM: all three gate failures or none, 1 draw, reported apart (~100 GPU-h).
