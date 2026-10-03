@@ -168,9 +168,10 @@ check("every lever set that changes the prompt changes the hash (B and E change 
 LLM.set_agent_protocol()
 
 print("\n--- names: every lever set is its own directory; A0 keeps its id ---")
-# The five Stage 5 levers; C (notes 43.15) and R (notes 43.17) are tested on their own below.
+# The five Stage 5 levers; C (notes 43.15) and R (notes 43.17) are tested on their own below, and S
+# (notes 45) in tests/test_example_search.py.
 cfg = {key: True for key, lever, _letter in AGENT_LEVERS
-       if lever not in ("cap_feedback", "repeat_guard")}
+       if lever not in ("cap_feedback", "repeat_guard", "example_search")}
 check("letters in a fixed order", _agent_levers(cfg), "FBEXL")
 check("none -> no suffix part", _agent_levers({}), "")
 check("the suffix carries them after the turn cap, before the thought",

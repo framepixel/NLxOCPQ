@@ -25,7 +25,7 @@ from pydantic import ValidationError
 
 import paths
 from ocpq_schema import AGENT_TOOL_CALLS, AGENT_TURN_SCHEMA, AGENT_TURN_WITH_THOUGHT_SCHEMA, AgentTurn, AgentTurnWithThought  # noqa: E402
-from ocpq_schema import CheckTreeCall, DEFECT_HINTS, PROBE_TOOL_NAMES, agent_turn_model, blocking_defects, defect_kind, structural_defects as _tree_structural_defects  # noqa: E402
+from ocpq_schema import CheckTreeCall, SearchExamplesCall, DEFECT_HINTS, PROBE_TOOL_NAMES, agent_turn_model, blocking_defects, defect_kind, structural_defects as _tree_structural_defects  # noqa: E402
 from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, AGENT_ACTION_SCHEMA, AgentAction, AGENT_ACTION_WITH_THOUGHT_SCHEMA, AgentActionWithThought, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
 
 from LogEvents import events_and_objects_from_ocel, extract_ocel_schema
@@ -206,9 +206,14 @@ AGENT_PROTOCOL_DEFAULTS = {
     "reserve_last_turn": False,       # L: the last turn admits a final answer only
     "cap_feedback": False,            # C: a turn cut off at the per-turn cap is told so (43.15)
     "repeat_guard": False,            # R: an action identical to an earlier one is not re-run (43.17)
+    "example_search": False,          # S: the search_examples tool over the retrieval pool (notes 45)
 }
 agent_protocol = dict(AGENT_PROTOCOL_DEFAULTS)
 _last_agent_trajectory = None
+# S (notes 45): how many pool examples one search_examples call returns, and the size its result may
+# take in the transcript. Set from the config by eval_testset (`set_agent_example_search`).
+agent_examples_per_search = 3
+agent_example_result_char_cap = 4000
 
 LLM_CALL_STATS = []
 QUERY_EXEC_STATS = []
@@ -680,6 +685,16 @@ def set_agent_protocol(**levers):
 
 def get_agent_protocol():
     return dict(agent_protocol)
+
+
+def set_agent_example_search(per_search=3, result_char_cap=4000):
+    """S (notes 45): examples per search_examples call, and the result's character cap. Inert unless
+    the `example_search` lever is on."""
+    global agent_examples_per_search, agent_example_result_char_cap
+    if int(per_search) < 1:
+        raise ValueError(f"examples per search must be >= 1, got {per_search}")
+    agent_examples_per_search = int(per_search)
+    agent_example_result_char_cap = int(result_char_cap)
 
 
 def set_agent_turn_token_budget(value):
@@ -4430,6 +4445,16 @@ AGENT_CHECK_TREE_SPEC = {
                     "every structural defect (child lists, edgeNames, the root, variables in "
                     "scope), each with how to fix it."),
 }
+AGENT_SEARCH_EXAMPLES_SPEC = {
+    "name": "search_examples",
+    "args": {"text": "what to look for, in your own words: the question, or a pattern such as "
+                     "'at least twice within one hour'"},
+    "description": ("Solved example questions with their OCPQ trees, the most similar first; each call "
+                    "returns ones you have not seen yet. They are on OTHER logs: copy how their trees "
+                    "are built, never their type names."),
+}
+# The search text is embedded as written; past this it adds nothing to a 384-dim sentence embedding.
+AGENT_SEARCH_TEXT_CHAR_CAP = 500
 AGENT_LAST_TURN_NOTE = "This is your LAST turn: answer now with {\"final_tree\": {...}}."
 # C (notes 43.15). Without it, a turn the harness cut at the cap is answered "do not truncate the
 # object" -- blaming the model for a cut it did not make, and not saying the object was too LONG.
@@ -4506,6 +4531,55 @@ def _check_tree_result(tree):
         return {"structure": report}
     return {"structure": [], "note": "no structural defect found -- this checks how the tree is "
                                      "linked, not whether it answers the question"}
+
+
+class ExampleSearchUnavailable(RuntimeError):
+    """search_examples was called but the retrieval pool or its embedding model is not loaded.
+
+    Raised, never papered over: `retrieve_examples`' fallback returns the pool's FIRST rows whatever
+    is asked, which under S would be a condition that silently shows every case the same three
+    examples."""
+
+
+def _search_examples_result(text, dataset, embeddings, shown):
+    """S (notes 45): the pool examples most similar to `text` that this case has not been shown.
+
+    Returns `(result, picked)`, where `picked` is `[(pool index, cosine similarity)]`. The same
+    embedding and similarity as the matrix's few-shot retrieval (`retrieve_examples`): the
+    MiniLM sentence embedding of the text against `embeddings`, the pool's precomputed rows. Reads
+    `dataset` and `embeddings` only -- the retrieval pool, which shares no question, query or type
+    name with the testset (notes 3, 45). Whole examples are kept within the result cap; any left
+    out are counted, never cut mid-JSON.
+    """
+    if dataset is None or embeddings is None or model is None or tokenizer is None:
+        raise ExampleSearchUnavailable(
+            f"search_examples needs the retrieval pool and its embedding model "
+            f"({embedding_load_error or 'not loaded'})")
+    text = str(text or "").strip()[:AGENT_SEARCH_TEXT_CHAR_CAP]
+    if not text:
+        return {"error": "search_examples needs a non-empty text"}, []
+    similarities = cosine_similarity([get_embedding(text)], embeddings)[0]
+    seen = set(shown)
+    picked = []
+    for index in np.argsort(-similarities, kind="stable"):
+        if int(index) not in seen:
+            picked.append((int(index), float(similarities[index])))
+            if len(picked) == agent_examples_per_search:
+                break
+    examples, used = [], 0
+    for index, _ in picked:
+        example = {"question": dataset[index]["nl"], "tree": dataset[index]["query"]}
+        size = len(json.dumps(example, separators=(",", ":"), default=str))
+        if examples and used + size > agent_example_result_char_cap:
+            break
+        examples.append(example)
+        used += size
+    result = {"note": "Solved questions on OTHER logs. Reuse how the trees are built; your type "
+                      "names are the ones in your schema, never these.",
+              "examples": examples}
+    if len(examples) < len(picked):
+        result["omitted"] = len(picked) - len(examples)
+    return result, picked[:len(examples)]
 
 
 def _agent_protocol_rules():
@@ -4607,7 +4681,7 @@ _last_agent_parse_normalized = []
 
 _AGENT_TOOL_CALL_BY_NAME = {
     typing.get_args(call.model_fields["tool"].annotation)[0]: call
-    for call in AGENT_TOOL_CALLS + (CheckTreeCall,)}
+    for call in AGENT_TOOL_CALLS + (CheckTreeCall, SearchExamplesCall)}
 
 
 def _repair_agent_tree(tree):
@@ -4640,7 +4714,13 @@ def _agent_tool_block(probe):
         return f"- {spec['name']}({arguments}): {spec['description']}"
 
     structural = agent_protocol["structural_feedback"]
+    examples = agent_protocol["example_search"]
     if probe is None:
+        if examples:
+            # S (notes 45): the control keeps the STATIC tools, so A1 - A1' still isolates the log.
+            static = ([line(AGENT_CHECK_TREE_SPEC)] if structural else []) + [
+                line(AGENT_SEARCH_EXAMPLES_SPEC)]
+            return "You have NO log tools in this condition. Tools you may call:\n" + "\n".join(static)
         if structural:
             # The control keeps the STATIC check: A1 - A1' then isolates log access (notes 43.12).
             return ("You have NO log tools in this condition. One tool you may call:\n"
@@ -4650,6 +4730,8 @@ def _agent_tool_block(probe):
     lines = ["Tools you may call:"] + [line(spec) for spec in ocpq_probe.TOOL_SPECS]
     if structural:
         lines.append(line(AGENT_CHECK_TREE_SPEC))
+    if examples:
+        lines.append(line(AGENT_SEARCH_EXAMPLES_SPEC))
     return "\n".join(lines)
 
 
@@ -4679,6 +4761,9 @@ def _agent_task_prompt(schema_block, query, probe):
                   "reports them without running the tree. Fix every defect before you answer.")
     if levers["reserve_last_turn"]:
         extra += "\n- Your last turn must be a final answer; you will be told when it comes."
+    if levers["example_search"]:
+        extra += ("\n- search_examples shows solved questions on OTHER logs: reuse how their trees are "
+                  "built, never their type names -- your types are the ones listed above.")
     return f"""
 Write an OCPQ query answering the question below, using the log to check your work.
 
@@ -4771,7 +4856,8 @@ def _run_pipeline_agentic(
     # What this condition may call: the probe's tools when there is a probe, and the static
     # check_tree under F in BOTH loop rungs (notes 43.12).
     available_tools = (PROBE_TOOL_NAMES if probe is not None else ()) + (
-        ("check_tree",) if levers["structural_feedback"] else ())
+        ("check_tree",) if levers["structural_feedback"] else ()) + (
+        ("search_examples",) if levers["example_search"] else ())
     final_bounced = False
     check_tree_calls = 0
     cap_hits = 0
@@ -4781,6 +4867,9 @@ def _run_pipeline_agentic(
     turns_used = 0
     # Notes 44.7: the case ended because the next call could outgrow the verified context.
     context_limit_hit = False
+    # S (notes 45): pool rows already shown in this case, so a repeated search returns new ones.
+    examples_shown = []
+    example_search_calls = 0
 
     # Published BEFORE the loop and updated every turn, so a case the per-case cap kills mid-loop
     # still leaves the turns it took. Those are exactly the cases whose mechanism matters most, and
@@ -4927,7 +5016,10 @@ def _run_pipeline_agentic(
         # Recorded whatever the levers, so every condition's repeat rate can be counted; the
         # thought is not part of the action, so a new thought on an old action is still a repeat.
         action_key = (action.tool, json.dumps(action.args or {}, sort_keys=True, default=str))
-        first_turn = seen_actions.setdefault(action_key, turns_used)
+        # A repeated search_examples returns examples not yet shown (notes 45), so it is not a
+        # repeat in the sense of 43.17 -- same action, same result -- and is not counted as one.
+        first_turn = (turns_used if action.tool == "search_examples"
+                      else seen_actions.setdefault(action_key, turns_used))
         if first_turn != turns_used:
             repeat_turns += 1
             entry["repeat_of"] = first_turn
@@ -4943,6 +5035,19 @@ def _run_pipeline_agentic(
                 messages.append(assistant)
                 messages.append({"role": "user", "content": note})
                 continue
+        if action.tool == "search_examples" and "search_examples" in available_tools:
+            # S (notes 45): static, like check_tree -- no probe call, no tool budget, a turn spent.
+            example_search_calls += 1
+            result, picked = _search_examples_result(
+                (action.args or {}).get("text"), dataset, embeddings, examples_shown)
+            examples_shown.extend(index for index, _ in picked)
+            entry["examples"] = [[index, round(similarity, 4)] for index, similarity in picked]
+            entry["result"] = result
+            trajectory.append(entry)
+            messages.append(assistant)
+            messages.append({"role": "user", "content": json.dumps(result, default=str)})
+            _last_agent_trajectory["example_search_calls"] = example_search_calls
+            continue
         if action.tool == "check_tree" and "check_tree" in available_tools:
             tree = (action.args or {}).get("tree")
             entry["tree_blocking"] = _tree_blocking_count(tree)
@@ -5025,6 +5130,8 @@ def _run_pipeline_agentic(
         "cap_hits": cap_hits,
         "repeat_turns": repeat_turns,
         "context_limit_hit": context_limit_hit,
+        "example_search_calls": example_search_calls,
+        "examples_shown": len(examples_shown),
     })
 
     if final_tree is None:

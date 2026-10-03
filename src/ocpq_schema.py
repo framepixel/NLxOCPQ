@@ -389,6 +389,28 @@ class CheckTreeCallWithThought(BaseModel):
     args: CheckTreeArgs
 
 
+# --- S (notes 45): search_examples, a STATIC example lookup -----------------------------------------
+#
+# Reads only the retrieval pool (`data/ocpq_dataset.json`, the matrix's few-shot pool), never the log,
+# the testset or gold. Like `check_tree` it is static, so both loop rungs can have it and the 2x2 of
+# notes 45 keeps A1 - A1' a contrast of log access alone.
+
+
+class SearchExamplesArgs(BaseModel):
+    text: str
+
+
+class SearchExamplesCall(BaseModel):
+    tool: Literal["search_examples"]
+    args: SearchExamplesArgs
+
+
+class SearchExamplesCallWithThought(BaseModel):
+    thought: Optional[str] = None
+    tool: Literal["search_examples"]
+    args: SearchExamplesArgs
+
+
 _TURN_VARIANTS = {
     # name: (plain variant, thought variant)
     "try_query": (TryQueryCall, TryQueryCallWithThought),
@@ -397,6 +419,7 @@ _TURN_VARIANTS = {
     "attribute_values": (AttributeValuesCall, AttributeValuesCallWithThought),
     "activity_stats": (ActivityStatsCall, ActivityStatsCallWithThought),
     "check_tree": (CheckTreeCall, CheckTreeCallWithThought),
+    "search_examples": (SearchExamplesCall, SearchExamplesCallWithThought),
 }
 PROBE_TOOL_NAMES = ("try_query", "inspect_situations", "sample", "attribute_values",
                     "activity_stats")

@@ -69,6 +69,7 @@ from LLM import (
     set_agent_thought,
     set_agent_turn_token_budget,
     set_agent_protocol,
+    set_agent_example_search,
     agent_prompt_sha256,
     get_last_agent_trajectory,
     reset_last_agent_trajectory,
@@ -292,6 +293,8 @@ AGENT_LEVERS = (
     ("agent_cap_feedback", "cap_feedback", "C"),
     # Added after Muse Glimmer's model gate (notes 43.17), last, so every earlier suffix is unchanged.
     ("agent_repeat_guard", "repeat_guard", "R"),
+    # The example-lookup tool (notes 45), last, so every earlier suffix is unchanged.
+    ("agent_example_search", "example_search", "S"),
 )
 
 
@@ -1440,6 +1443,12 @@ def _agent_compliance(records) -> dict:
                                               if t.get("reasoning_tokens") is not None]),
         # Notes 44.7: cases the verified-context limit ended (finalised with their best tree). None
         # for runs before 44.7, which did not record it.
+        # S (notes 45): uptake of search_examples -- the share of records that called it, and the
+        # calls per record. None for runs before 45, which did not record it.
+        "agent_example_search_rate": _mean([1 if a.get("example_search_calls") else 0
+                                            for _, a in agents if "example_search_calls" in a]),
+        "agent_mean_example_searches": _mean([a.get("example_search_calls") for _, a in agents
+                                              if "example_search_calls" in a]),
         "agent_context_limit_rate": _mean([1 if a.get("context_limit_hit") else 0
                                            for _, a in agents if "context_limit_hit" in a]),
     }
@@ -1818,6 +1827,9 @@ def _compact_agent_turns(trajectory, cap):
             turn["tree_blocking"] = int(entry["tree_blocking"])
         if entry.get("bounced"):
             turn["bounced"] = True
+        if entry.get("examples"):
+            # S (notes 45): the pool rows shown, with their similarity to the search text.
+            turn["examples"] = entry["examples"]
         result = entry.get("result")
         if isinstance(result, dict):
             if result.get("error"):
@@ -2192,6 +2204,8 @@ def run_evaluation(config_path_or_config):
             # goes to <run_dir>/agent_trajectories.jsonl, so predictions.json stays loadable.
             "record_turn_char_cap": int(config.get("agent_record_turn_char_cap", 600)),
             "uses_probe": agent_uses_probe,
+            # S (notes 45): examples per search_examples call; inert unless the lever is on.
+            "examples_per_search": int(config.get("agent_examples_per_search", 3)),
         }
     _check_backends_consistent(models, global_cfg)
     repeats = int(config.get("repeats", 1))
@@ -2441,6 +2455,16 @@ def run_evaluation(config_path_or_config):
         set_agent_thought(agent_settings["thought"])
         set_agent_turn_token_budget(agent_settings["turn_token_budget"])
         set_agent_protocol(**agent_settings["protocol"])
+        set_agent_example_search(agent_settings["examples_per_search"],
+                                 agent_settings["tool_result_char_cap"])
+        if agent_settings["protocol"].get("example_search"):
+            # S (notes 45): refuse to start rather than let `retrieve_examples`' fallback show every
+            # case the pool's first rows. The pool and its embeddings are what the tool reads.
+            import LLM as _llm
+            if (_llm.dataset is None or _llm.embeddings is None or _llm.model is None
+                    or _llm.embedding_load_error):
+                raise RuntimeError("agent_example_search is on but the retrieval pool or its "
+                                   f"embedding model is unavailable: {_llm.embedding_load_error}")
     if agent_uses_probe:
         probe_server = ocpq_probe.ProbeServer().start()
         agent_probe_obj = ocpq_probe.OcpqProbe(
@@ -2914,6 +2938,10 @@ def run_evaluation(config_path_or_config):
                                 "repeat_turns": agent_state.get("repeat_turns"),
                                 # The next call could outgrow the verified context (notes 44.7).
                                 "context_limit_hit": bool(agent_state.get("context_limit_hit")),
+                                # S (notes 45): search_examples calls, and pool rows shown.
+                                "example_search_calls": int(
+                                    agent_state.get("example_search_calls") or 0),
+                                "examples_shown": int(agent_state.get("examples_shown") or 0),
                                 "final_blocking_defects": (
                                     len(blocking_defects(structural_defects(ocpq_json)))
                                     if isinstance(ocpq_json, dict) else None),

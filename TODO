@@ -2011,6 +2011,17 @@
           Asks: does an agent with textbook examples AND log access do better? Design before running:
           the tool in both loop rungs or a dedicated rung, pre-registered, gated on the dev set like
           every condition. Else: thesis future work.
+          BUILT 2026-10-03 (notes 45): lever S, tool search_examples over data/ocpq_dataset.json
+          (3 per call, unseen-next, static), 2x2 reusing evaluation 2's A1*/A1'*. Pre-registered gate:
+          notes 44.4's six + uptake >= 25% of cases. RUN ONLY AFTER THE SUPERVISOR'S GO (~115 GPU-h):
+            a. git pull; python tests/test_example_search.py (both envs, HF_HOME per command)
+            b. REPRODUCTION (S off, new pipeline): sbatch --array=1 slurm/submit_unleashed_rungs.sh
+               --model-idx 1 --smoke -> compare with eval_runs/unleashed_smoke/..._s1_..._c8of11
+               (identical predictions expected); move the new dir to eval_runs/unleashed_smoke after.
+            c. load smoke: sbatch slurm/submit_unleashed_examples_gate.sh --case-shard 0/19
+            d. gate:       sbatch slurm/submit_unleashed_examples_gate.sh
+            e. if it passes: sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke,
+               then sbatch slurm/submit_unleashed_examples_rungs.sh (12 tasks), merge, analysis 45.4.
        Read: Runtime line, "loaded in", each turn's reasoning (in the model's channel, closed by it or
        forced), clean JSON actions, s/turn, forced-close rate.
        SPEED TRIGGER (notes 44.3, decided before output): median s/turn <= 150 per model. If Qwen is
