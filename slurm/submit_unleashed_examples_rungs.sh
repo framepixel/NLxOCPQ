@@ -9,16 +9,23 @@
 #SBATCH --array=0-11
 #SBATCH --account=thes2358
 #SBATCH --export=ALL
-# EVALUATION 2 WITH EXAMPLE LOOKUP -- THE SCORED RUNGS (notes 45), Qwen3.8 only, on the testset. The two
-# NEW cells of the 2x2 (log access x examples); the other two are evaluation 2's A1* and A1'* (notes 44.9):
+# EVALUATION 2 WITH EXAMPLE LOOKUP -- THE SCORED RUNGS (notes 45), on the testset, for one model of
+# configs/eval_config.unleashed_examples.json that PASSED the example-lookup gate (notes 45.7):
 #
 #   rung 0  A1*+S   the tool loop + search_examples, 8 turns / 12 tool calls
 #   rung 1  A1'*+S  the same loop without log access (check_tree + search_examples)
 #
-# Run only if Qwen3.8 PASSED the example-lookup gate (notes 45). Each rung is split into SHARDS contiguous
-# case slices: array task t runs rung t / SHARDS on slice t % SHARDS. 12 tasks = 2 rungs x 6 shards.
-#     sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke   # 2 rungs, slice 8/11
-#     sbatch slurm/submit_unleashed_examples_rungs.sh                       # the full run
+#   --model-idx 1  Qwen3.8 (the default): the two NEW cells of the 2x2 (log access x examples); the other
+#                  two are evaluation 2's A1* and A1'* (notes 44.9). Pre-registered in 45.4.
+#   --model-idx 2  Muse Glimmer-30B (notes 45.8): passed this gate, not evaluation 2's, so its 2x2 is
+#                  incomplete. Its claim is A1*+S - A1'*+S (log access, given examples) ONLY.
+#   0 and 3 (Ministral-R, Gemma 4) failed this gate and are refused.
+#
+# Each rung is split into SHARDS contiguous case slices: array task t runs rung t / SHARDS on slice
+# t % SHARDS. 12 tasks = 2 rungs x 6 shards.
+#     sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke                 # Qwen, slice 8/11
+#     sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke --model-idx 2   # Glimmer
+#     sbatch slurm/submit_unleashed_examples_rungs.sh [--model-idx 2]                     # the full run
 set -u
 SHARDS=6
 _ocpq_resolve_project_dir() {
@@ -46,7 +53,7 @@ unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER
 unset PYTHONHOME PYTHONPATH
 
 TASK="${SLURM_ARRAY_TASK_ID}"
-MODEL_IDX=1   # Qwen3.8 only (notes 45)
+MODEL_IDX=1   # Qwen3.8 by default; 2 = Glimmer (notes 45.8)
 SMOKE=0
 OCPQ_RESUME_REQUESTED="${OCPQ_RESUME:-0}"
 while [ "$#" -gt 0 ]; do
@@ -61,8 +68,8 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 case "$MODEL_IDX" in
-  1) ;;
-  *) echo "FATAL: pass --model-idx 0-3 (a model of eval_config.unleashed.json); got '${MODEL_IDX}'." >&2
+  1|2) ;;
+  *) echo "FATAL: --model-idx must be 1 (Qwen3.8) or 2 (Glimmer), the models that passed the example-lookup gate (notes 45.7-45.8); got '${MODEL_IDX}'." >&2
      exit 1 ;;
 esac
 

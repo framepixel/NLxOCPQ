@@ -20,6 +20,8 @@ import ast
 import inspect
 import json
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -237,8 +239,20 @@ check("gate: its RUNG_SUFFIX is A1*+S's", re.search(r'^RUNG_SUFFIX="([^"]+)"', G
       built[0])
 check("the gate runs all four models, one task each (rule A, notes 45.5)",
       ("#SBATCH --array=0-3" in GATE_SH, 'MODEL_IDX="$TASK"' in GATE_SH), (True, True))
-check("the scored rungs run Qwen3.8 only (model index 1)",
-      ("MODEL_IDX=1" in RUNGS, '  1) ;;' in RUNGS, "  0|1|2|3) ;;" in RUNGS), (True, True, False))
+check("the scored rungs default to Qwen3.8 (model index 1)", "MODEL_IDX=1 " in RUNGS, True)
+_bash = shutil.which("bash")
+if _bash:
+    start, end = RUNGS.index('case "$MODEL_IDX" in'), RUNGS.index("esac", RUNGS.index('case "$MODEL_IDX" in')) + 4
+
+    def guard(idx):
+        script = f"MODEL_IDX={idx}\n" + RUNGS[start:end] + "\necho ok"
+        out = subprocess.run([_bash, "-c", script], capture_output=True, text=True)
+        return "ok" if out.returncode == 0 else "refused"
+    check("the rungs guard accepts the two models that passed the gate (1 Qwen, 2 Glimmer) and refuses "
+          "0 and 3 (notes 45.7-45.8)", [guard(i) for i in (0, 1, 2, 3)],
+          ["refused", "ok", "ok", "refused"])
+else:
+    print("SKIP  the rungs guard in bash (no bash here)")
 GATE_CFG = load("eval_config.unleashed_examples_gate.json")
 check("the gate config lists the four models in evaluation 2's order, so task t is model t",
       [m["label"] for m in GATE_CFG["models"]],

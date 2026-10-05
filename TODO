@@ -2018,10 +2018,17 @@
             b. REPRODUCTION (S off, new pipeline): sbatch --array=1 slurm/submit_unleashed_rungs.sh
                --model-idx 1 --smoke -> compare with eval_runs/unleashed_smoke/..._s1_..._c8of11
                (identical predictions expected); move the new dir to eval_runs/unleashed_smoke after.
+               DONE 2026-10-04 (notes 45.6): first turns 32/32 identical, final F1 31/32 -> reuse stands.
             c. load smoke: sbatch slurm/submit_unleashed_examples_gate.sh --case-shard 0/19   (all four)
             d. gate:       sbatch slurm/submit_unleashed_examples_gate.sh                     (all four)
                RULE A (notes 45.5): tasks 0, 2, 3 are DIAGNOSTIC ONLY -- never scored, whatever the
                result; only Qwen (task 1) can lead to the 2x2. ~17 GPU-h for the four tasks.
+               DONE 2026-10-05 (notes 45.7): QWEN PASSES (uptake 74%) -> run e. Diagnostic: Glimmer
+               cured (repeats 12.4% -> 2.5%); Gemma fails (23.4%; 4.1% when it searched, 36.3% when
+               not); Ministral-R fails (forced 75.8%, uptake 13%).
+               GLIMMER ALSO RUNS its two S cells (notes 45.8; claim A1*+S - A1'*+S only, ~40 GPU-h):
+                 sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke --model-idx 2
+                 sbatch slurm/submit_unleashed_examples_rungs.sh --model-idx 2
             e. if it passes: sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke,
                then sbatch slurm/submit_unleashed_examples_rungs.sh (12 tasks), merge, analysis 45.4.
        Read: Runtime line, "loaded in", each turn's reasoning (in the model's channel, closed by it or
