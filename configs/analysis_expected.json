@@ -1,0 +1,187 @@
+{
+  "_comment": [
+    "Figures as published in Thesis/notes/11-evaluation-readiness.md (N11) or another notes file, for the",
+    "round-2 analysis scripts to reconcile against. A script prints every difference with this file;",
+    "nothing here is used to compute anything. Keys are the scripts' output keys."
+  ],
+  "corpus_overlap_audit": {
+    "contamination_nl": {
+      "value": 0,
+      "section": "N11 3, 6.7"
+    },
+    "contamination_gold": {
+      "value": 0,
+      "section": "N11 3, 6.7"
+    },
+    "pool_rows": {
+      "value": 20000,
+      "section": "N11 3"
+    },
+    "finetune_rows": {
+      "value": 60004,
+      "section": "N11 3 (the training log of job 3021705 loads 60,018)"
+    },
+    "pool_event_types": {
+      "value": 78,
+      "section": "N11 45.2"
+    },
+    "pool_object_types": {
+      "value": 46,
+      "section": "N11 45.2"
+    },
+    "logs_with_any_exact_type_overlap": {
+      "value": 0,
+      "section": "N11 45.2 (6.7 says 0-10%)"
+    },
+    "blocks_testset_uses_training_never_shows": {
+      "value": [],
+      "section": "N11 6.7"
+    },
+    "gold_shapes_in_pool": {
+      "value": 5,
+      "section": "N11 45.2"
+    },
+    "pool_one_box_share": {
+      "value": 0.346,
+      "section": "N11 45.2"
+    },
+    "gold_one_box_share": {
+      "value": 0.089,
+      "section": "N11 45.2"
+    },
+    "pool_mean_boxes": {
+      "value": 2.06,
+      "section": "N11 45.2"
+    },
+    "gold_mean_boxes": {
+      "value": 2.5,
+      "section": "N11 45.2"
+    },
+    "nearest_cosine_max": {
+      "value": 0.848,
+      "section": "N11 45.2"
+    },
+    "nearest_cosine_median": {
+      "value": 0.525,
+      "section": "N11 45.2"
+    },
+    "nearest_cosine_p90": {
+      "value": 0.684,
+      "section": "N11 45.2"
+    },
+    "nearest_cosine_at_least_090": {
+      "value": 0,
+      "section": "N11 45.2"
+    }
+  },
+  "testset_composition": {
+    "entries": {
+      "value": 169,
+      "section": "N11 9.3"
+    },
+    "discriminating": {
+      "value": 135,
+      "section": "N11 9.5, 10"
+    },
+    "non_discriminating": {
+      "value": 34,
+      "section": "N11 9.5, 10"
+    },
+    "excluded_by_reason": {
+      "value": {
+        "defective_gold_vacuous_sat": 22,
+        "surplus_addition": 15,
+        "defective_gold_empty": 6,
+        "duplicate_gold": 1
+      },
+      "section": "N11 9.4"
+    },
+    "provenance": {
+      "value": {
+        "carried_over": 129,
+        "restored": 34,
+        "later_additions": 6
+      },
+      "section": "N11 9.3"
+    },
+    "union_of_versions": {
+      "value": 213,
+      "section": "N11 9.4"
+    },
+    "blocks_present": {
+      "value": 42,
+      "section": "N11 2, 9.3"
+    },
+    "min_entries_per_block": {
+      "value": 5,
+      "section": "N11 2, 9.3"
+    },
+    "min_entries_per_log": {
+      "value": 10,
+      "section": "N11 2, 9.3"
+    },
+    "multi_root_trees": {
+      "value": 0,
+      "section": "N11 1"
+    },
+    "kind_counts": {
+      "value": {
+        "compliance": 154,
+        "retrieval": 15
+      },
+      "section": "N11 11.2"
+    },
+    "mean_noop_floor_by_kind": {
+      "value": {
+        "compliance": 0.617,
+        "retrieval": 0.562
+      },
+      "section": "N11 11.2"
+    },
+    "compliance_fit_median_error": {
+      "value": 0.0,
+      "section": "N11 11.2"
+    },
+    "compliance_fit_within_005": {
+      "value": 0.88,
+      "section": "N11 11.2"
+    },
+    "discriminating_floor_above_090": {
+      "value": 32,
+      "section": "FLAGS TH (N11 27): the no-op F1 above 0.90"
+    },
+    "mean_noop_f1_discriminating": {
+      "value": 0.5148,
+      "section": "N11 10.3, CLAUDE.md 6"
+    },
+    "mean_trivial_floor_discriminating": {
+      "value": 0.725,
+      "section": "N11 27"
+    },
+    "skill_grid_noop_floor": {
+      "value": {
+        "horrible": -0.9926,
+        "fails_80_percent": -0.5926,
+        "always_trivial": 0.0,
+        "good_085": 0.4832,
+        "excellent_097": 0.7837
+      },
+      "section": "N11 12.2 (floor = the no-op F1, before 27); the fails-80% row depends on which 20% succeed, unrecorded; computed here in expectation"
+    }
+  },
+  "schema_arm_identity": {
+    "eval_runs/matrix_full": {
+      "pairs": 4056,
+      "single_call_pairs": 350,
+      "identical_prompt_tokens": 350,
+      "identical_completion_chars": 350,
+      "equal_call_counts": 1223,
+      "section": "N11 29.2"
+    },
+    "logs/selfcons/merged": {
+      "repair_runs": 2043,
+      "repair_failures": 1613,
+      "section": "N11 29.3 presents these as matrix figures; they are the self-consistency run's"
+    }
+  }
+}

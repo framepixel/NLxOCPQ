@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "Inputs of src/agent_mechanism_stats.py (Thesis/script/FLAGS.md NS-06): the scored agentic rungs whose",
+    "trajectories are described, the keyword pattern for 'the reasoning mentions the empty result', and the",
+    "figures as published in Thesis/notes/11-evaluation-readiness.md for the reconciliation.",
+    "`column` is the table header (two lines). `run` is the run whose predictions.json lists the records (a merged directory for evaluation 2);",
+    "`trajectories` globs the shard directories holding agent_trajectories.jsonl.",
+    "The keyword pattern was fixed on 2026-10-22. The notes (section 44.9) did not record their keywords;",
+    "this pattern names only explicit references to an empty result and reproduces their 356 mentions",
+    "exactly. Its base rate after non-empty results is reported beside it, so the figure reads as a contrast."
+  ],
+  "population": "discriminating",
+  "empty_mention_pattern": "\\b0 situations\\b|\\bzero\\b|\\bno situations\\b|\\bempty\\b|\\bnothing\\b|\\bno results?\\b",
+  "rungs": [
+    {"id": "e1_A1", "column": ["Eval.~1", "A1"], "label": "Eval. 1, A1 (Ministral 3 14B)",
+     "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726",
+     "trajectories": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726",
+     "expected": {"section": "43.15", "tool_calls": {"sample": 349, "try_query": 142},
+                  "records_with_empty": 20, "ended_empty": 19, "two_or_more_tries": 17, "root_count_changed": 4}},
+    {"id": "e1_A1t", "column": ["Eval.~1", "A1+thought"], "label": "Eval. 1, A1+thought (Ministral 3 14B)",
+     "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260927_090739",
+     "trajectories": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260927_090739"},
+    {"id": "e1_A2", "column": ["Eval.~1", "A2"], "label": "Eval. 1, A2 (Ministral 3 14B)",
+     "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns16_tools24_turntok2000_pFBEXL_20260927_090739",
+     "trajectories": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns16_tools24_turntok2000_pFBEXL_20260927_090739"},
+    {"id": "e2_A1", "column": ["Eval.~2", "A1$^*$"], "label": "Eval. 2, A1* (Qwen3.8)",
+     "run": "eval_runs/unleashed/merged_m1_s1",
+     "trajectories": "eval_runs/unleashed/shard_m1_s1_e0_c*",
+     "expected": {"section": "44.9",
+                  "tool_calls": {"try_query": 892, "sample": 469, "inspect_situations": 124,
+                                 "attribute_values": 99, "activity_stats": 64},
+                  "records_with_try_query": 250, "records_with_empty": 141, "empty_results": 485,
+                  "next_action_differs": 435, "ended_empty": 99, "two_or_more_tries": 202,
+                  "root_count_changed": 65, "mentions_empty_after_empty": 356,
+                  "known_differences": {
+                    "empty_results": "the notes read node 0 as the root; one A1* tree lists its root elsewhere",
+                    "next_action_differs": "the same tree as empty_results",
+                    "root_count_changed": "the same tree as empty_results"}}},
+    {"id": "ex_q_A1S", "column": ["Qwen", "A1$^*$+S"], "label": "Eval. 2, A1*+S (Qwen3.8)",
+     "run": "eval_runs/unleashed_examples/merged_m1_s0",
+     "trajectories": "eval_runs/unleashed_examples/shard_m1_s0_e0_c*"},
+    {"id": "ex_g_A1S", "column": ["Glimmer", "A1$^*$+S"], "label": "Eval. 2, A1*+S (Glimmer)",
+     "run": "eval_runs/unleashed_examples/merged_m2_s0",
+     "trajectories": "eval_runs/unleashed_examples/shard_m2_s0_e0_c*"}
+  ]
+}

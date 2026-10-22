@@ -22,6 +22,8 @@ from root_population_diagnostic import (  # noqa: E402
     _kind_projected_equal,
     _population,
     classify,
+    clearing_oracle,
+    link_subclass,
     root_box,
 )
 
@@ -163,6 +165,40 @@ check("different objects are NOT repaired",
       _kind_projected_equal(GOLD_SIT, {((7,), (90,), False), ((8,), (91,), True)}), False)
 check("gold binding nothing is never 'repaired'",
       _kind_projected_equal({((), (), False)}, {((7,), (10,), False)}), False)
+
+print("\n--- link_mismatch sub-classes (notes 36.3) ---")
+AGE_40 = {"type": "ObjectAttributeValueFilter", "object": 0, "attribute_name": "age",
+          "value_filter": {"type": "Integer", "min": 41, "max": None}}
+AGE_41 = dict(AGE_40, value_filter={"type": "Integer", "min": 40, "max": None})
+AGE_BOOL = dict(AGE_40, value_filter={"type": "Boolean", "is_true": True})
+INCOME = dict(AGE_40, attribute_name="income")
+BARE = tree(box(objects={"0": ["orders"]}))
+with_age = tree(box(objects={"0": ["orders"]}, filters=[AGE_40]))
+check("gold's root has no filter, the prediction adds one -> placement",
+      link_subclass(BARE, with_age), "placement")
+check("an attribute filter dropped -> attribute",
+      link_subclass(with_age, tree(box(objects={"0": ["orders"]}, filters=[O2E_0_0]))),
+      "attribute")
+check("a different attribute -> attribute",
+      link_subclass(with_age, tree(box(objects={"0": ["orders"]}, filters=[INCOME]))),
+      "attribute")
+check("same attribute, other value type -> value_type",
+      link_subclass(with_age, tree(box(objects={"0": ["orders"]}, filters=[AGE_BOOL]))),
+      "value_type")
+check("same attribute and type, other bound -> bounds",
+      link_subclass(with_age, tree(box(objects={"0": ["orders"]}, filters=[AGE_41]))),
+      "bounds")
+check("attribute filters equal, link differs -> structural_link",
+      link_subclass(tree(box(objects={"0": ["orders"]}, filters=[AGE_40, O2E_0_0])),
+                    tree(box(objects={"0": ["orders"]}, filters=[AGE_40, O2E_0_0_Q]))),
+      "structural_link")
+
+print("\n--- clearing oracle ---")
+rows = [("no_result", 0.0), ("no_result", 0.0), ("link_mismatch", 0.2), ("population_exact", 1.0)]
+oracle = clearing_oracle(rows)
+check("clearing one class sets its records to 1", round(oracle["no_result"], 6), 0.8)
+check("pairs are cleared together", round(oracle["link_mismatch+no_result"], 6), 1.0)
+check("the result is sorted best first", list(oracle)[0], "link_mismatch+no_result")
 
 print()
 if failures:
