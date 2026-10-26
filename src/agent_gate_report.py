@@ -87,14 +87,32 @@ class GateTask:
         return [list(agent.get("trajectory") or []) for agent in self.trajectories.values()]
 
 
+def _action_key(raw: str) -> str:
+    """The action a step sent, without its free-text `thought`.
+
+    With the thought field on, every raw step starts with the model's thought, so two identical
+    actions with different thoughts would never match. The thought is not the action; the
+    comparison drops it (an unparseable step is compared as written).
+    """
+    try:
+        action = json.loads(raw)
+    except ValueError:
+        return raw
+    if isinstance(action, dict):
+        action.pop("thought", None)
+        return json.dumps(action, sort_keys=True)
+    return raw
+
+
 def _raw_repeats(steps: List[dict]) -> List[Tuple[int, int]]:
-    """(earlier index, repeating index) for every step whose raw action was already sent."""
+    """(earlier index, repeating index) for every step whose action was already sent."""
     last_seen: Dict[str, int] = {}
     pairs = []
     for index, step in enumerate(steps):
         raw = step.get("raw")
         if raw is None:
             continue
+        raw = _action_key(raw)
         if raw in last_seen:
             pairs.append((last_seen[raw], index))
         last_seen[raw] = index

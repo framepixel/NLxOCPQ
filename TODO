@@ -2029,6 +2029,10 @@
                GLIMMER ALSO RUNS its two S cells (notes 45.8; claim A1*+S - A1'*+S only, ~40 GPU-h):
                  sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke --model-idx 2
                  sbatch slurm/submit_unleashed_examples_rungs.sh --model-idx 2
+               DONE 2026-10-08 (notes 45.9): merged eval_runs/unleashed_examples/merged_m{1,2}_s{0,1}.
+               Qwen: examples +0.064 (with log) / +0.058 (without); log access given examples +0.052;
+               interaction +0.006 (additive). Glimmer log access given examples +0.070 [+0.023,+0.118].
+               Glimmer A1*+S 0.2877 = best non-oracle score so far (descriptive).
             e. if it passes: sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke,
                then sbatch slurm/submit_unleashed_examples_rungs.sh (12 tasks), merge, analysis 45.4.
        Read: Runtime line, "loaded in", each turn's reasoning (in the model's channel, closed by it or
@@ -2041,3 +2045,16 @@
     6. Each passing model, in order: sbatch --array=0-2 slurm/submit_unleashed_rungs.sh --model-idx N --smoke
        then sbatch slurm/submit_unleashed_rungs.sh --model-idx N (18 tasks: 3 rungs x 6 case shards),
        merge the shards per rung, analysis as pre-registered in notes 44.4.
+- OPEN (decided 2026-10-26, waiting for the cluster): RE-RUN THE OLD-CORPUS STUDIES on the pinned
+  corpus, so Ch. 4 no longer mixes corpora (FLAGS TH-07, IC-10). Three jobs, unchanged designs:
+    sbatch --array=0-2 slurm/submit_decoding_ablation.sh      D0/D1/D2  (~6 GPU-h; D0, D2 replicate N0, N1)
+    sbatch --array=0-2 slurm/submit_structure_ablation.sh     H0/H1/H2  (~5 GPU-h)
+    sbatch --array=0-15%8 slurm/submit_selfconsistency.sh     2 arms x 8 shards (~45 GPU-h)
+  Before: commit + pull the current pipeline; check_eval_deps.py and corpus_manifest.py --check pass;
+  same OCPQ checkout/build as matrix_v2; move the old eval_runs/{decoding_ablation,structure_ablation,
+  selfconsistency} shards out of the way (merge globs shard_*). Reproduction check first: the new D0
+  must match N0 (0.2030 on the 135, up to the #25 re-gold) before anything else is read.
+  After (Claude): merge, point configs/analysis_contrasts.json (D*, H*) and ablation_tables.py
+  (SELFCONS_RUN) at the new runs, corpus "old" -> "pinned", compute_runs.json globs, regenerate
+  selfconsistency/structure_hint/rescoring/decoding*/paired_oldcorpus/ablation_synthesis, refresh
+  the Ch. 4 comments, close TH-07/IC-10/IC-36.

@@ -101,6 +101,9 @@ check("evaluation 1: p90 s/turn has a per-task threshold (Gemma 4, 32.9 > 30)",
 # --- repeats -----------------------------------------------------------------------------------
 steps = [{"raw": "A"}, {"raw": "B"}, {"raw": "A"}, {"raw": "A"}, {"raw": None}]
 check("repeats pair with the latest identical action", _raw_repeats(steps), [(0, 2), (2, 3)])
+thought = [{"raw": '{"thought": "first idea", "tool": "sample", "args": {"n": 5}}'},
+           {"raw": '{"thought": "second idea", "tool": "sample", "args": {"n": 5}}'}]
+check("the same action with a different thought is a repeat", _raw_repeats(thought), [(0, 1)])
 check("the evalVersion counter is ignored",
       _strip_counter("{'nodes': [], 'evalVersion': 3, 'structure': []}"),
       _strip_counter("{'nodes': [], 'evalVersion': 17, 'structure': []}"))

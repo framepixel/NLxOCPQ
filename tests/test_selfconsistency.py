@@ -16,7 +16,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
 import result_store  # noqa: E402
-from selfconsistency import _elect, _situations_key, analyse  # noqa: E402
+from selfconsistency import _elect, _situations_key, analyse, breakdown  # noqa: E402
 
 failures = []
 
@@ -139,6 +139,33 @@ check("headroom exposes the selection failure", c2["headroom_to_oracle"] > 0.3, 
 check("agreement 7/10", c2["agreement_histogram"], {"7/10": 1})
 
 shutil.rmtree(tmp, ignore_errors=True)
+
+print("\n--- breakdown (notes 22.2-22.7) ---")
+
+
+def case(majority, cluster, voters, samples, log="a.json", disc=True, unloadable=0, floor=0.5):
+    return {"majority": majority, "majority_cluster": cluster, "majority_voters": voters,
+            "sample_f1": samples, "single_mean": sum(samples) / len(samples),
+            "oracle": max(samples), "log": log, "discriminating": disc,
+            "noop_floor": floor, "trivial_floor": floor, "unloadable": unloadable}
+
+
+rows = [case(1.0, 9, 10, [1.0] * 9 + [0.0]),               # >= 90% consensus, exact
+        case(0.0, 2, 4, [0.0] * 10, unloadable=1),         # 40-60%, one unloadable sample
+        case(0.5, 1, 1, [0.5] + [0.0] * 9, log="retyped.json")]
+b = breakdown(rows)
+check("consensus is cluster / voters, over cases with >= 2 voters",
+      {k: v["cases"] for k, v in b["consensus"].items()},
+      {">=90%": 1, "60-90%": 0, "40-60%": 1, "<40%": 0})
+approx("single-sample exact is the share of exact samples", b["exact_discriminating"]["single"],
+       0.3)
+approx("the notes' figure counts cases where every sample was exact",
+       b["exact_discriminating"]["every_sample_as_in_notes"], 0.0)
+approx("the gain from a one-voter case is attributed to it",
+       b["gain_share_from_cases_with_at_most_one_voter"], 0.45 / (0.1 + 0.45))
+approx("a case holding an unloadable sample scores 0 in the bound",
+       b["majority_f1_if_unloadable_cases_scored_0"], 1.5 / 3)
+check("a log can be left out", breakdown(rows, ["retyped.json"])["cases"], 2)
 
 print()
 if failures:

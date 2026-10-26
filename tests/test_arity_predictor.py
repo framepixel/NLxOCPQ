@@ -154,6 +154,19 @@ abstaining = _gate([{"gold": list(gd), "predicted": None} for gd in golds])
 check("abstentions are counted separately", abstaining["abstained"], len(golds))
 check("...and never count as correct", abstaining["correct"], 0)
 
+print("\n--- --regold re-derives a stored probe's gold from the current testset ---")
+from arity_predictor_probe import _regold  # noqa: E402
+
+stale = [{"nl_query": e["nl_query"], "gold": list(MAJORITY), "predicted": None}
+         for e in TESTSET]
+with contextlib.redirect_stdout(io.StringIO()):
+    changed = _regold(stale, str(REPO / "data" / "testset.json"))
+check("every row whose gold is not (0,1) is re-golded",
+      len(changed), sum(1 for gd in golds if tuple(gd) != MAJORITY))
+check("...keeping the stale gold as gold_before",
+      all(r["gold_before"] == list(MAJORITY) for r in stale if "gold_before" in r), True)
+check("...and taking the testset's", [r["gold"] for r in stale], [list(gd) for gd in golds])
+
 print("\n--- the probe resolves a REAL config, the way the evaluation does ---")
 # This is here because guessing `expand_models`' signature cost a cluster job: the probe called
 # `expand_models(models, ft_map)` when it takes and returns the whole CONFIG, and died on the first

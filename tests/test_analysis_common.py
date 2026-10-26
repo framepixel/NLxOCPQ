@@ -104,7 +104,8 @@ run_records = [rec("a", f1=1.0, skill=1.0), rec("b", f1=None, evaluated=False, s
 summary = {
     "by_config": {"c1": {"metrics": {
         "result_set_f1_strict": 0.5, "result_set_f1_executed": 1.0, "skill_score": 0.0,
-        "execution_success_rate": 0.5, "structural_f1": 0.5, "schema_valid_rate": 1.0}}},
+        "execution_success_rate": 0.5, "cli_exit_success_rate": 1.0, "structural_f1": 0.5,
+        "schema_valid_rate": 1.0}}},
     "by_stratum": {"discriminating": {"result_set_f1_strict": 0.5, "skill_score": 0.0}},
 }
 
@@ -125,6 +126,16 @@ doctored = copy.deepcopy(summary)
 doctored["by_config"]["c1"]["metrics"]["result_set_f1_strict"] = 0.51
 check("the guard catches a doctored summary",
       len(ac.reproduction_errors(FakeRun(run_records, doctored))), 1)
+# Before 2026-09-14 the summary had no cli_exit_success_rate, and its execution_success_rate was
+# the exit-0 rate: both records exited 0, so 1.0 is consistent there and 0.5 is not.
+prefix = copy.deepcopy(summary)
+del prefix["by_config"]["c1"]["metrics"]["cli_exit_success_rate"]
+prefix["by_config"]["c1"]["metrics"]["execution_success_rate"] = 1.0
+check("a pre-fix summary is checked against the exit-0 rate",
+      ac.reproduction_errors(FakeRun(run_records, prefix)), [])
+prefix["by_config"]["c1"]["metrics"]["execution_success_rate"] = 0.5
+check("...and an evaluated rate under the old key is a mismatch",
+      len(ac.reproduction_errors(FakeRun(run_records, prefix))), 1)
 missing = copy.deepcopy(summary)
 del missing["by_config"]["c1"]
 check("the guard reports a condition missing from the summary",

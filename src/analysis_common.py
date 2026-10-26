@@ -80,6 +80,27 @@ def executed_f1(record: dict) -> Optional[float]:
     return None if value is None else float(value)
 
 
+def variant_f1(record: dict, variant: str) -> Optional[float]:
+    """One `SIMILARITY_VARIANTS` F1 under the strict convention (`eval_testset`, same rule).
+
+    A record without a result scores 0, except where the variant is undefined on its entry (the
+    audit's floor is present but None, e.g. `violation` where gold flags nothing): None there.
+    """
+    similarity = record.get("similarity")
+    if similarity is not None:
+        scored = (similarity.get("variants") or {}).get(variant)
+        return None if scored is None else float(scored.get("f1"))
+    floors = record.get("baseline_f1_variants") or {}
+    if floors and variant in floors and floors[variant] is None:
+        return None
+    return 0.0
+
+
+def kind_projected_f1(record: dict) -> Optional[float]:
+    """The `kind_projected` diagnostic F1 (CLAUDE.md 6.2); never a primary score."""
+    return variant_f1(record, "kind_projected")
+
+
 def skill(record: dict) -> Optional[float]:
     """The stored strict skill score; None where the floor is 1.0 (undefined, by design)."""
     value = (record.get("metrics") or {}).get("skill")
@@ -147,6 +168,7 @@ METRICS: Dict[str, Callable[[dict], Optional[float]]] = {
     "evaluated": evaluated,
     "structural_f1": structural_f1,
     "schema_valid": schema_valid,
+    "kind_projected_f1": kind_projected_f1,
 }
 
 # summary.json key for each metric, for the reproduction guard.
@@ -371,12 +393,23 @@ def reproduction_errors(run: Run) -> List[str]:
     return errors
 
 
+def cli_exited(record: dict) -> float:
+    """1.0 if ocpq_cli exited 0 -- `eval_testset`'s `cli_exit_success_rate`, not evaluation."""
+    return 1.0 if (record.get("execution") or {}).get("success") else 0.0
+
+
 def _compare(label: str, records: List[dict], recorded: dict) -> List[str]:
     errors = []
     for metric, key in SUMMARY_KEYS.items():
         if key not in recorded:
             continue
-        got = mean(METRICS[metric](r) for r in records)
+        measure = METRICS[metric]
+        # A summary written before 2026-09-14 has no `cli_exit_success_rate`, and its
+        # `execution_success_rate` meant exactly that: ocpq_cli exited 0 (notes 11 §36.4). Check
+        # it under that meaning; the tables report `evaluated` from the records either way.
+        if key == "execution_success_rate" and "cli_exit_success_rate" not in recorded:
+            measure = cli_exited
+        got = mean(measure(r) for r in records)
         want = recorded[key]
         if got is None and want is None:
             continue
@@ -458,7 +491,9 @@ def write_tex(name: str, tabular: str, caption: str, label: str,
     header += [f"% note: {line}" for line in notes]
     body = "\n".join([
         *header,
-        "\\begin{table}[t]",
+        # The author's placement (set by hand on the first tables, 2026-10-26): here, else top,
+        # bottom or a float page.
+        "\\begin{table}[hbtp]",
         "  \\centering",
         f"  \\caption{{{caption}}}",
         f"  \\label{{{label}}}",

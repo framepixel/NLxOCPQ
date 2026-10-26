@@ -39,9 +39,11 @@ import json
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import List
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import analysis_common as ac  # noqa: E402
 import result_store  # noqa: E402
 from eval_testset import _compute_similarity, _read_json, _write_json  # noqa: E402
 
@@ -148,7 +150,16 @@ def analyse(run_dir: Path):
 
         row = {"nl_query": nl_query, "config_id": config_id, "n_samples": len(loaded),
                "single_mean": round(sum(scored) / len(scored), 6),
-               "oracle": round(max(scored), 6)}
+               "oracle": round(max(scored), 6),
+               # For the breakdowns (notes 22.2-22.7): the stratum, the log (to leave out the
+               # logs the stale cluster corpus retyped, notes 35.2), the floors, every sample's
+               # score, and the samples that executed but left no loadable result.
+               "discriminating": head.get("discriminating"),
+               "log": Path(str(ocel_path or "").replace("\\", "/")).name,
+               "noop_floor": head.get("baseline_f1"),
+               "trivial_floor": head.get("trivial_floor"),
+               "sample_f1": [round(f, 6) for f in scored],
+               "unloadable": sum(1 for s in loaded if s["key"] is None and s["f1"] is not None)}
 
         for rule, skip_empty in (("majority", False), ("filtered", True)):
             key, size, voters, tie = _elect(loaded, skip_empty)
@@ -197,6 +208,164 @@ def analyse(run_dir: Path):
     return summary
 
 
+# The three logs the cluster held in a stale, untyped copy until 2026-09-12 (notes 11 §35.2). This
+# run predates the fix, so its 56 cases on these logs were prompted with the old declarations; the
+# breakdown is also reported without them, as the sensitivity check of §35.5 did for the arity run.
+RETYPED_LOGS = ("renting_log_high.json", "ocel2-p2p.json", "container_logistics.json")
+CONSENSUS_BINS = ((0.9, ">=90%"), (0.6, "60-90%"), (0.4, "40-60%"), (0.0, "<40%"))
+VOTER_BINS = ((0, "0"), (1, "1"), (4, "2-4"), (9, "5-9"), (10 ** 9, "10"))
+
+
+def _skill(f1, floor):
+    """eval_testset._skill_score: two-sided normalisation against the case's floor."""
+    if f1 is None or floor is None or floor >= 1.0:
+        return None
+    return (f1 - floor) / (1.0 - floor) if f1 >= floor else (f1 - floor) / floor
+
+
+def _mean(values):
+    values = [v for v in values if v is not None]
+    return sum(values) / len(values) if values else None
+
+
+def breakdown(cases, exclude_logs=()):
+    """The notes-22 analyses for one condition's per-case rows.
+
+    headline      F1 over every case (single sample, majority, oracle); exact matches and
+                  per-case skill over the discriminating cases, against both the no-op floor the
+                  notes used and the trivial floor `skill_score` uses since notes 27.
+    consensus     cases with >= 2 voters, binned by modal cluster / voters (notes 22.5).
+    voters        cases by number of voters (22.6), and the share of the vote's total gain that
+                  comes from cases where no real vote could happen (<= 1 voter).
+    bound         the majority F1 if every case holding an unloadable sample -- one that executed
+                  but left no result to vote with -- were scored 0 (22.7).
+    """
+    cases = [c for c in cases if c["log"] not in set(exclude_logs)]
+    disc = [c for c in cases if c["discriminating"]]
+    out = {"cases": len(cases), "discriminating": len(disc)}
+    out["f1"] = {"single": _mean(c["single_mean"] for c in cases),
+                 "majority": _mean(c["majority"] for c in cases),
+                 "oracle": _mean(c["oracle"] for c in cases)}
+    out["f1_discriminating"] = {"single": _mean(c["single_mean"] for c in disc),
+                                "majority": _mean(c["majority"] for c in disc),
+                                "oracle": _mean(c["oracle"] for c in disc)}
+    # "single" is one sample's expected outcome: the share of samples that are exact, the mean of
+    # the samples' own skills. Notes 22.2 published two other quantities under that label, kept
+    # here under their own names: exact = cases where ALL ten samples were exact (6.7%, against
+    # 11.2% of samples), and skill of the case's MEAN F1 (-0.6108, against -0.6266).
+    out["exact_discriminating"] = {
+        "single": _mean(_mean(1.0 if f == 1.0 else 0.0 for f in c["sample_f1"]) for c in disc),
+        "every_sample_as_in_notes": _mean(
+            1.0 if all(f == 1.0 for f in c["sample_f1"]) else 0.0 for c in disc),
+        "majority": _mean(1.0 if c["majority"] == 1.0 else 0.0 for c in disc),
+        "oracle": _mean(1.0 if c["oracle"] == 1.0 else 0.0 for c in disc)}
+    for floor in ("noop_floor", "trivial_floor"):
+        out[f"skill_{floor}"] = {
+            "single": _mean(_mean(_skill(f, c[floor]) for f in c["sample_f1"]) for c in disc),
+            "case_mean_as_in_notes": _mean(_skill(c["single_mean"], c[floor]) for c in disc),
+            "majority": _mean(_skill(c["majority"], c[floor]) for c in disc),
+            "oracle": _mean(_skill(c["oracle"], c[floor]) for c in disc)}
+    bins = {label: [] for _, label in CONSENSUS_BINS}
+    for c in cases:
+        if c["majority_voters"] < 2:
+            continue
+        share = c["majority_cluster"] / c["majority_voters"]
+        label = next(label for low, label in CONSENSUS_BINS if share >= low)
+        bins[label].append(c)
+    out["consensus"] = {label: {"cases": len(group),
+                                "majority_f1": _mean(c["majority"] for c in group),
+                                "oracle_f1": _mean(c["oracle"] for c in group),
+                                "exact": sum(1 for c in group if c["majority"] == 1.0)}
+                        for label, group in bins.items()}
+    voters = Counter(next(label for top, label in VOTER_BINS if c["majority_voters"] <= top)
+                     for c in cases)
+    out["voters"] = {label: voters.get(label, 0) for _, label in VOTER_BINS}
+    gains = [(c["majority"] - c["single_mean"], c["majority_voters"]) for c in cases]
+    total = sum(g for g, _ in gains)
+    out["gain_share_from_cases_with_at_most_one_voter"] = (
+        sum(g for g, n in gains if n <= 1) / total if total else None)
+    out["unloadable_samples"] = sum(c["unloadable"] for c in cases)
+    out["majority_f1_if_unloadable_cases_scored_0"] = _mean(
+        0.0 if c["unloadable"] else c["majority"] for c in cases)
+    return out
+
+
+# The two arms of the run, in the order the thesis presents them, with their table labels.
+ARMS = (("llama31-8b-finetuned_schema-allowed-entities-only_schema-on",
+         "Fine-tuned Llama 3.1 8B, allowed-entities-only"),
+        ("llama31-8b-base_schema-chain-of-thought-plus_schema-on",
+         "Base Llama 3.1 8B, chain-of-thought-plus"))
+RULES = ("single", "majority", "oracle")
+
+
+def _row(label: str, values: list) -> str:
+    return f"    {label} & " + " & ".join(values) + " \\\\"
+
+
+def write_tables(summary: dict, run_dir: Path) -> List[Path]:
+    """Write `selfconsistency` (the three selection rules) and `selfconsistency_consensus`.
+
+    Args:
+        summary: The analysis output, with its `breakdown`.
+        run_dir: The run it was computed from (its predictions sha256 goes in the header).
+
+    Returns:
+        The written paths.
+    """
+    digest = hashlib.sha256((run_dir / "predictions.json").read_bytes()).hexdigest()[:16]
+    notes = [f"input: {ac.repo_relative(run_dir)} sha256 {digest}",
+             "old corpus: the run predates the 2026-09-12 corpus fix (FLAGS TH-07)"]
+    lines = ["  \\small",
+             "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}Xrrr@{}}",
+             "    \\toprule",
+             "    & \\makecell[r]{Single\\\\sample} & \\makecell[r]{Majority\\\\vote}"
+             " & \\makecell[r]{Best-of-10\\\\oracle} \\\\"]
+    for config_id, title in ARMS:
+        every = summary["breakdown"][config_id]["all_cases"]
+        kept = summary["breakdown"][config_id]["without_retyped_logs"]
+        lines += ["    \\midrule", f"    \\multicolumn{{4}}{{@{{}}l}}{{\\textit{{{title}}}}} \\\\",
+                  _row(f"F1, {every['discriminating']} discriminating",
+                       [ac.fmt(every["f1_discriminating"][r]) for r in RULES]),
+                  _row(f"F1, all {every['cases']}", [ac.fmt(every["f1"][r]) for r in RULES]),
+                  _row(f"F1, the {kept['cases']} not on a retyped log",
+                       [ac.fmt(kept["f1"][r]) for r in RULES]),
+                  _row("Exact, discriminating",
+                       [ac.fmt_pct(every["exact_discriminating"][r]) for r in RULES]),
+                  _row("Skill, discriminating",
+                       [ac.fmt(every["skill_trivial_floor"][r], 3) for r in RULES])]
+    lines += ["    \\bottomrule", "  \\end{tabularx}"]
+    written = [ac.write_tex(
+        "selfconsistency", "\n".join(lines),
+        "Self-consistency (old corpus): ten samples per question at temperature 0.7. The single "
+        "sample is the mean over the ten samples, the majority vote returns the result set most "
+        "samples agree on, and the best-of-10 oracle scores the best of the ten samples against "
+        "gold. Skill is relative to the trivial floor.",
+        "tab:abl:selfcons", notes=notes)]
+
+    config_id = ARMS[0][0]
+    lines = ["  \\small",
+             "  \\begin{tabular}{@{}lrrrr@{}}",
+             "    \\toprule",
+             "    \\makecell[l]{Samples agreeing\\\\with the vote} & Questions"
+             " & \\makecell[r]{Majority\\\\F1} & \\makecell[r]{Oracle\\\\F1}"
+             " & \\makecell[r]{Exact\\\\votes} \\\\",
+             "    \\midrule"]
+    for label, group in summary["breakdown"][config_id]["all_cases"]["consensus"].items():
+        cell = label.replace(">=", "$\\geq$").replace("<", "$<$").replace("%", "\\%")
+        cell = cell.replace("-", "--")
+        lines.append(_row(cell, [str(group["cases"]), ac.fmt(group["majority_f1"]),
+                                 ac.fmt(group["oracle_f1"]), str(group["exact"])]))
+    lines += ["    \\bottomrule", "  \\end{tabular}"]
+    written.append(ac.write_tex(
+        "selfconsistency_consensus", "\n".join(lines),
+        "Agreement and correctness under self-consistency (old corpus; fine-tuned Llama 3.1 8B, "
+        "allowed-entities-only). Questions with at least two samples that returned a result, "
+        "out of all 169, binned by the share of those samples that returned the winning result "
+        "set. Exact votes counts the questions whose winning result set equals gold.",
+        "tab:abl:selfcons:consensus", notes=notes))
+    return written
+
+
 def _report(summary):
     for config_id, c in summary["conditions"].items():
         print(f"\n{'=' * 78}\n{config_id}\n{'=' * 78}")
@@ -224,6 +393,8 @@ def main():
                     help="A finished run directory containing predictions.json and result_store/.")
     ap.add_argument("--out", type=Path, default=None,
                     help="Where to write selfconsistency.json (default: inside --run).")
+    ap.add_argument("--tables", action="store_true",
+                    help="Also write the thesis tables selfconsistency{,_consensus}.tex.")
     args = ap.parse_args()
 
     run_dir = args.run if args.run.is_absolute() else Path.cwd() / args.run
@@ -231,10 +402,28 @@ def main():
         raise SystemExit(f"FATAL: {run_dir / 'predictions.json'} not found.")
 
     summary = analyse(run_dir)
+    # Runs older than notes 27 carry no trivial floor; take it from the current audit, by question.
+    audit_path = Path(__file__).resolve().parents[1] / "eval_runs" / "testset_discriminability.json"
+    if audit_path.exists():
+        floors = {e["nl_query"]: e.get("trivial_floor")
+                  for e in _read_json(audit_path)["entries"]}
+        for row in summary["per_case"]:
+            if row.get("trivial_floor") is None:
+                row["trivial_floor"] = floors.get(row["nl_query"])
+    summary["breakdown"] = {}
+    for config_id in summary["conditions"]:
+        rows = [c for c in summary["per_case"] if c["config_id"] == config_id]
+        summary["breakdown"][config_id] = {
+            "all_cases": breakdown(rows),
+            "without_retyped_logs": breakdown(rows, RETYPED_LOGS),
+        }
     out = args.out or (run_dir / "selfconsistency.json")
     _write_json(out, summary)
     _report(summary)
     print(f"\nwrote {out}")
+    if args.tables:
+        for path in write_tables(summary, run_dir):
+            print(f"wrote {path}")
     return 0
 
 

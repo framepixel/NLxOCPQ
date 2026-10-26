@@ -66,6 +66,9 @@ GROUP_CAPTIONS = {
     "matrix": "Paired differences between matrix arms",
     "ablations": "Paired differences in the decoding, arity, structural and non-oracle ablations",
     "agentic": "Paired differences in the agentic evaluations",
+    # Kept apart from `ablations` on purpose: these ran on the stale cluster corpus (notes 35),
+    # and a table must never set an old-corpus rung beside the corrected ones (FLAGS IC-10).
+    "oldcorpus": "Paired differences in the structure-hint and token-budget ablations (old corpus)",
 }
 
 
@@ -305,16 +308,30 @@ def reconcile(row: dict, expected: dict) -> Tuple[List[str], List[str]]:
         explained by the notes' differing bootstrap procedures.
     """
     problems, notes = [], []
+    # A figure published to fewer than four decimals is compared at its own precision.
+    tolerance = 0.5 * 10 ** -expected["digits"] if "digits" in expected else MEAN_TOLERANCE
     for key in ("better", "worse", "identical", "evaluated_gained", "evaluated_lost"):
         if key in expected and row.get(key) != expected[key]:
             problems.append(f"{key}: computed {row.get(key)}, notes {expected[key]}")
-    if "mean" in expected and abs(row["mean"] - expected["mean"]) > MEAN_TOLERANCE:
+    if "mean" in expected and abs(row["mean"] - expected["mean"]) > tolerance:
         problems.append(f"mean: computed {row['mean']:+.4f}, notes {expected['mean']:+.4f}")
-    if "ci" in expected:
+    if "ci" in expected and expected.get("ci_method") == "normal approximation":
+        # The notes' interval was mean +- z * sd / sqrt(n): recompute it from the same paired
+        # differences and require it to match exactly, instead of excusing the gap as noise.
+        half = _z(0.975) * row["paired_sd"] / math.sqrt(row["n"])
+        normal = (row["mean"] - half, row["mean"] + half)
+        if all(abs(got - want) <= tolerance for got, want in zip(normal, expected["ci"])):
+            notes.append(f"CI: the notes' normal approximation reproduces exactly "
+                         f"({normal[0]:+.4f}, {normal[1]:+.4f}); the thesis reports the "
+                         f"bootstrap ({row['ci'][0]:+.4f}, {row['ci'][1]:+.4f})")
+        else:
+            problems.append(f"CI: normal approximation gives ({normal[0]:+.4f}, "
+                            f"{normal[1]:+.4f}), notes {tuple(expected['ci'])}")
+    elif "ci" in expected:
         method = expected.get("ci_method", "an unrecorded bootstrap")
         for got, want, side in zip(row["ci"], expected["ci"], ("low", "high")):
             gap = abs(got - want)
-            if gap <= MEAN_TOLERANCE:
+            if gap <= tolerance:
                 continue
             text = f"CI {side}: computed {got:+.4f}, notes {want:+.4f} (notes: {method})"
             (notes if gap <= CI_METHOD_TOLERANCE else problems).append(text)
@@ -355,7 +372,8 @@ def tex_table(rows: List[dict]) -> str:
         if index and row["section"] != rows[index - 1]["section"]:
             lines.append("    \\midrule")
         label = row["label"] + (" (post hoc)" if row["post_hoc"] else "")
-        label += " (old corpus)" if row["corpus"] == "old" else ""
+        # The old-corpus group says so in its caption; elsewhere each such row says it itself.
+        label += " (old corpus)" if row["corpus"] == "old" and row["group"] != "oldcorpus" else ""
         ci = f"{ac.fmt(row['ci'][0], signed=True)}, {ac.fmt(row['ci'][1], signed=True)}"
         # A difference of differences has no "better" question, so its counts and sign tests
         # stay in the JSON and out of the table.
@@ -394,6 +412,40 @@ def write_tables(rows: List[dict], settings: dict, runs: List[ac.Run]) -> List[P
         written.append(ac.write_tex(f"paired_{group}", tex_table(group_rows), full_caption,
                                     f"tab:paired:{group}", group_runs))
     return written
+
+
+def resolution_table(rows: List[dict], settings: dict, runs: List[ac.Run]) -> Path:
+    """`paired_resolution`: what each ablation contrast could detect, and what it would need.
+
+    Two-condition contrasts of the `ablations` group only. Reproductions (same configuration run
+    twice) are left out: their spread is run-to-run noise, not an effect to power.
+    """
+    chosen = [r for r in rows if r["group"] == "ablations" and len(r["terms"]) == 2
+              and "reproduction" not in r["label"]]
+    lines = ["  \\small",
+             "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}Xrrrr@{}}",
+             "    \\toprule",
+             "    Contrast & $\\Delta$F1 & \\makecell[r]{Paired\\\\SD}"
+             " & \\makecell[r]{Detectable\\\\at $n$ = 135}"
+             " & \\makecell[r]{Questions\\\\needed} \\\\",
+             "    \\midrule"]
+    for index, row in enumerate(chosen):
+        if index and row["section"] != chosen[index - 1]["section"]:
+            lines.append("    \\midrule")
+        needed = row["questions_needed"]
+        lines.append(f"    {row['label']} & {ac.fmt(row['mean'], signed=True)} & "
+                     f"{ac.fmt(row['paired_sd'])} & $\\pm${ac.fmt(row['min_detectable_effect'])}"
+                     f" & {'--' if needed is None else f'{needed:,}'} \\\\")
+    lines += ["    \\bottomrule", "  \\end{tabularx}"]
+    used = {p for r in chosen for p in r["runs"].values()}
+    caption = (
+        "What the ablations can resolve, over the 135 discriminating questions. The detectable "
+        f"difference is the smallest mean paired difference a two-sided test at "
+        f"$\\alpha = {settings['alpha']}$ detects with power {settings['power']} at the observed "
+        "paired standard deviation (normal approximation); the last column is the number of "
+        "questions that would detect the observed difference.")
+    return ac.write_tex("paired_resolution", "\n".join(lines), caption, "tab:paired:resolution",
+                        [run for run in runs if run.provenance["run"] in used])
 
 
 def load_spec(path: Path = SPEC_PATH) -> dict:
@@ -455,6 +507,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     out = ac.write_json("paired_stats", {"settings": spec["settings"], "contrasts": rows},
                         cache.runs)
     tables = write_tables(rows, spec["settings"], cache.runs)
+    tables.append(resolution_table(rows, spec["settings"], cache.runs))
     print(f"\nwrote {out}")
     for table in tables:
         print(f"wrote {table}")

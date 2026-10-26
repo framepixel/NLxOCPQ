@@ -31,6 +31,14 @@
     "S2": {"run": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260914_201903", "label": "S2 arity forced (oracle)"},
     "S3": {"run": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_structval_arityforced_tok4000_20260914_201931", "label": "S3 check + arity forced (oracle)"},
 
+    "D0": {"run": "eval_runs/decoding_ablation/shard_m1_s0_e0_20260910_054217_recomputed", "label": "D0 free, 2,000 tokens"},
+    "D1": {"run": "eval_runs/decoding_ablation/shard_m1_s0_e0_tok4000_20260910_054217_recomputed", "label": "D1 free, 4,000 tokens"},
+    "D2": {"run": "eval_runs/decoding_ablation/shard_m1_s0_e0_constrained_tok4000_20260910_060300_recomputed", "label": "D2 constrained, 4,000 tokens"},
+
+    "H0": {"run": "logs/structable/merged_recomputed", "select": {"prompt_strategy": "schema-allowed-entities-only"}, "label": "H0 no hint"},
+    "H1": {"run": "logs/structable/merged_recomputed", "select": {"prompt_strategy": "oracle-skeleton-given"}, "label": "H1 skeleton (oracle)"},
+    "H2": {"run": "logs/structable/merged_recomputed", "select": {"prompt_strategy": "oracle-skeleton-and-constraints-given"}, "label": "H2 skeleton and constraint types (oracle)"},
+
     "B0": {"run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_tok4000_20260918_132544", "label": "B0 constrained"},
     "B1": {"run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_tok4000_20260918_135412", "label": "B1 structural check"},
     "B2": {"run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_arityconst_tok4000_20260918_135842", "label": "B2 constant arity"},
@@ -189,6 +197,10 @@
      "terms": {"Q_A1": 1, "Q_A1p": -1}, "corpus": "pinned",
      "subset": {"evaluated_in_all": ["Q_A1", "Q_A1p"], "post_hoc": true},
      "expected": {"mean": 0.0598, "ci": [0.0147, 0.1076]}},
+    {"id": "e2_log_noangular", "group": "agentic", "section": "44.9", "label": "Eval.~2: A1$^*$ $-$ A1$'^*$, without the angular log",
+     "terms": {"Q_A1": 1, "Q_A1p": -1}, "corpus": "pinned",
+     "subset": {"exclude_logs": ["angular_github_commits_ocel.xml"], "post_hoc": true},
+     "expected": {"mean": 0.048, "ci": [0.007, 0.090], "digits": 3}},
     {"id": "e2_log_draw1", "group": "agentic", "section": "44.9", "label": "Eval.~2: A1$^*$ $-$ A1$'^*$, draw 1 only",
      "terms": {"Q_A1": 1, "Q_A1p": -1}, "corpus": "pinned", "subset": {"draw": 1}},
     {"id": "e2_log_draw2", "group": "agentic", "section": "44.9", "label": "Eval.~2: A1$^*$ $-$ A1$'^*$, draw 2 only",
@@ -208,6 +220,22 @@
      "expected": {"better": 45, "worse": 17, "p": "<0.001", "mean": 0.0696, "ci": [0.0228, 0.1184]}},
     {"id": "ex_q_interaction", "group": "agentic", "section": "45.9", "label": "Qwen interaction: log effect with S $-$ without S",
      "terms": {"Q_A1S": 1, "Q_A1pS": -1, "Q_A1": -1, "Q_A1p": 1}, "corpus": "pinned",
-     "expected": {"mean": 0.0064, "ci": [-0.0504, 0.0616]}}
+     "expected": {"mean": 0.0064, "ci": [-0.0504, 0.0616]}},
+
+    {"id": "H0_H1", "group": "oldcorpus", "section": "25.4", "label": "H0 $\\to$ H1 (skeleton given, oracle)",
+     "terms": {"H1": 1, "H0": -1}, "corpus": "old",
+     "expected": {"better": 10, "worse": 17, "mean": -0.0377, "ci": [-0.0913, 0.0160], "ci_method": "normal approximation"}},
+    {"id": "H0_H2", "group": "oldcorpus", "section": "25.4", "label": "H0 $\\to$ H2 (skeleton and constraint types, oracle)",
+     "terms": {"H2": 1, "H0": -1}, "corpus": "old",
+     "expected": {"better": 9, "worse": 20, "mean": -0.0553, "ci": [-0.1111, 0.0005], "ci_method": "normal approximation"}},
+    {"id": "D0_D1", "group": "oldcorpus", "section": "31.2", "label": "D0 $\\to$ D1 (token budget doubled)",
+     "terms": {"D1": 1, "D0": -1}, "corpus": "old",
+     "expected": {"better": 0, "worse": 1, "mean": -0.0070, "ci": [-0.0209, 0.0068], "ci_method": "normal approximation"}},
+    {"id": "D1_D2", "group": "oldcorpus", "section": "31.2", "label": "D1 $\\to$ D2 (constrained decoding)",
+     "terms": {"D2": 1, "D1": -1}, "corpus": "old",
+     "expected": {"better": 9, "worse": 0, "mean": 0.0434, "ci": [0.0126, 0.0741], "ci_method": "normal approximation"}},
+    {"id": "D0_D2", "group": "oldcorpus", "section": "31.2", "label": "D0 $\\to$ D2 (both)",
+     "terms": {"D2": 1, "D0": -1}, "corpus": "old",
+     "expected": {"better": 8, "worse": 0, "mean": 0.0363, "ci": [0.0086, 0.0640], "ci_method": "normal approximation"}}
   ]
 }

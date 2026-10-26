@@ -255,6 +255,33 @@ def report(rows):
     }
 
 
+def _regold(rows, testset_path):
+    """Replace each row's stored gold arity with the current testset's, in place.
+
+    Args:
+        rows: The probe's stored rows (`nl_query`, `gold`, `predicted`).
+        testset_path: The testset whose gold queries are now authoritative.
+
+    Returns:
+        The `nl_query` of every row whose gold changed.
+    """
+    current = {}
+    for entry in _read_json(testset_path):
+        gold = _gold_root_arity(entry.get("ocpq_query"))
+        current[entry["nl_query"]] = list(gold[1:]) if gold else None
+    changed = []
+    for row in rows:
+        if row["nl_query"] not in current:
+            raise SystemExit(f"FATAL: {row['nl_query'][:60]!r} is not in {testset_path}.")
+        if current[row["nl_query"]] != row["gold"]:
+            row["gold_before"] = row["gold"]
+            row["gold"] = current[row["nl_query"]]
+            changed.append(row["nl_query"])
+            print(f"  regold: {row['gold_before']} -> {row['gold']}  {row['nl_query'][:60]}")
+    print(f"  {len(changed)} row(s) re-golded against {testset_path}")
+    return changed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -271,16 +298,24 @@ def main():
                              "model, no GPU: the predictions are already in the file, so a change "
                              "to how a prediction is PRICED (notes 41.2) can be applied to a probe "
                              "that already ran. Writes nothing unless --out is given.")
+    parser.add_argument("--regold", action="store_true",
+                        help="With --rescore: re-derive every row's gold arity from --testset "
+                             "before scoring. A probe stores the gold it was run against, so a "
+                             "later gold correction (testset #25, notes 43.2) reaches it only "
+                             "this way. Rows whose gold changes keep the old one as `gold_before`.")
     args = parser.parse_args()
 
     if args.rescore:
         stored = _read_json(args.rescore)
         rows = stored["rows"] if isinstance(stored, dict) else stored
         print(f"rescoring {len(rows)} stored prediction(s) from {args.rescore}")
+        regolded = _regold(rows, args.testset) if args.regold else []
         summary = report(rows)
         if args.out:
-            _write_json(Path(args.out), {"summary": summary, "rows": rows,
-                                         "rescored_from": str(args.rescore)})
+            payload = {"summary": summary, "rows": rows, "rescored_from": str(args.rescore)}
+            if args.regold:
+                payload["regold"] = {"testset": str(args.testset), "rows_changed": regolded}
+            _write_json(Path(args.out), payload)
             print(f"\nwrote {args.out}")
         return
 

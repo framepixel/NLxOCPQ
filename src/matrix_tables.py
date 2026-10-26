@@ -20,9 +20,10 @@ matrix_interaction_<pop>   strict F1 and evaluated rate, arm x strategy (replace
                            "0 runnable in 1,352" of §21.4 with the matrix_v2 counts)
 matrix_outcomes_<pop>      record status per arm (schema-invalid, parse-failed, ...)
 matrix_best_<pop>          the five best single conditions
-matrix_familiar_<pop>      familiar vs unfamiliar logs per arm -- PENDING IC-06: the
-                           `domain_seen` split is the hard-coded pre-de-leak list, so this table
-                           must not be \\input until that decision is made
+
+There is no familiar/unfamiliar table: `domain_seen` is the hard-coded list of logs that were
+"seen" before the corpus was de-leaked, and `corpus_overlap_audit.py` measures zero exact type
+overlap for every log, so the split measures nothing (FLAGS IC-06; the section was dropped).
 
 Every mean is over records, which here equals the mean over questions: each condition holds each
 question exactly once (the guard below and `case_values` both refuse duplicates).
@@ -158,22 +159,7 @@ def build(run: ac.Run, population: str) -> Dict[str, dict]:
                    f"over the eight arms and three prompting strategies.",
     }
 
-    familiar = grouped(records, lambda r: (r.get("model_label"), bool(r.get("domain_seen"))))
-    familiar_rows = []
-    for arm in arms():
-        for flag, name in ((True, "familiar"), (False, "unfamiliar")):
-            if (arm, flag) in familiar:
-                familiar_rows.append((f"{arm_label(arm)}, {name}",
-                                      metric_row(familiar[(arm, flag)])))
-    tables["familiar"] = {
-        "rows": familiar_rows,
-        "caption": f"Matrix results on familiar and unfamiliar logs on {label}. PENDING IC-06: "
-                   f"`familiar' is the hard-coded list of logs that were seen before the corpus "
-                   f"was de-leaked.",
-        "notes": ["PENDING IC-06 -- do not \\input before the familiar/unfamiliar decision"],
-    }
-
-    for name in ("arms", "strategy", "validation", "familiar"):
+    for name in ("arms", "strategy", "validation"):
         tables[name]["tabular"] = summary_tabular(tables[name]["rows"])
 
     tables["interaction"] = interaction_table(records, label)
