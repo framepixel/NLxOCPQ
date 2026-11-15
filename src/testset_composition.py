@@ -220,8 +220,10 @@ def tables(results: dict) -> List[tuple]:
                   "otherwise"), ("always_trivial", "always the no-op query"),
                   ("good_085", "F1 0.85 everywhere"), ("excellent_097", "F1 0.97 everywhere")]
     grid_lines = ["  \\small", "  \\begin{tabular}{@{}lrr@{}}", "    \\toprule",
-                  "    Synthetic model & \\makecell[r]{Skill against\\\\no-op F1} & "
-                  "\\makecell[r]{Skill against\\\\trivial floor} \\\\", "    \\midrule"]
+                  "    Synthetic model & \\makecell[r]{Skill against\\\\no-op F1 "
+                  f"({results['discriminating']})}} & "
+                  f"\\makecell[r]{{Skill against\\\\trivial floor ({ac.SKILL_QUESTIONS})}} \\\\",
+                  "    \\midrule"]
     for key, name in grid_names:
         grid_lines.append(f"    {name} & {ac.fmt(results['skill_grid_noop_floor'][key], signed=True)}"
                           f" & {ac.fmt(results['skill_grid_trivial_floor'][key], signed=True)} \\\\")
@@ -232,8 +234,9 @@ def tables(results: dict) -> List[tuple]:
         ("testset_blocks", "\n".join(block_lines),
          "Testset entries using each building block.", "tab:testset:blocks"),
         ("testset_skill_grid", "\n".join(grid_lines),
-         "Mean skill of synthetic models over the 135 discriminating questions, against the "
-         "no-op query's F1 and against the trivial floor.", "tab:testset:skill"),
+         "Mean skill of synthetic models over the discriminating questions, against the no-op "
+         "query's F1 and against the trivial floor (1 on one question, where skill is undefined).",
+         "tab:testset:skill"),
     ]
 
 

@@ -207,34 +207,69 @@ def _share(part: Optional[int], whole: int) -> str:
 
 
 def tex_table(rows: List[dict]) -> str:
-    """Rungs as columns (two-line `column` headers), statistics as rows in a wrapping column."""
-    labels = [f"\\makecell[r]{{{r['column'][0]}\\\\{r['column'][1]}}}" for r in rows]
-    lines = ["  \\small",
+    """Rungs as columns, statistics as rows, in groups with full-width italic headings.
+
+    The header has two rows: each column's group (`column[0]`; equal neighbours share one
+    heading) over its model (`column[1]`, broken before the size). Every share's denominator is a
+    row of its own, directly above the indented row that uses it (the author's question,
+    2026-11-02: "what is the maximum?"). Short row labels keep the label column wide enough for one
+    line each; the longer wording is in the group headings.
+    """
+    width = len(rows) + 1
+    tops: List[list] = []
+    for r in rows:
+        if tops and tops[-1][0] == r["column"][0]:
+            tops[-1][1] += 1
+        else:
+            tops.append([r["column"][0], 1])
+    top_cells, rules, start = [], [], 2
+    for text, span in tops:
+        top_cells.append(text if span == 1 else f"\\multicolumn{{{span}}}{{c}}{{{text}}}")
+        trim = "lr" if start + span - 1 < width else "l"
+        rules.append(f"\\cmidrule({trim}){{{start}-{start + span - 1}}}")
+        start += span
+    models = []
+    for r in rows:
+        name, _, size = r["column"][1].rpartition(" ")
+        models.append(f"\\makecell[r]{{{name}\\\\{size}}}" if name else size)
+    lines = ["  \\setlength{\\tabcolsep}{4pt}", "  \\small",
              "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}X"
              + "r" * len(rows) + "@{}}",
-             "    \\toprule", "    & " + " & ".join(labels) + " \\\\", "    \\midrule"]
+             "    \\toprule",
+             "    & " + " & ".join(top_cells) + " \\\\",
+             "    " + " ".join(rules),
+             "    & " + " & ".join(models) + " \\\\"]
 
-    def add(name: str, cells: List[str]) -> None:
-        lines.append(f"    {name} & " + " & ".join(cells) + " \\\\")
+    def group(heading: Optional[str], *body: tuple) -> None:
+        lines.append("    \\midrule")
+        if heading:
+            lines.append(f"    \\multicolumn{{{width}}}{{@{{}}l}}{{\\textit{{{heading}}}}} \\\\")
+        for name, cells in body:
+            lines.append(f"    {name} & " + " & ".join(cells) + " \\\\")
 
     stats = [r["stats"] for r in rows]
-    add("records", [str(s["records"]) for s in stats])
-    add("\\texttt{try\\_query} calls per record", [ac.fmt(s["try_query_per_record"], 2)
-                                                    for s in stats])
-    add("distinct trees tried per record", [ac.fmt(s["distinct_try_query_per_record"], 2)
-                                             for s in stats])
-    add("records that saw an empty result", [str(s["records_with_empty"]) for s in stats])
-    add("next action differs after one", [_share(s["next_action_differs"], s["empty_results"])
-                                          for s in stats])
-    add("reasoning mentions it", [_share(s["mentions_empty_after_empty"], s["empty_results"])
-                                  for s in stats])
-    add("\\quad base rate after a non-empty result",
-        [_share(s["mentions_empty_after_nonempty"], s["nonempty_results_followed"])
-         for s in stats])
-    add("still ended on an empty result", [_share(s["ended_empty"], s["records_with_empty"])
-                                           for s in stats])
-    add("root count changed between tries", [_share(s["root_count_changed"],
-                                                    s["two_or_more_tries"]) for s in stats])
+    group(None, ("Question-draws analysed", [str(s["records"]) for s in stats]))
+    group("Draft queries per question-draw",
+          ("Tried (\\texttt{try\\_query} calls)",
+           [ac.fmt(s["try_query_per_record"], 2) for s in stats]),
+          ("Distinct", [ac.fmt(s["distinct_try_query_per_record"], 2) for s in stats]))
+    group("Empty results: drafts whose root node selected nothing",
+          ("Question-draws with at least one", [str(s["records_with_empty"]) for s in stats]),
+          ("\\quad last draft still empty",
+           [_share(s["ended_empty"], s["records_with_empty"]) for s in stats]),
+          ("Empty results in total", [str(s["empty_results"]) for s in stats]),
+          ("\\quad next action was different",
+           [_share(s["next_action_differs"], s["empty_results"]) for s in stats]))
+    group("Next reasoning mentions an empty result (keyword check)",
+          ("After an empty result",
+           [_share(s["mentions_empty_after_empty"], s["empty_results"]) for s in stats]),
+          ("After a non-empty result (base rate)",
+           [_share(s["mentions_empty_after_nonempty"], s["nonempty_results_followed"])
+            for s in stats]))
+    group("Root situations across a question-draw's evaluated drafts",
+          ("Question-draws with two or more", [str(s["two_or_more_tries"]) for s in stats]),
+          ("\\quad count changed between drafts",
+           [_share(s["root_count_changed"], s["two_or_more_tries"]) for s in stats]))
     lines += ["    \\bottomrule", "  \\end{tabularx}"]
     return "\n".join(lines)
 
@@ -264,19 +299,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         for problem in problems:
             print(f"    differs from the notes -- {problem}")
         rows.append({"id": rung["id"], "label": rung["label"], "column": rung["column"],
+                     "in_table": rung.get("table", True),
                      "stats": stats, "differences_from_notes": problems})
     print(f"\n{differences} rung(s) differ from the notes beyond the known differences.")
     if args.no_write:
         return 0
-    caption = (f"How the agents used the log, over {ac.POPULATION_LABELS[population]} (both "
-               f"draws in evaluation~2). Evaluation~1 is Ministral 3 14B, evaluation~2 Qwen3.8; "
-               f"the last two columns add example lookup (S). An empty result is a "
-               f"\\texttt{{try\\_query}} whose root box selected nothing. `Reasoning mentions it' "
-               f"is a keyword check; its base rate after non-empty results is given below it.")
+    caption = (f"How the agents used the log (loop with log tools), over "
+               f"{ac.POPULATION_LABELS[population]}; a question-draw is one run of one question.")
     payload = {"population": population,
                "empty_mention_pattern": config["empty_mention_pattern"], "rungs": rows}
     out = ac.write_json("agent_mechanism", payload, runs)
-    table = ac.write_tex("agent_mechanism", tex_table(rows), caption, "tab:agent:mechanism", runs)
+    # The table shows the rungs whose config says `table` (default yes); the JSON keeps all.
+    shown = [i for i, row in enumerate(rows) if row["in_table"]]
+    table = ac.write_tex("agent_mechanism", tex_table([rows[i] for i in shown]), caption,
+                         "tab:agent:mechanism", [runs[i] for i in shown])
     print(f"wrote {out}\nwrote {table}")
     return 0
 

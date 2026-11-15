@@ -25,6 +25,7 @@ from paired_stats import RunCache, _condition_records, load_spec
 # Which conditions form which table, in row order (names are the spec's condition keys).
 TABLES = {
     "rungs_ablations": [("Decoding and arity (corrected corpus)", ["N0", "N1", "N2"]),
+                        ("Structure hint", ["H0", "H1", "H2"]),
                         ("Structural ablation", ["S0", "S1", "S2", "S3"]),
                         ("Non-oracle system", ["B0", "B1", "B2", "B3"])],
     "rungs_agentic": [("Evaluation 1 (Ministral 3 14B)", ["A0", "A1p", "A1", "A1t", "A2"]),
@@ -32,10 +33,8 @@ TABLES = {
                       ("Example lookup", ["Q_A1pS", "Q_A1S", "G_A1pS", "G_A1S"])],
 }
 CAPTIONS = {
-    "rungs_ablations": "Each rung of the decoding, arity, structural and non-oracle ablations "
-                       "(fine-tuned Llama 3.1 8B).",
-    "rungs_agentic": "Each rung of the agentic evaluations; evaluation~2 values are the mean of "
-                     "two draws per question.",
+    "rungs_ablations": "Each rung of the ablations (fine-tuned Llama 3.1 8B)",
+    "rungs_agentic": "Each rung of the agentic evaluations",
 }
 
 
@@ -55,7 +54,7 @@ def tabular(groups: List[tuple]) -> str:
     lines = ["  \\small",
              "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}Xrrrrrr@{}}",
              "    \\toprule",
-             "    Rung & F1 & \\makecell[r]{F1\\\\executed} & Skill & Evaluated & Exact & "
+             f"    Rung & F1 & \\makecell[r]{{F1\\\\executed}} & {ac.SKILL_HEADER} & Evaluated & Exact & "
              "\\makecell[r]{Structural\\\\F1} \\\\",
              "    \\midrule"]
     for index, (title, rows) in enumerate(groups):
@@ -96,8 +95,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not args.no_write:
             runs = [cache.get(spec["conditions"][n]["run"]) for _, names in groups for n in names]
             ac.write_tex(table, tabular(rendered),
-                         CAPTIONS[table] + " Over the 135 discriminating questions; skill is "
-                         "relative to the trivial floor.", f"tab:{table.replace('_', ':')}",
+                         CAPTIONS[table] + " over the 135 discriminating questions"
+                         + ("; evaluation~2 values are the mean of two draws per question."
+                            if table == "rungs_agentic" else "."),
+                         f"tab:{table.replace('_', ':')}",
                          list({r.provenance['run']: r for r in runs}.values()))
     if not args.no_write:
         print(f"wrote {ac.write_json('rung_tables', payload, cache.runs)}")

@@ -2,12 +2,13 @@
 """Thesis tables for the ablation sections (Ch. 4) that no other script writes.
 
 `rung_tables.py` gives each rung's level and `paired_stats.py` the paired differences (including
-the old-corpus group `paired_oldcorpus` and `paired_resolution`). This adds the rest:
+`paired_decoding_hint` and `paired_resolution`). This adds the rest:
 
-  structure_hint      the structure-hint ablation (H0-H2, old corpus; notes 11 §25, §26.5)
-  rescoring           the metric variants on the self-consistency run (old corpus; §26, §27.3)
-  decoding            N0 vs N1 on the corrected corpus, with the answers constraint made valid
-  decoding_budget     D0-D2 (old corpus; §31), the same rows -- never in one table with N0/N1
+  structure_hint      the structure-hint ablation (H0-H2; notes 11 §25, §26.5; re-run 2026-10-27)
+  rescoring           the metric variants on the self-consistency run (§26, §27.3; re-run
+                      2026-10-29)
+  decoding            D0-D2: token budget and constrained decoding (§31; re-run 2026-10-27), with
+                      the answers the constraint made valid
   arity_split         the arity oracle and the constant, split by gold's root arity (§33.1, §41.2)
   arity_predictor     the arity predictor against the constant, on the current gold (§42; IC-09)
   ablation_synthesis  every direction's best F1 against the trivial floor
@@ -43,7 +44,8 @@ TRIVIAL_FLOOR = 0.7250  # mean trivial floor over the 135 discriminating questio
 MAJORITY = (0, 1)  # the most common root arity (events, objects) of gold and of the corpus
 ARITY_PROBE = paths.ANALYSIS_DIR / "arity_probe_regold.json"
 SELFCONS = paths.ANALYSIS_DIR / "selfconsistency.json"
-SELFCONS_RUN = "logs/selfcons/merged_recomputed"
+# Re-run 2026-10-29 on the pinned corpus; the old-corpus run is logs/selfcons/merged_recomputed.
+SELFCONS_RUN = "eval_runs/selfconsistency/merged"
 SELFCONS_ARM = "llama31-8b-finetuned"
 VARIANTS = (("strict", "Strict (primary)"), ("population", "Population (flag dropped)"),
             ("violation", "Violation (flagged rows only)"),
@@ -99,7 +101,7 @@ def _tabularx(columns: int) -> List[str]:
 
 
 # ------------------------------------------------------------------------------------------------
-# Structure hint (old corpus).
+# Structure hint.
 # ------------------------------------------------------------------------------------------------
 
 def hint_level(rows: List[dict]) -> Dict[str, object]:
@@ -142,7 +144,7 @@ def structure_hint() -> Path:
         _panel("135 discriminating questions", 4),
         _row("F1", [ac.fmt(lv["f1"]) for lv in levels]),
         _row("F1, kind-projected", [ac.fmt(lv["kind_projected"]) for lv in levels]),
-        _row("Skill", [ac.fmt(lv["skill"], 3) for lv in levels]),
+        _row(ac.SKILL_LABEL, [ac.fmt(lv["skill"], 3) for lv in levels]),
         _row("Exact", [ac.fmt_pct(lv["exact"]) for lv in levels]),
         _row("F1 with gold's number of boxes",
              [f"{ac.fmt(lv['f1_adopted'][0])} ({lv['f1_adopted'][1]})" for lv in levels]),
@@ -151,20 +153,15 @@ def structure_hint() -> Path:
         "    \\bottomrule", "  \\end{tabularx}"]
     return ac.write_tex(
         "structure_hint", "\n".join(lines),
-        "The structure-hint ablation (old corpus; fine-tuned Llama 3.1 8B, allowed entities only, "
-        "validation on). H1 and H2 are oracle conditions: the prompt carries gold's tree as a "
-        "JSON scaffold to complete (H2 adds its constraint types). The last two rows are "
-        "conditional on the prediction parsing, with the number of questions in parentheses; "
-        "kind-projected F1 is a diagnostic (\\cref{tab:abl:rescoring}). Paired differences: "
-        "\\cref{tab:paired:oldcorpus}.",
+        "Structure hint (fine-tuned Llama 3.1 8B, allowed entities only, free decoding): H1 "
+        "and H2 give the model gold's tree as a scaffold (oracles).",
         "tab:abl:structure", runs_of(list(names)),
-        notes=["old corpus: the run predates the 2026-09-12 corpus fix (FLAGS TH-07)",
-               "evaluated is the corrected rate (2026-09-14); the run's summary.json still "
-               "holds the exit-0 rate (71.0/81.1/75.7%) that notes 11 §25.1 quotes"])
+        notes=["re-run 2026-10-27 on the pinned corpus; the old-corpus run (notes 11 §25) is "
+               "logs/structable/merged_recomputed"])
 
 
 # ------------------------------------------------------------------------------------------------
-# Rescoring (old corpus).
+# Rescoring.
 # ------------------------------------------------------------------------------------------------
 
 def rescoring() -> Path:
@@ -199,13 +196,14 @@ def rescoring() -> Path:
                    f"\\num{{{settings['resamples']}}} resamples, seed {settings['seed']}).")
     return ac.write_tex(
         "rescoring", "\n".join(lines),
-        "The result comparison under four projections (old corpus; the self-consistency run, "
-        "fine-tuned Llama 3.1 8B, ten samples per question, 135 discriminating questions). Each "
-        "variant is read against its own trivial floor; skill is undefined where that floor is "
-        "1.0, and violation F1 is undefined where gold flags nothing, so the denominators differ. "
-        "Strict stays the primary metric. " + paired_text,
+        "The result comparison under four projections (self-consistency run, fine-tuned "
+        "Llama 3.1 8B, 135 discriminating questions); strict is the primary metric.",
         "tab:abl:rescoring", [run],
-        notes=["old corpus: the run predates the 2026-09-12 corpus fix (FLAGS TH-07)"])
+        notes=["re-run 2026-10-29 on the pinned corpus (old corpus: "
+               "logs/selfcons/merged_recomputed)",
+               "each variant is read against its own trivial floor; skill is undefined where "
+               "that floor is 1.0, violation F1 where gold flags nothing",
+               paired_text])
 
 
 # ------------------------------------------------------------------------------------------------
@@ -266,24 +264,20 @@ def decoding_table(name: str, conditions: List[tuple], caption: str, label: str,
 
 
 def decoding() -> List[Path]:
-    common = ("Fine-tuned Llama 3.1 8B, allowed entities only, validation on. Schema validity, "
-              "completion tokens and LLM calls are over all 169 questions; everything else over "
-              "the 135 discriminating ones.")
+    common = ("schema validity, completion tokens and LLM calls are over all 169 questions; "
+              "everything else over the 135 discriminating ones")
+    # One table since the 2026-10-27 re-run put all three rungs on the pinned corpus. D0 and D2
+    # repeat N0 and N1 of the arity ablation; the two differ on one question (run-to-run noise).
     return [
         decoding_table(
-            "decoding", [("N0", "\\makecell[r]{N0 free,\\\\2,000 tokens}"),
-                         ("N1", "\\makecell[r]{N1 constrained,\\\\4,000 tokens}")],
-            "Grammar-constrained decoding on the corrected corpus. " + common
-            + " Paired differences: \\cref{tab:paired:ablations}.",
-            "tab:abl:decoding", []),
-        decoding_table(
-            "decoding_budget", [("D0", "\\makecell[r]{D0 free,\\\\2,000 tokens}"),
-                                ("D1", "\\makecell[r]{D1 free,\\\\4,000 tokens}"),
-                                ("D2", "\\makecell[r]{D2 constrained,\\\\4,000 tokens}")],
-            "Token budget and constrained decoding (old corpus). " + common
-            + " Paired differences: \\cref{tab:paired:oldcorpus}.",
-            "tab:abl:decoding:budget",
-            ["old corpus: never set D1 beside N0/N1 (FLAGS IC-10, TH-07)"]),
+            "decoding", [("D0", "\\makecell[r]{D0 free,\\\\2,000 tokens}"),
+                         ("D1", "\\makecell[r]{D1 free,\\\\4,000 tokens}"),
+                         ("D2", "\\makecell[r]{D2 constrained,\\\\4,000 tokens}")],
+            "Token budget and grammar-constrained decoding (fine-tuned Llama 3.1 8B, allowed "
+            "entities only, validation on).",
+            "tab:abl:decoding",
+            ["re-run 2026-10-27 on the pinned corpus; the old-corpus runs (notes 11 §31) are "
+             "eval_runs/decoding_ablation/*_20260910_*", common]),
     ]
 
 
@@ -330,11 +324,8 @@ def arity_split() -> Path:
     lines += ["    \\bottomrule", "  \\end{tabularx}"]
     return ac.write_tex(
         "arity_split", "\n".join(lines),
-        "Forcing the root arity (events, objects) by what gold's root actually is: fine-tuned "
-        "Llama 3.1 8B, constrained decoding, 135 discriminating questions. N2 forces gold's "
-        "arity (an oracle); B2 forces the most common one, (0,~1), on every question, which is "
-        "wrong wherever gold's is another. N1/N2 ran before the re-gold of one question, B0/B2 "
-        "after it; the split uses the gold each run was scored against.",
+        "Forcing the root arity (events, objects), split by gold's root arity: fine-tuned "
+        "Llama 3.1 8B, constrained decoding, 135 discriminating questions.",
         "tab:abl:arity:split", runs_of(["N1", "N2", "B0", "B2"]))
 
 
@@ -376,14 +367,13 @@ def arity_predictor() -> Path:
     regolded = len((probe.get("regold") or {}).get("rows_changed") or [])
     return ac.write_tex(
         "arity_predictor", "\n".join(lines),
-        "Predicting the root arity (events, objects) from the question, against always "
-        "answering (0,~1): fine-tuned Llama 3.1 8B, prompt v3, all 169 questions, scored against "
-        f"the current gold ({regolded} question re-golded since the probe ran). The estimates "
-        "price a correct force at the gain forcing measured and a wrong one at the free-decoding "
-        "score it destroys (top) or at nothing (bottom).",
+        "Predicting the root arity (events, objects) from the question against always "
+        "answering (0,~1): fine-tuned Llama 3.1 8B, all 169 questions.",
         "tab:abl:arity:predictor",
         notes=[f"input: {ac.repo_relative(ARITY_PROBE)} (rescored from "
-               f"{probe.get('rescored_from')}, --regold)"])
+               f"{probe.get('rescored_from')}, --regold)",
+               f"prompt v3; scored against the current gold ({regolded} question re-golded "
+               "since the probe ran)"])
 
 
 # ------------------------------------------------------------------------------------------------
@@ -397,34 +387,39 @@ def synthesis() -> Path:
     best_of_10 = oracle["f1_discriminating"]["oracle"]
     hint = hint_level(records("H0"))
     entries = [
-        ("Select among sampled queries", "best of 10 samples (oracle)", "old", best_of_10),
-        ("A larger token budget", "D1", "old", disc_mean(records("D1"), "strict_f1")),
+        ("Vote among sampled queries", "majority of 10 samples", "corrected",
+         oracle["f1_discriminating"]["majority"]),
+        ("Select among sampled queries", "best of 10 samples (oracle)", "corrected", best_of_10),
+        ("A larger token budget", "D1", "corrected", disc_mean(records("D1"), "strict_f1")),
         ("Grammar-constrained decoding", "N1", "corrected", disc_mean(records("N1"), "strict_f1")),
-        ("Gold's tree given as a hint", "H1 (oracle)", "old",
+        ("Gold's tree given as a hint", "H1 (oracle)", "corrected",
          disc_mean(records("H1"), "strict_f1")),
-        ("Gold's number of boxes produced", "H0, conditional", "old", hint["f1_adopted"][0]),
+        ("Gold's number of boxes produced", "H0, conditional", "corrected", hint["f1_adopted"][0]),
         ("A structural check", "B1", "corrected", disc_mean(records("B1"), "strict_f1")),
         ("Root arity predicted", "not run (gate failed)", "corrected", None),
         ("Root arity constant", "B2", "corrected", disc_mean(records("B2"), "strict_f1")),
         ("Root arity from gold", "N2 (oracle)", "corrected", disc_mean(records("N2"), "strict_f1")),
     ]
     lines = ["  \\small",
-             "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}Xllrr@{}}",
+             "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}Xlrr@{}}",
              "    \\toprule",
-             "    Direction & Measured by & Corpus & F1 & \\makecell[r]{Below the\\\\floor by} \\\\",
+             "    Direction & Measured by & F1 & \\makecell[r]{Below the\\\\floor by} \\\\",
         "    \\midrule"]
+    # Every entry is on the pinned corpus since the 2026-10 re-runs; the corpus field stays in
+    # `entries` so that a future old-corpus row has to say so in its cell.
     for direction, rung, corpus, f1 in entries:
-        lines.append(_row(direction, [rung, corpus, ac.fmt(f1),
+        if corpus != "corrected":
+            rung = f"{rung}, {corpus} corpus"
+        lines.append(_row(direction, [rung, ac.fmt(f1),
                                       "--" if f1 is None else ac.fmt(TRIVIAL_FLOOR - f1)]))
     lines += ["    \\bottomrule", "  \\end{tabularx}"]
     return ac.write_tex(
         "ablation_synthesis", "\n".join(lines),
-        "The best F1 each direction reached on the 135 discriminating questions, against the "
-        f"trivial floor of {TRIVIAL_FLOOR:.4f}. Oracle rows use gold information and bound what "
-        "a system could reach; the conditional row is a selected subset, not a system.",
+        "The best F1 each ablation direction reached on the 135 discriminating questions, "
+        f"against the trivial floor of {TRIVIAL_FLOOR:.4f}.",
         "tab:abl:synthesis", runs_of(["D1", "N1", "H0", "H1", "B1", "B2", "N2"]),
         notes=[f"input: {ac.repo_relative(SELFCONS)} (best of 10)",
-               "mixes corpora on purpose, one labelled row per direction (FLAGS IC-10)"])
+               "every row on the pinned corpus since the 2026-10-27/29 re-runs (TH-07 resolved)"])
 
 
 def main() -> int:

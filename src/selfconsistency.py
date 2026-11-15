@@ -44,6 +44,7 @@ from typing import List
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import analysis_common as ac  # noqa: E402
+import paired_stats as ps  # noqa: E402
 import result_store  # noqa: E402
 from eval_testset import _compute_similarity, _read_json, _write_json  # noqa: E402
 
@@ -265,6 +266,10 @@ def breakdown(cases, exclude_logs=()):
             "case_mean_as_in_notes": _mean(_skill(c["single_mean"], c[floor]) for c in disc),
             "majority": _mean(_skill(c["majority"], c[floor]) for c in disc),
             "oracle": _mean(_skill(c["oracle"], c[floor]) for c in disc)}
+    # Skill is undefined at floor 1.0, so its means run over fewer cases than F1's (134 of 135 on
+    # the current testset, analysis_common.SKILL_QUESTIONS); the table labels the row with this.
+    out["skill_cases_trivial_floor"] = sum(
+        1 for c in disc if c["trivial_floor"] is not None and c["trivial_floor"] < 1.0)
     bins = {label: [] for _, label in CONSENSUS_BINS}
     for c in cases:
         if c["majority_voters"] < 2:
@@ -287,7 +292,44 @@ def breakdown(cases, exclude_logs=()):
     out["unloadable_samples"] = sum(c["unloadable"] for c in cases)
     out["majority_f1_if_unloadable_cases_scored_0"] = _mean(
         0.0 if c["unloadable"] else c["majority"] for c in cases)
+    # Paired per discriminating question, with the thesis bootstrap (paired_stats): does the vote
+    # beat one sample, and how much does the oracle leave on the table above the vote?
+    out["paired_discriminating"] = {
+        name: _paired([c[b] - c[a] for c in disc])
+        for name, a, b in (("majority_minus_single", "single_mean", "majority"),
+                           ("oracle_minus_majority", "majority", "oracle"))}
     return out
+
+
+def versus_greedy(cases: list, greedy: dict) -> dict:
+    """Each selection rule minus one greedy query of the same condition, paired per question.
+
+    Args:
+        cases: One condition's per-case rows (discriminating ones are used).
+        greedy: `{nl_query: strict F1}` of that condition's greedy run (temperature 0, one
+            sample), e.g. its cell of the matrix.
+
+    Returns:
+        `{rule: _paired(...)}` for single (sample mean), majority and oracle.
+    """
+    disc = [c for c in cases if c["discriminating"]]
+    missing = [c["nl_query"] for c in disc if c["nl_query"] not in greedy]
+    if missing:
+        raise SystemExit(f"FATAL: the greedy run lacks {len(missing)} question(s), e.g. "
+                         f"{missing[0][:60]!r}")
+    return {rule: _paired([c[key] - greedy[c["nl_query"]] for c in disc])
+            for rule, key in (("single", "single_mean"), ("majority", "majority"),
+                              ("oracle", "oracle"))}
+
+
+def _paired(diffs: list) -> dict:
+    """Mean paired difference, its percentile-bootstrap CI and the sign test (paired_stats)."""
+    settings = ps.load_spec()["settings"]
+    low, high = ps.bootstrap_ci(diffs, settings["resamples"], settings["seed"],
+                                settings["confidence"])
+    better, worse = sum(d > 0 for d in diffs), sum(d < 0 for d in diffs)
+    return {"n": len(diffs), "mean": _mean(diffs), "ci": [low, high], "better": better,
+            "worse": worse, "p": ps.sign_test(better, worse)}
 
 
 # The two arms of the run, in the order the thesis presents them, with their table labels.
@@ -313,8 +355,14 @@ def write_tables(summary: dict, run_dir: Path) -> List[Path]:
         The written paths.
     """
     digest = hashlib.sha256((run_dir / "predictions.json").read_bytes()).hexdigest()[:16]
-    notes = [f"input: {ac.repo_relative(run_dir)} sha256 {digest}",
-             "old corpus: the run predates the 2026-09-12 corpus fix (FLAGS TH-07)"]
+    notes = [f"input: {ac.repo_relative(run_dir)} sha256 {digest}"]
+    # A run checked against the pinned corpus says so in its summary (corpus_consistent, notes 11
+    # §38.1). The 2026-08-30 run predates the check and read three stale logs (FLAGS TH-07).
+    run_summary = ac._read_json(run_dir / "summary.json")
+    old_corpus = run_summary.get("corpus_consistent") is not True
+    tag = " (old corpus)" if old_corpus else ""
+    if old_corpus:
+        notes.append("old corpus: the run predates the 2026-09-12 corpus fix (FLAGS TH-07)")
     lines = ["  \\small",
              "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}Xrrr@{}}",
              "    \\toprule",
@@ -323,23 +371,40 @@ def write_tables(summary: dict, run_dir: Path) -> List[Path]:
     for config_id, title in ARMS:
         every = summary["breakdown"][config_id]["all_cases"]
         kept = summary["breakdown"][config_id]["without_retyped_logs"]
+        paired = every["paired_discriminating"]
+        gains = [paired["majority_minus_single"], paired["oracle_minus_majority"]]
         lines += ["    \\midrule", f"    \\multicolumn{{4}}{{@{{}}l}}{{\\textit{{{title}}}}} \\\\",
                   _row(f"F1, {every['discriminating']} discriminating",
                        [ac.fmt(every["f1_discriminating"][r]) for r in RULES]),
-                  _row(f"F1, all {every['cases']}", [ac.fmt(every["f1"][r]) for r in RULES]),
-                  _row(f"F1, the {kept['cases']} not on a retyped log",
-                       [ac.fmt(kept["f1"][r]) for r in RULES]),
-                  _row("Exact, discriminating",
+                  _row(f"F1, all {every['cases']}", [ac.fmt(every["f1"][r]) for r in RULES])]
+        if old_corpus:
+            lines.append(_row(f"F1, the {kept['cases']} not on a retyped log",
+                              [ac.fmt(kept["f1"][r]) for r in RULES]))
+        lines += [_row("Exact, discriminating",
                        [ac.fmt_pct(every["exact_discriminating"][r]) for r in RULES]),
-                  _row("Skill, discriminating",
-                       [ac.fmt(every["skill_trivial_floor"][r], 3) for r in RULES])]
+                  _row(f"Skill, {every['skill_cases_trivial_floor']} discriminating",
+                       [ac.fmt(every["skill_trivial_floor"][r], 3) for r in RULES]),
+                  _row("Gain over the column to the left",
+                       ["--"] + [ac.fmt(g["mean"], signed=True) for g in gains]),
+                  _row("\\quad 95\\% CI", ["--"] + [f"{ac.fmt(g['ci'][0], signed=True)}, "
+                                                    f"{ac.fmt(g['ci'][1], signed=True)}"
+                                                    for g in gains]),
+                  _row("\\quad questions better / worse",
+                       ["--"] + [f"{g['better']} / {g['worse']}" for g in gains])]
+        greedy = every.get("paired_vs_greedy")
+        if greedy:
+            lines += [_row("Gain over one greedy query",
+                           [ac.fmt(greedy[r]["mean"], signed=True) for r in RULES]),
+                      _row("\\quad 95\\% CI", [f"{ac.fmt(greedy[r]['ci'][0], signed=True)}, "
+                                               f"{ac.fmt(greedy[r]['ci'][1], signed=True)}"
+                                               for r in RULES]),
+                      _row("\\quad questions better / worse",
+                           [f"{greedy[r]['better']} / {greedy[r]['worse']}" for r in RULES])]
     lines += ["    \\bottomrule", "  \\end{tabularx}"]
     written = [ac.write_tex(
         "selfconsistency", "\n".join(lines),
-        "Self-consistency (old corpus): ten samples per question at temperature 0.7. The single "
-        "sample is the mean over the ten samples, the majority vote returns the result set most "
-        "samples agree on, and the best-of-10 oracle scores the best of the ten samples against "
-        "gold. Skill is relative to the trivial floor.",
+        f"Self-consistency{tag}: ten samples per question at temperature 0.7, scored as one "
+        "sample, as a majority vote and as the best of the ten (oracle).",
         "tab:abl:selfcons", notes=notes)]
 
     config_id = ARMS[0][0]
@@ -356,13 +421,14 @@ def write_tables(summary: dict, run_dir: Path) -> List[Path]:
         lines.append(_row(cell, [str(group["cases"]), ac.fmt(group["majority_f1"]),
                                  ac.fmt(group["oracle_f1"]), str(group["exact"])]))
     lines += ["    \\bottomrule", "  \\end{tabular}"]
+    voters = summary["breakdown"][config_id]["all_cases"]["voters"]
     written.append(ac.write_tex(
         "selfconsistency_consensus", "\n".join(lines),
-        "Agreement and correctness under self-consistency (old corpus; fine-tuned Llama 3.1 8B, "
-        "allowed-entities-only). Questions with at least two samples that returned a result, "
-        "out of all 169, binned by the share of those samples that returned the winning result "
-        "set. Exact votes counts the questions whose winning result set equals gold.",
-        "tab:abl:selfcons:consensus", notes=notes))
+        f"Agreement and correctness under self-consistency{tag} (fine-tuned Llama 3.1 8B): "
+        "questions binned by the share of samples that returned the winning result set.",
+        "tab:abl:selfcons:consensus",
+        notes=[*notes, "questions with at least two samples that returned a result, out of all "
+               f"169; on {voters['0']} no sample returned a result, on {voters['1']} only one"]))
     return written
 
 
@@ -395,6 +461,9 @@ def main():
                     help="Where to write selfconsistency.json (default: inside --run).")
     ap.add_argument("--tables", action="store_true",
                     help="Also write the thesis tables selfconsistency{,_consensus}.tex.")
+    ap.add_argument("--greedy", type=Path, default=None,
+                    help="A greedy run holding the same conditions (e.g. the matrix): each rule "
+                         "is also paired against its one greedy query.")
     args = ap.parse_args()
 
     run_dir = args.run if args.run.is_absolute() else Path.cwd() / args.run
@@ -417,6 +486,13 @@ def main():
             "all_cases": breakdown(rows),
             "without_retyped_logs": breakdown(rows, RETYPED_LOGS),
         }
+        if args.greedy:
+            greedy = {r["nl_query"]: ac.strict_f1(r) for r in ac.load_run(args.greedy).records
+                      if r.get("config_id") == config_id}
+            summary["breakdown"][config_id]["all_cases"]["paired_vs_greedy"] = versus_greedy(
+                rows, greedy)
+    if args.greedy:
+        summary["greedy_run"] = ac.repo_relative(ac.resolve_run(args.greedy))
     out = args.out or (run_dir / "selfconsistency.json")
     _write_json(out, summary)
     _report(summary)

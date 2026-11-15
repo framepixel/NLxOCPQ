@@ -54,7 +54,7 @@ CLASSES = (("arity_mismatch", "Different number of root variables"),
            ("type_mismatch", "Same number, different types"),
            ("link_mismatch", "Same variables, different root filters"),
            ("size_filter_mismatch", "Same filters, different size filters"),
-           ("residual", "Root box matches, rows still differ"))
+           ("residual", "Root node matches, rows still differ"))
 LINK_SUBCLASSES = (("attribute", "attribute filter missing, extra or elsewhere"),
                    ("placement", "attribute filter where gold has none"),
                    ("bounds", "same attribute, different bounds"),
@@ -108,13 +108,13 @@ def grounding(anatomy: dict, notes: List[str]) -> Path:
     for key, label, part in (("object_types", "Object types", "entities"),
                              ("event_activities", "Event types", "entities"),
                              ("both", "Object and event types", "entities"),
-                             ("node_count", "Number of boxes", "composition"),
+                             ("node_count", "Number of nodes", "composition"),
                              ("filter_multiset", "Filter types", "composition"),
                              ("constraint_multiset", "Constraint types", "composition")):
         lines.append(_row(label, [_share(c[part][key], c[part]["n"]) for c in cells]))
     lines += ["    \\midrule",
               "    \\multicolumn{3}{@{}l}{\\textit{Gold against prediction}} \\\\",
-              _row("Mean boxes", [f"{c['composition']['gold_boxes']:.2f} / "
+              _row("Mean nodes", [f"{c['composition']['gold_boxes']:.2f} / "
                                   f"{c['composition']['pred_boxes']:.2f}" for c in cells]),
               _row("\\texttt{SAT} constraints",
                    [f"{c['composition']['constructs'].get('SAT', {}).get('gold', 0)} / "
@@ -123,22 +123,20 @@ def grounding(anatomy: dict, notes: List[str]) -> Path:
               "    \\midrule",
               "    \\multicolumn{3}{@{}l}{\\textit{Mean F1 of the answers that returned a result}}"
               " \\\\"]
-    for key, label in (("shape_matched", "With gold's number of boxes"),
+    for key, label in (("shape_matched", "With gold's number of nodes"),
                        ("shape_mismatched", "With a different number")):
         lines.append(_row(label, [f"{ac.fmt(c['shape'][key]['mean_f1'])} "
                                   f"({c['shape'][key]['n']})" for c in cells]))
     lines += ["    \\bottomrule", "  \\end{tabularx}"]
     return ac.write_tex(
         "failure_grounding", "\n".join(lines),
-        "What the wrong answers get right: Llama 3.1 8B with validation on, all 169 questions. "
-        "A wrong answer is one that returned a result sharing (almost) nothing with gold "
-        "(precision and recall below 0.05). The last two rows cover every answer that returned "
-        "a result; the number of answers is in parentheses.",
+        "What the wrong answers get right (Llama 3.1 8B, validation on, all 169 questions); a "
+        "wrong answer shares (almost) nothing with gold.",
         "tab:abl:anatomy:grounding", notes=notes)
 
 
 def depth(anatomy: dict, notes: List[str]) -> Path:
-    """The capability frontier: outcome by the number of boxes in the gold query."""
+    """The capability frontier: outcome by the number of nodes in the gold query."""
     cells = [anatomy["conditions"][key]["depth"] for key, _ in ARM_TITLES]
     lines = ["  \\small",
              "  \\begin{tabular}{@{}lrrrrrrr@{}}",
@@ -146,7 +144,7 @@ def depth(anatomy: dict, notes: List[str]) -> Path:
              "    & & \\multicolumn{3}{c}{Fine-tuned, allowed entities only}"
              " & \\multicolumn{3}{c}{Base, chain-of-thought plus} \\\\",
              "    \\cmidrule(lr){3-5} \\cmidrule(l){6-8}",
-             "    Gold boxes & Questions"
+             "    Gold nodes & Questions"
              + " & \\makecell[r]{Returned\\\\a result} & F1 & Exact" * 2 + " \\\\",
              "    \\midrule"]
     for key, label in DEPTHS:
@@ -159,9 +157,8 @@ def depth(anatomy: dict, notes: List[str]) -> Path:
     lines += ["    \\bottomrule", "  \\end{tabular}"]
     return ac.write_tex(
         "failure_depth", "\n".join(lines),
-        "Outcome by the number of boxes in the gold query: Llama 3.1 8B with validation on, all "
-        "169 questions. F1 is strict (a query without a result scores 0); exact is the share of "
-        "questions answered with gold's result.",
+        "Outcome by the number of nodes in the gold query: Llama 3.1 8B with validation on, all "
+        "169 questions.",
         "tab:abl:anatomy:depth", notes=notes)
 
 
@@ -176,11 +173,11 @@ def shape(anatomy: dict, notes: List[str]) -> Path:
     lines = ["  \\small",
              "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}Xrrrr@{}}",
              "    \\toprule",
-             "    & Trees & One box & \\makecell[r]{Mean\\\\boxes}"
+             "    & Trees & One node & \\makecell[r]{Mean\\\\nodes}"
              " & \\makecell[r]{With\\\\\\texttt{SAT}} \\\\",
              "    \\midrule",
              _row("Gold queries of the testset", _shape_cells(gold, str(gold["n"]))),
-             _row("Fine-tuning corpus", _shape_cells(training, f"{training['n']:,}")),
+             _row("Fine-tuning set", _shape_cells(training, f"{training['n']:,}")),
              "    \\midrule",
              "    \\multicolumn{5}{@{}l}{\\textit{Generated, every condition of the arm}} \\\\"]
     for label in arms():
@@ -191,8 +188,8 @@ def shape(anatomy: dict, notes: List[str]) -> Path:
     lines += ["    \\bottomrule", "  \\end{tabularx}"]
     return ac.write_tex(
         "failure_shape", "\n".join(lines),
-        "The shape of the query trees: the testset's gold queries, the fine-tuning corpus, and "
-        "the trees each arm generated over its six matrix conditions (parsed trees only).",
+        "The shape of the query trees: gold, the fine-tuning set, and the parsed trees of "
+        "each arm over its six matrix conditions.",
         "tab:abl:anatomy:shape", notes=notes)
 
 
@@ -216,7 +213,7 @@ def populations(reports: List[tuple], notes: List[str]) -> Path:
              _row("Result with other rows", [str(b["population_wrong"]) for b in blocks]),
              "    \\midrule",
              f"    \\multicolumn{{{width}}}{{@{{}}l}}{{\\textit{{Other rows: first difference in "
-             f"the root box}}}} \\\\"]
+             f"the root node}}}} \\\\"]
     for key, label in CLASSES:
         lines.append(_row(label, [str(b["classes"].get(key, 0)) for b in blocks]))
         if key == "link_mismatch":
@@ -237,11 +234,9 @@ def populations(reports: List[tuple], notes: List[str]) -> Path:
                       for (rung, _), (name, _) in zip(reports, best))
     return ac.write_tex(
         "failure_populations", "\n".join(lines),
-        "Wrong rows at the arity rungs (fine-tuned Llama 3.1 8B, constrained decoding; N2 "
-        "forces gold's number of root variables). Counts are over all 169 questions; a "
-        "link-filter difference is broken down by sub-class. The clearing oracle sets every "
-        f"answer of the named classes to F1 1; the trivial floor is 0.7250. Best pair: {pairs}.",
-        "tab:abl:anatomy:populations", notes=notes)
+        "Wrong rows at the arity rungs (fine-tuned Llama 3.1 8B, constrained decoding) over all "
+        "169 questions, with the clearing oracle.",
+        "tab:abl:anatomy:populations", notes=[*notes, f"best pair: {pairs}"])
 
 
 def _pair_label(name: str) -> str:

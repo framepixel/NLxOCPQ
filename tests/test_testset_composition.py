@@ -46,6 +46,12 @@ check("the root is the unreferenced box, here node 1", roots(child_first), [1])
 check("any-box compliance sees the child's constraints", has_constraints(child_first), True)
 check("root-only compliance does not", has_constraints(child_first, root_only=True), False)
 
+# The skill label every table prints (analysis_common.SKILL_QUESTIONS) must match the audit: skill
+# is defined only where the trivial floor is below 1.0 (review 2026-11-11).
+import analysis_common as ac  # noqa: E402
+check("skill is defined on 134 questions, as the tables say", ac.skill_question_count(),
+      ac.SKILL_QUESTIONS)
+
 print()
 if failures:
     print(f"{len(failures)} check(s) FAILED")

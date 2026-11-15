@@ -6,17 +6,132 @@
     "`elapsed_sec` is its GPU wall time. `corpus` marks the groups that ran on the stale cluster corpus."
   ],
   "groups": [
-    {"id": "matrix", "label": "Matrix (48 conditions)", "globs": ["eval_runs/matrix_v2/shard_*"], "corpus": "pinned",
-     "expected": {"case_hours": 94.8, "median_case_seconds": 32.7, "p90_case_seconds": 79, "p99_case_seconds": 165, "section": "N11 39"}},
-    {"id": "decoding", "label": "Decoding ablation", "globs": ["eval_runs/decoding_ablation/shard_m1_s0_e0_2*", "eval_runs/decoding_ablation/shard_m1_s0_e0_constrained_tok4000_2*", "eval_runs/decoding_ablation/shard_m1_s0_e0_tok4000_2*"], "corpus": "old"},
-    {"id": "arity", "label": "Arity ablation", "globs": ["eval_runs/arity_ablation/shard_m1_s0_e0_2*", "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_tok4000_2*", "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_2*"], "corpus": "pinned"},
-    {"id": "structural", "label": "Structural ablation", "globs": ["eval_runs/structural_ablation/shard_*"], "corpus": "pinned"},
-    {"id": "non_oracle", "label": "Non-oracle system", "globs": ["eval_runs/non_oracle/shard_*"], "corpus": "pinned"},
-    {"id": "eval1_gate", "label": "Evaluation 1, gates", "globs": ["eval_runs/agentic_gate/shard_*", "eval_runs/agentic/shard_*pFBEXLR*"], "corpus": "pinned"},
-    {"id": "eval1", "label": "Evaluation 1, scored", "globs": ["eval_runs/agentic/shard_m2_s*_e0_*_2026092*"], "exclude": ["pFBEXLR"], "corpus": "pinned"},
-    {"id": "eval2_gate", "label": "Evaluation 2, gate and load smokes", "globs": ["eval_runs/unleashed_gate/shard_*"], "corpus": "pinned"},
-    {"id": "eval2", "label": "Evaluation 2, scored", "globs": ["eval_runs/unleashed/shard_*"], "corpus": "pinned"},
-    {"id": "examples_gate", "label": "Example lookup, gate and load smokes", "globs": ["eval_runs/unleashed_examples_gate/shard_*"], "corpus": "pinned"},
-    {"id": "examples", "label": "Example lookup, scored", "globs": ["eval_runs/unleashed_examples/shard_*"], "corpus": "pinned"}
+    {
+      "id": "matrix",
+      "label": "Matrix (48 conditions)",
+      "globs": [
+        "eval_runs/matrix_v2/shard_*"
+      ],
+      "corpus": "pinned",
+      "expected": {
+        "case_hours": 94.8,
+        "median_case_seconds": 32.7,
+        "p90_case_seconds": 79,
+        "p99_case_seconds": 165,
+        "section": "N11 39"
+      }
+    },
+    {
+      "id": "decoding",
+      "label": "Decoding ablation (old corpus)",
+      "globs": [
+        "eval_runs/decoding_ablation/shard_m1_s0_e0_20260910_054217",
+        "eval_runs/decoding_ablation/shard_m1_s0_e0_tok4000_20260910_054217",
+        "eval_runs/decoding_ablation/shard_m1_s0_e0_constrained_tok4000_20260910_060300"
+      ],
+      "corpus": "old"
+    },
+    {
+      "id": "decoding_rerun",
+      "label": "Decoding ablation, re-run",
+      "globs": [
+        "eval_runs/decoding_ablation/shard_m1_s0_e0*_20261027_*"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "structure_hint_rerun",
+      "label": "Structure-hint ablation, re-run",
+      "globs": [
+        "eval_runs/structure_ablation/shard_m1_s*_e0_20261027_*"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "selfconsistency_rerun",
+      "label": "Self-consistency, re-run",
+      "globs": [
+        "eval_runs/selfconsistency/shard_m*"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "arity",
+      "label": "Arity ablation",
+      "globs": [
+        "eval_runs/arity_ablation/shard_m1_s0_e0_2*",
+        "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_tok4000_2*",
+        "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_2*"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "structural",
+      "label": "Structural ablation",
+      "globs": [
+        "eval_runs/structural_ablation/shard_*"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "non_oracle",
+      "label": "Non-oracle system",
+      "globs": [
+        "eval_runs/non_oracle/shard_*"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "eval1_gate",
+      "label": "Evaluation 1, gates",
+      "globs": [
+        "eval_runs/agentic_gate/shard_*",
+        "eval_runs/agentic/shard_*pFBEXLR*"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "eval1",
+      "label": "Evaluation 1, scored",
+      "globs": [
+        "eval_runs/agentic/shard_m2_s*_e0_*_2026092*"
+      ],
+      "exclude": [
+        "pFBEXLR"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "eval2_gate",
+      "label": "Evaluation 2, gate and load smokes",
+      "globs": [
+        "eval_runs/unleashed_gate/shard_*"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "eval2",
+      "label": "Evaluation 2, scored",
+      "globs": [
+        "eval_runs/unleashed/shard_*"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "examples_gate",
+      "label": "Example lookup, gate and load smokes",
+      "globs": [
+        "eval_runs/unleashed_examples_gate/shard_*"
+      ],
+      "corpus": "pinned"
+    },
+    {
+      "id": "examples",
+      "label": "Example lookup, scored",
+      "globs": [
+        "eval_runs/unleashed_examples/shard_*"
+      ],
+      "corpus": "pinned"
+    }
   ]
 }

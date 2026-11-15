@@ -56,7 +56,23 @@ POPULATION_LABELS = {
     "all": "all 169 questions",
 }
 
+# Skill is undefined where the trivial floor is 1.0: the 34 non-discriminating questions and one
+# discriminating question (testset entry 6, every situation violating). So every skill mean is over
+# 134 questions, whatever a table's population, and the tables say so in the label (thesis Ch. 3,
+# par:eval:floor; review 2026-11-11). `skill_question_count` recounts it from the audit.
+SKILL_QUESTIONS = 134
+SKILL_LABEL = f"Skill ({SKILL_QUESTIONS})"
+SKILL_HEADER = f"\\makecell[r]{{Skill\\\\({SKILL_QUESTIONS})}}"
+
 EntryKey = Tuple[str, str]
+
+
+def skill_question_count(audit_path: Optional[Path] = None) -> int:
+    """Questions with a trivial floor below 1.0 in the discriminability audit: skill's domain."""
+    path = audit_path or paths.EVAL_RUNS / "testset_discriminability.json"
+    entries = json.loads(path.read_text(encoding="utf-8"))["entries"]
+    return sum(1 for e in entries
+               if e.get("trivial_floor") is not None and e["trivial_floor"] < 1.0)
 
 
 # --------------------------------------------------------------------------------------------
@@ -465,7 +481,8 @@ def write_json(name: str, payload: dict, runs: Iterable[Run] = ()) -> Path:
 
 
 def write_tex(name: str, tabular: str, caption: str, label: str,
-              runs: Iterable[Run] = (), notes: Iterable[str] = ()) -> Path:
+              runs: Iterable[Run] = (), notes: Iterable[str] = (),
+              out_dir: Optional[Path] = None) -> Path:
     """Write a booktabs table fragment to `<THESIS_TABLES>/<name>.tex`.
 
     Args:
@@ -475,12 +492,15 @@ def write_tex(name: str, tabular: str, caption: str, label: str,
         label: `\\label` key, e.g. `tab:matrix:arms`.
         runs: Runs the table was computed from (their predictions sha256 go in the header).
         notes: Extra `%` comment lines for the header (post-hoc subsets, old corpus, ...).
+        out_dir: Folder to write to instead of the thesis's (`paper_tables.py` passes the
+            conference paper's).
 
     Returns:
         The written path.
     """
-    paths.THESIS_TABLES.mkdir(parents=True, exist_ok=True)
-    out = paths.THESIS_TABLES / f"{name}.tex"
+    out_dir = paths.THESIS_TABLES if out_dir is None else Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{name}.tex"
     header = [
         "% GENERATED -- do not edit. Regenerate from the NLxOCPQ repo root with:",
         f"%   {command_line()}",

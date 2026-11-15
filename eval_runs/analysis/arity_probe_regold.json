@@ -1,0 +1,2415 @@
+{
+  "summary": {
+    "n": 169,
+    "correct": 81,
+    "abstained": 3,
+    "accuracy": 0.47928994082840237,
+    "constant_accuracy": 0.6272189349112426,
+    "minority_recall": 0.2857142857142857,
+    "per_class": {
+      "(0, 1)": {
+        "n": 106,
+        "hit": 63
+      },
+      "(1, 1)": {
+        "n": 36,
+        "hit": 15
+      },
+      "(2, 1)": {
+        "n": 5,
+        "hit": 1
+      },
+      "(1, 0)": {
+        "n": 14,
+        "hit": 0
+      },
+      "(0, 2)": {
+        "n": 4,
+        "hit": 2
+      },
+      "(1, 2)": {
+        "n": 4,
+        "hit": 0
+      }
+    },
+    "expected_value": -9.4162,
+    "constant_expected_value": 3.4610000000000003,
+    "expected_value_zero_loss": 6.6132,
+    "constant_expected_value_zero_loss": 6.6992,
+    "forced_wrong": {
+      "majority": 41,
+      "minority": 44
+    },
+    "gate_passed": false
+  },
+  "rows": [
+    {
+      "index": 0,
+      "nl_query": "What are the customers that received at least 50 payment reminders for their orders?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 20.942
+    },
+    {
+      "index": 1,
+      "nl_query": "orders with at most 10 items should be paid within three weeks after placement",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.945
+    },
+    {
+      "index": 2,
+      "nl_query": "Which orders were fully delivered within 3.5 weeks?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.943
+    },
+    {
+      "index": 3,
+      "nl_query": "Which customers had at least 5 orders for which at least two payment reminder had to be sent out?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.941
+    },
+    {
+      "index": 4,
+      "nl_query": "What is the total order volume of customers, i.e. the sum of all order prices for which payment has been recorded, where all customers with a total order volume below \u20ac300,000 are shown as having violated the terms?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.957
+    },
+    {
+      "index": 5,
+      "nl_query": "There are at least three items per package.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.94
+    },
+    {
+      "index": 6,
+      "nl_query": "Diagnostic equipment should not be used simultaneously for more than one diagnostic test.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.953
+    },
+    {
+      "index": 7,
+      "nl_query": "Every assigned bed must belong to the same room in which the patient receives care.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.946
+    },
+    {
+      "index": 8,
+      "nl_query": "Every completed assessment must have been previously sent to the candidate.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        2
+      ],
+      "duration_sec": 0.945
+    },
+    {
+      "index": 9,
+      "nl_query": "Vehicles must be booked before containers are loaded onto them.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        2
+      ],
+      "duration_sec": 0.943
+    },
+    {
+      "index": 10,
+      "nl_query": "Every backtracking step should eventually be followed by either new hypothesis generation or abductive reasoning.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        0
+      ],
+      "duration_sec": 1.037
+    },
+    {
+      "index": 11,
+      "nl_query": "Pattern recognition should precede inductive reasoning in successful reasoning paths.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 1.021
+    },
+    {
+      "index": 12,
+      "nl_query": "Counterfactual reasoning must be validated before producing a correct conclusion.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        0
+      ],
+      "duration_sec": 1.043
+    },
+    {
+      "index": 13,
+      "nl_query": "Ethical or moral reasoning should not directly produce wrong conclusions.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 1.026
+    },
+    {
+      "index": 14,
+      "nl_query": "Every reasoning sequence ending in a partially correct conclusion must contain at least one validation event.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        2,
+        1
+      ],
+      "predicted": [
+        1,
+        0
+      ],
+      "duration_sec": 1.031
+    },
+    {
+      "index": 15,
+      "nl_query": "Abductive reasoning followed by counterfactual reasoning should eventually lead to either validation or backtracking.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        2,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 1.027
+    },
+    {
+      "index": 16,
+      "nl_query": "Every feature implementation should eventually be followed by at least one test activity on the affected files.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 2.176
+    },
+    {
+      "index": 17,
+      "nl_query": "Performance optimization activities should not directly introduce subsequent bug-fix events on the same files within 48 hours.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 2.185
+    },
+    {
+      "index": 18,
+      "nl_query": "Containers that were at some point empty must not depart",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.941
+    },
+    {
+      "index": 19,
+      "nl_query": "Persons marked as non-citizens (isCitizen='0') must submit their file to the underwriter before signing the loan agreement.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.943
+    },
+    {
+      "index": 20,
+      "nl_query": "An order must have at least one item that was delivered within 3 weeks of placement",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.947
+    },
+    {
+      "index": 21,
+      "nl_query": "At the time of shipping, the order price must be at least \u20ac100",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.935
+    },
+    {
+      "index": 22,
+      "nl_query": "A patient may only be discharged if both the diagnostic test is complete AND the treatment is successful.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        2,
+        1
+      ],
+      "duration_sec": 0.939
+    },
+    {
+      "index": 23,
+      "nl_query": "For any loan approval, there must exist at least one prior submission to the underwriter by the applicant.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.948
+    },
+    {
+      "index": 24,
+      "nl_query": "After an abductive reasoning step, the next event must be either validation or counterfactual reasoning.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        0
+      ],
+      "duration_sec": 1.035
+    },
+    {
+      "index": 25,
+      "nl_query": "Retrieve the payment events for all orders that received at least one reminder.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.937,
+      "gold_before": [
+        0,
+        1
+      ]
+    },
+    {
+      "index": 26,
+      "nl_query": "Retrieve all containers that were rescheduled and subsequently reloaded.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        0
+      ],
+      "duration_sec": 1.894
+    },
+    {
+      "index": 27,
+      "nl_query": "List all candidates who accepted an offer and completed onboarding.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        0
+      ],
+      "duration_sec": 1.805
+    },
+    {
+      "index": 28,
+      "nl_query": "A backtracking event whose text contains 'failed' must not be followed by a conclusion event within one hour.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        0
+      ],
+      "duration_sec": 1.851
+    },
+    {
+      "index": 29,
+      "nl_query": "A reasoning module must not produce a wrong conclusion whose text is identical to a preceding correct conclusion's text.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        0
+      ],
+      "duration_sec": 1.035
+    },
+    {
+      "index": 30,
+      "nl_query": "Show each candidate's total number of panel interviews, flagging those with fewer than 1.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 2.795
+    },
+    {
+      "index": 31,
+      "nl_query": "Show vehicles with total handling units across all containers, marking those exceeding 100.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": null,
+      "duration_sec": 2.815
+    },
+    {
+      "index": 32,
+      "nl_query": "A rescheduled container must be reloaded within 48 hours.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.937
+    },
+    {
+      "index": 33,
+      "nl_query": "At the time of loading, a container must not have more than 5 handling units.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.939
+    },
+    {
+      "index": 34,
+      "nl_query": "Containers with more than 5 handling units must not depart.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.945
+    },
+    {
+      "index": 35,
+      "nl_query": "A documentation commit must follow any feature commit on the same file within 7 days.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 2.182
+    },
+    {
+      "index": 36,
+      "nl_query": "No refactoring commit should introduce a new bug fix on the same file within 24 hours.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 2.181
+    },
+    {
+      "index": 37,
+      "nl_query": "Any file touched by a feature commit must have at least 3 test commits on the same file.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 2.162
+    },
+    {
+      "index": 38,
+      "nl_query": "A build-breaking commit must be immediately followed by a fix commit on the same file.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 2.177
+    },
+    {
+      "index": 39,
+      "nl_query": "A container that is placed in stock must then be brought to the loading bay and subsequently loaded to a vehicle.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        3,
+        1
+      ],
+      "duration_sec": 0.933
+    },
+    {
+      "index": 40,
+      "nl_query": "A container must remain in stock for at least 6 hours before being brought to the loading bay.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.934
+    },
+    {
+      "index": 41,
+      "nl_query": "List all panel interview events for candidates who subsequently received an offer letter.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": null,
+      "duration_sec": 2.784
+    },
+    {
+      "index": 42,
+      "nl_query": "Which applicants older than 40 were rejected as prospective tenants?",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.944
+    },
+    {
+      "index": 43,
+      "nl_query": "Which married applicants signed a contract before moving in?",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.949
+    },
+    {
+      "index": 44,
+      "nl_query": "Persons aged 25 or younger who missed a rent payment at least twice.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.966
+    },
+    {
+      "index": 45,
+      "nl_query": "List every married person who was eventually evicted.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.949
+    },
+    {
+      "index": 46,
+      "nl_query": "Unmarried persons who missed a rent payment more than once.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.943
+    },
+    {
+      "index": 47,
+      "nl_query": "Show all persons older than 60 who paid rent at least once.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.94
+    },
+    {
+      "index": 48,
+      "nl_query": "A person who cancelled the apartment must not have moved in afterwards.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.934
+    },
+    {
+      "index": 49,
+      "nl_query": "Married applicants older than 35 must have had their paperwork checked before signing the contract.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.941
+    },
+    {
+      "index": 50,
+      "nl_query": "Materials with a net price above 500 must have their purchase requisition submitted before it is approved",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.972
+    },
+    {
+      "index": 51,
+      "nl_query": "Purchase requisitions must be approved before a request for quotation is created.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.975
+    },
+    {
+      "index": 52,
+      "nl_query": "Materials with a quantity of at least 50 should be linked to at least one goods receipt.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.978
+    },
+    {
+      "index": 53,
+      "nl_query": "Every purchase order must be linked to at least one invoice receipt",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.978
+    },
+    {
+      "index": 54,
+      "nl_query": "Every purchase requisition must have its approval delegated and must subsequently lead to a request for quotation.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.967
+    },
+    {
+      "index": 55,
+      "nl_query": "Every accepted application must subsequently go through a validation step.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 1.17
+    },
+    {
+      "index": 56,
+      "nl_query": "An offer that was created must eventually be either accepted or refused.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 1.165
+    },
+    {
+      "index": 57,
+      "nl_query": "An application must not be accepted before it has been validated.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 1.168
+    },
+    {
+      "index": 58,
+      "nl_query": "Which applications were denied without ever being validated?",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 1.158
+    },
+    {
+      "index": 59,
+      "nl_query": "Every offer must have been sent and must be linked to exactly one application.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 1.161
+    },
+    {
+      "index": 60,
+      "nl_query": "An application must not be both accepted and denied.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 1.16
+    },
+    {
+      "index": 61,
+      "nl_query": "Which applications with more than two linked offers were eventually cancelled or denied?",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 1.164
+    },
+    {
+      "index": 62,
+      "nl_query": "Every application must be submitted, then accepted, and then validated in that order.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        3,
+        1
+      ],
+      "duration_sec": 1.161
+    },
+    {
+      "index": 63,
+      "nl_query": "List all offers that were returned and later refused.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 1.162
+    },
+    {
+      "index": 64,
+      "nl_query": "Every treatment must eventually result in either a 'Treatment successful' or 'Treatment unsuccessful' event.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.924
+    },
+    {
+      "index": 65,
+      "nl_query": "A diagnosis must always be preceded by an examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.929
+    },
+    {
+      "index": 66,
+      "nl_query": "A patient must not be discharged without a prior treatment outcome.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.924
+    },
+    {
+      "index": 67,
+      "nl_query": "Every expert examination must eventually be followed by a thorough examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.927
+    },
+    {
+      "index": 68,
+      "nl_query": "Patients with private insurance must receive an expert examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.921
+    },
+    {
+      "index": 69,
+      "nl_query": "A patient must not be diagnosed more than once.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.93
+    },
+    {
+      "index": 70,
+      "nl_query": "Patients with an underlying condition must receive a thorough examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.926
+    },
+    {
+      "index": 71,
+      "nl_query": "List all patients who received a successful treatment.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.923
+    },
+    {
+      "index": 72,
+      "nl_query": "A patient must receive treatment within 2 days of their examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.927
+    },
+    {
+      "index": 73,
+      "nl_query": "Patients registered at the ER must receive a thorough examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.928
+    },
+    {
+      "index": 74,
+      "nl_query": "Every bug-fix commit must be associated with at least one file.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 2.121
+    },
+    {
+      "index": 75,
+      "nl_query": "Which feature commits touched more than five files?",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 2.166
+    },
+    {
+      "index": 76,
+      "nl_query": "Documentation commits should not modify build-configuration files in the same commit.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 2.159
+    },
+    {
+      "index": 77,
+      "nl_query": "List all commits that were applied to more than one branch.",
+      "ocel_path": "..\\Logs\\angular_github_commits_ocel.xml",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 2.17
+    },
+    {
+      "index": 78,
+      "nl_query": "Persons whose throughput time was at some point above 5 days.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.937
+    },
+    {
+      "index": 79,
+      "nl_query": "Every item must have been picked when its price was above 100.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.939
+    },
+    {
+      "index": 80,
+      "nl_query": "Every container must have been loaded to a vehicle when it had more than three handling units.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.938
+    },
+    {
+      "index": 81,
+      "nl_query": "A patient must not register at the ER without private insurance.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.931
+    },
+    {
+      "index": 82,
+      "nl_query": "Patients who underwent two distinct examination events must eventually be discharged.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        2,
+        1
+      ],
+      "duration_sec": 0.932
+    },
+    {
+      "index": 83,
+      "nl_query": "Patients who were diagnosed on two distinct occasions must eventually receive treatment.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        2,
+        1
+      ],
+      "duration_sec": 0.93
+    },
+    {
+      "index": 84,
+      "nl_query": "Persons who paid rent on two separate occasions must not be evicted.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.942
+    },
+    {
+      "index": 85,
+      "nl_query": "Packages with two distinct failed delivery attempts must eventually be delivered.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.934
+    },
+    {
+      "index": 86,
+      "nl_query": "Which persons are married?",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.935
+    },
+    {
+      "index": 87,
+      "nl_query": "Which items are priced above 100?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.933
+    },
+    {
+      "index": 88,
+      "nl_query": "Which patients have an underlying condition?",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.929
+    },
+    {
+      "index": 89,
+      "nl_query": "Containers loaded on a truck via the 'TR loads CR' relationship must eventually depart.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        2
+      ],
+      "duration_sec": 0.937
+    },
+    {
+      "index": 90,
+      "nl_query": "Which vehicles have a departure date before July 2023?",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.942
+    },
+    {
+      "index": 91,
+      "nl_query": "Which vehicles have a scheduled departure date after June 2024?",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.938
+    },
+    {
+      "index": 92,
+      "nl_query": "Patients must register at the ER, then undergo an examination, then receive a diagnosis, then be discharged.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        4,
+        1
+      ],
+      "duration_sec": 0.932
+    },
+    {
+      "index": 93,
+      "nl_query": "A package must not be delivered less than one hour (3,600 s) after it was sent.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.933
+    },
+    {
+      "index": 94,
+      "nl_query": "A viewing appointment must be set at least one day (86,400 s) after the application for it was filed.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.941
+    },
+    {
+      "index": 95,
+      "nl_query": "A physician must not conduct two different pre-admission consultations at the same time.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        2
+      ],
+      "duration_sec": 0.933
+    },
+    {
+      "index": 96,
+      "nl_query": "An insurance company must not verify insurance for two different patients at the same moment.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.936
+    },
+    {
+      "index": 97,
+      "nl_query": "An employee must not send two different packages at the same time.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.937
+    },
+    {
+      "index": 98,
+      "nl_query": "Candidates whose initial interview outcome was 'Pass' must eventually be scheduled for a panel interview.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.945
+    },
+    {
+      "index": 99,
+      "nl_query": "Which candidates had their background check come back flagged?",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.941
+    },
+    {
+      "index": 100,
+      "nl_query": "Candidates whose interview evaluation decision was 'Proceed' must eventually have an offer letter prepared.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.961
+    },
+    {
+      "index": 101,
+      "nl_query": "Show persons together with their number of rent payments, flagging those with fewer than five.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.943
+    },
+    {
+      "index": 102,
+      "nl_query": "Show packages together with the total weight of the items they contain, flagging those below 4 kg.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": null,
+      "duration_sec": 2.829
+    },
+    {
+      "index": 103,
+      "nl_query": "Every patient who receives a treatment must have that treatment recorded as either successful or unsuccessful.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.936
+    },
+    {
+      "index": 104,
+      "nl_query": "Every credit application handed in must end with either the loan agreement being signed or the loan being denied.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.942
+    },
+    {
+      "index": 105,
+      "nl_query": "Which transport documents are assigned to a vehicle scheduled to depart after June 2024?",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        2
+      ],
+      "predicted": [
+        0,
+        2
+      ],
+      "duration_sec": 0.934
+    },
+    {
+      "index": 106,
+      "nl_query": "No vehicle whose departure date was at some point set before 1 September 2023 may have had one of its containers rescheduled.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.942
+    },
+    {
+      "index": 107,
+      "nl_query": "No vehicle whose departure date was at some point set on or after 1 September 2023 may have had one of its containers rescheduled.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.941
+    },
+    {
+      "index": 108,
+      "nl_query": "A package shipped by an employee through the 'shipped by' relationship must not have a failed delivery.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        1,
+        2
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.948
+    },
+    {
+      "index": 109,
+      "nl_query": "A transport document assigned to a vehicle via the 'High-Prio VH for TD' relationship must depart at least three days after the document was created.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        2
+      ],
+      "predicted": [
+        1,
+        2
+      ],
+      "duration_sec": 0.939
+    },
+    {
+      "index": 110,
+      "nl_query": "Every registered customer order must lead to a transport document, which must be assigned to a vehicle, which must eventually depart.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        4
+      ],
+      "duration_sec": 0.944
+    },
+    {
+      "index": 111,
+      "nl_query": "Show the persons who are older than 40 and whose throughput time exceeded 30 days.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.941
+    },
+    {
+      "index": 112,
+      "nl_query": "A warning must only be issued at least seven days after the person missed a rent payment.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.933
+    },
+    {
+      "index": 113,
+      "nl_query": "After missing a rent payment, a person must either pay rent again or have a late payment accepted.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.936
+    },
+    {
+      "index": 114,
+      "nl_query": "Persons who were married at some point must have signed a contract.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.931
+    },
+    {
+      "index": 115,
+      "nl_query": "Patients who at some point had an underlying condition recorded must have received at least one expert examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.928
+    },
+    {
+      "index": 116,
+      "nl_query": "Before treatment starts, a patient must have been both examined and diagnosed.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        2,
+        1
+      ],
+      "duration_sec": 0.932
+    },
+    {
+      "index": 117,
+      "nl_query": "A container must not be ordered and picked up at exactly the same moment.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.935
+    },
+    {
+      "index": 118,
+      "nl_query": "List only the treatment events, not the registration events, for patients whose treatment was unsuccessful.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        2,
+        1
+      ],
+      "predicted": [
+        2,
+        1
+      ],
+      "duration_sec": 0.934
+    },
+    {
+      "index": 119,
+      "nl_query": "For every patient registered at the emergency room, at least one of their examinations must have been followed by a diagnosis.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.935
+    },
+    {
+      "index": 120,
+      "nl_query": "A candidate whose interview decision was 'Proceed' must have a background check with result 'Clear'.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.936
+    },
+    {
+      "index": 121,
+      "nl_query": "Which candidates had their assessment reviewed after passing the initial interview?",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.951
+    },
+    {
+      "index": 122,
+      "nl_query": "A hypothesis generation step must be followed by at least one of deductive reasoning, inductive reasoning or abductive reasoning.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        0
+      ],
+      "duration_sec": 1.025
+    },
+    {
+      "index": 123,
+      "nl_query": "A backtracking step must lead either to a validation step or to a new hypothesis generation, which must then reach a conclusion.",
+      "ocel_path": "..\\Logs\\reasoning_benchmark.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        0
+      ],
+      "duration_sec": 1.027
+    },
+    {
+      "index": 124,
+      "nl_query": "Containers linked to a transport document through the 'CR for TD' relationship must have been placed in stock at least once.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        2
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.934
+    },
+    {
+      "index": 125,
+      "nl_query": "Every patient registered at the emergency room must have both a thorough examination and an expert examination recorded.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.938
+    },
+    {
+      "index": 126,
+      "nl_query": "Patients whose total throughput time exceeded seven days must have received at least one thorough examination.",
+      "ocel_path": "..\\Logs\\hospital_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.929
+    },
+    {
+      "index": 127,
+      "nl_query": "Every order must have at least one item that was delivered within five days of the order being placed.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.938
+    },
+    {
+      "index": 128,
+      "nl_query": "Which orders worth more than 3000 euros contain an item heavier than one kilogram?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        2
+      ],
+      "predicted": [
+        0,
+        2
+      ],
+      "duration_sec": 0.94
+    },
+    {
+      "index": 129,
+      "nl_query": "no payment reminder should be sent out after payment has been made",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        2,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.931
+    },
+    {
+      "index": 130,
+      "nl_query": "Every item that is picked must be either sent in a package or marked as out of stock afterwards.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.93
+    },
+    {
+      "index": 131,
+      "nl_query": "Customers who place an order must have at least one payment event associated with one of their orders.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.93
+    },
+    {
+      "index": 132,
+      "nl_query": "Orders must not remain unpaid for more than 21 days after placement.",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.947
+    },
+    {
+      "index": 133,
+      "nl_query": "Borrower information must be verified before the file is submitted to the underwriter.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.926
+    },
+    {
+      "index": 134,
+      "nl_query": "A person whose loan was denied must not sign a loan agreement afterwards.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.945
+    },
+    {
+      "index": 135,
+      "nl_query": "Every signed loan agreement must be preceded by a submitted underwriting file.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.929
+    },
+    {
+      "index": 136,
+      "nl_query": "Appointment denial must only occur after a request appointment event.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.931
+    },
+    {
+      "index": 137,
+      "nl_query": "Every handed-in credit application must eventually lead to either a signed loan agreement, a rejected application, or a denied loan.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.933
+    },
+    {
+      "index": 138,
+      "nl_query": "Loan agreements should be signed within 30 days after handing in the credit application.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.926
+    },
+    {
+      "index": 139,
+      "nl_query": "Persons marked with skipped examination must not have their loan approved directly afterwards.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.945
+    },
+    {
+      "index": 140,
+      "nl_query": "Every patient arrival must be preceded by a completed registration.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.926
+    },
+    {
+      "index": 141,
+      "nl_query": "Initial evaluation must not occur before insurance verification has been completed.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.934
+    },
+    {
+      "index": 142,
+      "nl_query": "Candidates who rejected an offer must not start onboarding afterwards.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.935
+    },
+    {
+      "index": 143,
+      "nl_query": "Rescheduled containers must not depart before being reassigned to a vehicle.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.93
+    },
+    {
+      "index": 144,
+      "nl_query": "Only items that are linked to an order via the 'comprises' qualifier must be counted as part of that order",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.937
+    },
+    {
+      "index": 145,
+      "nl_query": "A 'pay order' event must be related to the order object via the 'order' qualifier",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.929
+    },
+    {
+      "index": 146,
+      "nl_query": "A container must only be counted as belonging to a transport document via the 'CR for TD' relationship.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.946
+    },
+    {
+      "index": 147,
+      "nl_query": "An offer letter must be sent at least 3 days (259,200 s) after the background check completes.",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        0
+      ],
+      "duration_sec": 1.763
+    },
+    {
+      "index": 148,
+      "nl_query": "A co-signer request must be made at least 2 days (172,800 s) before the loan agreement is signed.",
+      "ocel_path": "..\\Logs\\lending_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.93
+    },
+    {
+      "index": 149,
+      "nl_query": "A vehicle that is booked twice must involve two distinct booking events.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        2,
+        1
+      ],
+      "duration_sec": 0.935
+    },
+    {
+      "index": 150,
+      "nl_query": "An item must be both picked and sent in a package to be considered fulfilled",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        2,
+        1
+      ],
+      "duration_sec": 0.931
+    },
+    {
+      "index": 151,
+      "nl_query": "A container load event and its departure event must share the same object relationships within a single session.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        2,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.934
+    },
+    {
+      "index": 152,
+      "nl_query": "Each handling unit must be linked to exactly one container.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.948
+    },
+    {
+      "index": 153,
+      "nl_query": "Containers marked 'empty' at departure time must be flagged.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.936
+    },
+    {
+      "index": 154,
+      "nl_query": "A vehicle that departs must have been previously booked, and the booking must reference the same transport document.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        3
+      ],
+      "duration_sec": 0.947
+    },
+    {
+      "index": 155,
+      "nl_query": "A person may not apply for a viewing appointment more than 3 times in the same process.",
+      "ocel_path": "..\\Logs\\renting_log_high.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.946
+    },
+    {
+      "index": 156,
+      "nl_query": "For any vehicle departure, at least one container must have been loaded onto the vehicle beforehand.",
+      "ocel_path": "..\\Logs\\container_logistics.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        2
+      ],
+      "duration_sec": 0.938
+    },
+    {
+      "index": 157,
+      "nl_query": "Every purchase order must be approved before a payment is executed for it.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.979
+    },
+    {
+      "index": 158,
+      "nl_query": "Which invoice receipts were paid after a two-way match was performed?",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.981
+    },
+    {
+      "index": 159,
+      "nl_query": "Which approval events occurred for purchase requisitions that were later linked to a request for quotation?",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 1.795
+    },
+    {
+      "index": 160,
+      "nl_query": "Which patients had a diagnostic test performed on them, and by which lab technician?",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "gold": [
+        1,
+        2
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.967
+    },
+    {
+      "index": 161,
+      "nl_query": "Which sales employees confirmed orders for which customers?",
+      "ocel_path": "..\\Logs\\order-management.json",
+      "gold": [
+        1,
+        2
+      ],
+      "predicted": [
+        0,
+        2
+      ],
+      "duration_sec": 0.955
+    },
+    {
+      "index": 162,
+      "nl_query": "Which hiring managers reviewed assessments for which candidates?",
+      "ocel_path": "..\\Logs\\03_hiring.xml",
+      "gold": [
+        1,
+        2
+      ],
+      "predicted": [
+        0,
+        0
+      ],
+      "duration_sec": 1.815
+    },
+    {
+      "index": 163,
+      "nl_query": "Every patient must have at least one diagnostic test ordered.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.952
+    },
+    {
+      "index": 164,
+      "nl_query": "No bed may be assigned to a patient more than twice.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "gold": [
+        0,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.944
+    },
+    {
+      "index": 165,
+      "nl_query": "A diagnostic test must be ordered within one hour of the patient's arrival.",
+      "ocel_path": "..\\Logs\\04_hospital.xml",
+      "gold": [
+        1,
+        0
+      ],
+      "predicted": [
+        1,
+        1
+      ],
+      "duration_sec": 0.936
+    },
+    {
+      "index": 166,
+      "nl_query": "Every created purchase requisition must eventually be approved.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.98
+    },
+    {
+      "index": 167,
+      "nl_query": "A purchase requisition for which a request for quotation was created must eventually be approved.",
+      "ocel_path": "..\\Logs\\ocel2-p2p.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 0.977
+    },
+    {
+      "index": 168,
+      "nl_query": "Every offer that was created must eventually be returned by the customer.",
+      "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+      "gold": [
+        1,
+        1
+      ],
+      "predicted": [
+        0,
+        1
+      ],
+      "duration_sec": 1.172
+    }
+  ],
+  "rescored_from": "eval_runs/arity_probe/arity_probe_20260920.json",
+  "regold": {
+    "testset": "data/testset.json",
+    "rows_changed": [
+      "Retrieve the payment events for all orders that received at least one reminder."
+    ]
+  }
+}

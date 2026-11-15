@@ -64,11 +64,15 @@ CI_METHOD_TOLERANCE = 5e-3
 
 GROUP_CAPTIONS = {
     "matrix": "Paired differences between matrix arms",
-    "ablations": "Paired differences in the decoding, arity, structural and non-oracle ablations",
+    "ablations": "Paired differences in the ablations",
     "agentic": "Paired differences in the agentic evaluations",
-    # Kept apart from `ablations` on purpose: these ran on the stale cluster corpus (notes 35),
-    # and a table must never set an old-corpus rung beside the corrected ones (FLAGS IC-10).
-    "oldcorpus": "Paired differences in the structure-hint and token-budget ablations (old corpus)",
+    # Re-run on the pinned corpus on 2026-10-27 (their old-corpus runs stay reachable through each
+    # contrast's run_map, for --check against notes 11 §25.4 and §31.2).
+    "decoding_hint": "Paired differences in the token-budget and structure-hint ablations",
+    # The *_detail groups hold the rows the chapter does not discuss (reproductions, replicate
+    # contrasts, post-hoc subsets and single draws); their tables go to the appendix.
+    "ablations_detail": "Reproductions and further contrasts of the ablations",
+    "agentic_detail": "Post-hoc subsets and single draws of the agentic contrasts",
 }
 
 
@@ -351,20 +355,18 @@ def reconcile(row: dict, expected: dict) -> Tuple[List[str], List[str]]:
 # Output.
 # --------------------------------------------------------------------------------------------
 
-def _p_cell(p: Optional[float]) -> str:
-    if p is None:
-        return "--"
-    return "$<$0.001" if p < 0.001 else f"{p:.3f}"
-
-
 def tex_table(rows: List[dict]) -> str:
-    """The booktabs tabularx for one group of contrasts; the label column wraps."""
+    """The booktabs tabularx for one group of contrasts; the label column wraps.
+
+    The sign tests' p values stay in the JSON (`p`, `evaluated_p`) but not in the table: the
+    author dropped them from the thesis (Ch. 3 review, 2026-11-11); the counts stay.
+    """
     lines = [
         "  \\small",
-        "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}Xrrrcrr@{}}",
+        "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}Xrrcr@{}}",
         "    \\toprule",
-        "    Contrast & \\makecell[r]{Better /\\\\worse} & $p$ & $\\Delta$F1 & 95\\% CI & "
-        "\\makecell[r]{Evaluated:\\\\up / down} & $p$ \\\\",
+        "    Contrast & \\makecell[r]{Better /\\\\worse} & $\\Delta$F1 & 95\\% CI & "
+        "\\makecell[r]{Evaluated:\\\\up / down} \\\\",
         "    \\midrule",
     ]
     for index, row in enumerate(rows):
@@ -372,20 +374,17 @@ def tex_table(rows: List[dict]) -> str:
         if index and row["section"] != rows[index - 1]["section"]:
             lines.append("    \\midrule")
         label = row["label"] + (" (post hoc)" if row["post_hoc"] else "")
-        # The old-corpus group says so in its caption; elsewhere each such row says it itself.
-        label += " (old corpus)" if row["corpus"] == "old" and row["group"] != "oldcorpus" else ""
+        label += " (old corpus)" if row["corpus"] == "old" else ""
         ci = f"{ac.fmt(row['ci'][0], signed=True)}, {ac.fmt(row['ci'][1], signed=True)}"
         # A difference of differences has no "better" question, so its counts and sign tests
         # stay in the JSON and out of the table.
         if len(row["terms"]) > 2:
-            counts = p_f1 = evaluated = p_evaluated = "--"
+            counts = evaluated = "--"
         else:
             counts = f"{row['better']} / {row['worse']}"
-            p_f1 = _p_cell(row["p"])
             evaluated = f"{row['evaluated_gained']} / {row['evaluated_lost']}"
-            p_evaluated = _p_cell(row["evaluated_p"])
-        lines.append(f"    {label} & {counts} & {p_f1} & {ac.fmt(row['mean'], signed=True)} & "
-                     f"{ci} & {evaluated} & {p_evaluated} \\\\")
+        lines.append(f"    {label} & {counts} & {ac.fmt(row['mean'], signed=True)} & "
+                     f"{ci} & {evaluated} \\\\")
     lines += ["    \\bottomrule", "  \\end{tabularx}"]
     return "\n".join(lines)
 
@@ -401,12 +400,11 @@ def write_tables(rows: List[dict], settings: dict, runs: List[ac.Run]) -> List[P
         if len(populations) != 1:
             raise ValueError(f"group {group} mixes populations {populations}")
         population = ac.POPULATION_LABELS[populations.pop()]
-        full_caption = (
-            f"{caption}, paired over {population} (each question averaged over its draws and "
-            f"pooled conditions). $\\Delta$F1 is the mean difference in strict result F1; the "
-            f"interval is a percentile bootstrap over questions (\\num{{{settings['resamples']}}} "
-            f"resamples, seed {settings['seed']}); $p$-values are exact two-sided sign tests on "
-            f"the questions that changed.")
+        # Two printed lines at most (supervisor, 2026-11-06): the method (draws averaged per
+        # question, percentile bootstrap, resamples and seed, exact sign tests) is stated once,
+        # in the thesis's statistical-analysis section.
+        full_caption = (f"{caption} over {population}; the method is in "
+                        f"\\cref{{subsec:eval:stats}}.")
         used = {p for r in group_rows for p in r["runs"].values()}
         group_runs = [run for run in runs if run.provenance["run"] in used]
         written.append(ac.write_tex(f"paired_{group}", tex_table(group_rows), full_caption,
@@ -417,11 +415,11 @@ def write_tables(rows: List[dict], settings: dict, runs: List[ac.Run]) -> List[P
 def resolution_table(rows: List[dict], settings: dict, runs: List[ac.Run]) -> Path:
     """`paired_resolution`: what each ablation contrast could detect, and what it would need.
 
-    Two-condition contrasts of the `ablations` group only. Reproductions (same configuration run
-    twice) are left out: their spread is run-to-run noise, not an effect to power.
+    Two-condition contrasts of the `ablations` and `ablations_detail` groups. Reproductions (same
+    configuration run twice) are left out: their spread is run-to-run noise, not an effect to power.
     """
-    chosen = [r for r in rows if r["group"] == "ablations" and len(r["terms"]) == 2
-              and "reproduction" not in r["label"]]
+    chosen = [r for r in rows if r["group"] in ("ablations", "ablations_detail")
+              and len(r["terms"]) == 2 and "reproduction" not in r["label"]]
     lines = ["  \\small",
              "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}Xrrrr@{}}",
              "    \\toprule",
@@ -439,11 +437,8 @@ def resolution_table(rows: List[dict], settings: dict, runs: List[ac.Run]) -> Pa
     lines += ["    \\bottomrule", "  \\end{tabularx}"]
     used = {p for r in chosen for p in r["runs"].values()}
     caption = (
-        "What the ablations can resolve, over the 135 discriminating questions. The detectable "
-        f"difference is the smallest mean paired difference a two-sided test at "
-        f"$\\alpha = {settings['alpha']}$ detects with power {settings['power']} at the observed "
-        "paired standard deviation (normal approximation); the last column is the number of "
-        "questions that would detect the observed difference.")
+        "What each ablation contrast can resolve at $n = 135$: the smallest detectable difference "
+        f"($\\alpha = {settings['alpha']}$, power {settings['power']}) and the questions needed.")
     return ac.write_tex("paired_resolution", "\n".join(lines), caption, "tab:paired:resolution",
                         [run for run in runs if run.provenance["run"] in used])
 

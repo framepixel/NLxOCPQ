@@ -1,0 +1,1931 @@
+{
+  "generated": {
+    "command": "python src/paired_stats.py",
+    "utc": "2026-11-12T14:08:49+00:00",
+    "nlxocpq_commit": "644d44673a5065ccb5fd1223baae669986c59e19-dirty",
+    "inputs": [
+      {
+        "run": "eval_runs/matrix_v2/merged_regold_20260922",
+        "predictions_sha256": "ce99ed3e2045dd77cfc88a0d78d7fab0342f5ff20bd6633e1abb0d220cf9af1d",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_tok4000_20260913_164029_recomputed",
+        "predictions_sha256": "72e398e205d001b6925ea4b6f0e53c884a516a01d2c51ca9703d1b1c1d573103",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/arity_ablation/shard_m1_s0_e0_20260913_164030_recomputed",
+        "predictions_sha256": "ae32f8f6af191afd91c106427bea7ae62f7ba95a9e28945a3a40b230fe4d6589",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260913_164048_recomputed",
+        "predictions_sha256": "e615c34ae13c2f56c6dcf55671cbbe3d7486fffd64cc827e91b011b94f38fd8f",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_tok4000_20260914_194256",
+        "predictions_sha256": "c4c7381e42a9eadec9bc1a7a0e5d2b3ffe91e218fbf5540badc2f789f9fcf1b9",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260914_201903",
+        "predictions_sha256": "1794a9025b534c876fd195cbfe16d230585c9fe9912fc30161c69f0c5e64d321",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_structval_tok4000_20260914_200456",
+        "predictions_sha256": "fadf4bb473910c95942520ac1bdff1399d888361315a5f82fe2f0498b1243f06",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_structval_arityforced_tok4000_20260914_201931",
+        "predictions_sha256": "9c2c02092f81cd5e6180a27d829dac950d593faac3c3fae188661228243ff0fb",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_tok4000_20260918_132544",
+        "predictions_sha256": "a4caf9837998fcae528e8f6e986460b381e9c64e459ccb21ef125bf835458ada",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_tok4000_20260918_135412",
+        "predictions_sha256": "50f06ac163858bd2193b15d10e89a4f7b783670e96ee5f4ff6a41e813bc37af8",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_arityconst_tok4000_20260918_135842",
+        "predictions_sha256": "3687fba480a744c418664705a84f4b6f9f9562609ad31188bc3b9d59c32f258d",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_arityconst_tok4000_20260918_144134",
+        "predictions_sha256": "2b0b5a023e91c94678699ec76157c24dd335a0b9378d9e36f3d44c5dc9173e2a",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726",
+        "predictions_sha256": "7d4a249f45409d7e387ef2b05344ca0aa309b563845e9c14960e7a39918bc0b8",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s2_e0_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXL_20260927_090726",
+        "predictions_sha256": "379b98afb44109572385902510acc629987fdec3d955a76a46e36d384b9afbc5",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns16_tools24_turntok2000_pFBEXL_20260927_090739",
+        "predictions_sha256": "996a8a5b289945a62c5a69ee5a8e95f27be07b082afbb955d3056d54a234bf55",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260927_090739",
+        "predictions_sha256": "342ab1fa22790adb96e41bc39e1cbcde935e621d7ec9825739ca0a8d6a66a849",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_20260927_090726",
+        "predictions_sha256": "650488b66d5a95315bedb3ff378e4b5ea5d6a21ab80fe6f06b97fcaeedf4f1ee",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed/merged_m1_s1",
+        "predictions_sha256": "35b5b8d8f47a138cf540800987f673f88b1661e3a1d32792f7c5bfaf169710f0",
+        "pipeline_fingerprints": [
+          "f5cd068d2b39cf225f4f84e94677454ac54c00836dd888ac242d9e7721108bee"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed/merged_m1_s2",
+        "predictions_sha256": "104762cfe1a9b3fe7fa5735b2b78212fd2338fa4a3044d95defb317ff3540b91",
+        "pipeline_fingerprints": [
+          "f5cd068d2b39cf225f4f84e94677454ac54c00836dd888ac242d9e7721108bee"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed/merged_m1_s0",
+        "predictions_sha256": "4e151691ba5c64f7b6f417d78de1e590f7109563f9920c390e4e7e1cae5c06b5",
+        "pipeline_fingerprints": [
+          "f5cd068d2b39cf225f4f84e94677454ac54c00836dd888ac242d9e7721108bee"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed_examples/merged_m1_s0",
+        "predictions_sha256": "dc91557eccb2d27648dae75f1728addc8fd4e72414e6e5706fa4777f184f5a67",
+        "pipeline_fingerprints": [
+          "1e3a8e864b2412be1624a527954e3c3e13a04a9c4396e097393375188f436d7c"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed_examples/merged_m1_s1",
+        "predictions_sha256": "3902d1ab8ebdaa4321abf7a024fe95a2c3ecd0b98873121850874fb8c8a88879",
+        "pipeline_fingerprints": [
+          "1e3a8e864b2412be1624a527954e3c3e13a04a9c4396e097393375188f436d7c"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed_examples/merged_m2_s0",
+        "predictions_sha256": "42c42b28a14b9b6eb0bcd2565a42a240a986d406780f059ef6d12b711fd72181",
+        "pipeline_fingerprints": [
+          "1e3a8e864b2412be1624a527954e3c3e13a04a9c4396e097393375188f436d7c"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed_examples/merged_m2_s1",
+        "predictions_sha256": "2be1eceae57201b7e4533c5321a5b0697585bdc7d466e666f43fde7a0c9219b1",
+        "pipeline_fingerprints": [
+          "1e3a8e864b2412be1624a527954e3c3e13a04a9c4396e097393375188f436d7c"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/structure_ablation/shard_m1_s1_e0_20261027_120414",
+        "predictions_sha256": "d31db698cc55a7aad8ec0e269f9765ec3627b2aa79c0f9ccadfea39ec62ac561",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structure_ablation/shard_m1_s0_e0_20261027_120413",
+        "predictions_sha256": "582b165f9e145ef0263ff8c23360a7e531f592aff6e2e3b5d801b5a06c70eaef",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structure_ablation/shard_m1_s2_e0_20261027_120413",
+        "predictions_sha256": "eead34c70c791871845d02c13ebca47b03375cb6b32f5cbe14a18d401c33dbe5",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/decoding_ablation/shard_m1_s0_e0_tok4000_20261027_120413",
+        "predictions_sha256": "83f386ba444b0a49b625f21310a1fe65546bcc0bcfd6634407310d5a2ccb109c",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/decoding_ablation/shard_m1_s0_e0_20261027_120413",
+        "predictions_sha256": "cfefbf8aece48b0a30e440849057ba7870ec580ab44864b820bd83598e863d0b",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/decoding_ablation/shard_m1_s0_e0_constrained_tok4000_20261027_120413",
+        "predictions_sha256": "0b80c90d90c804f4245ed220384480c74f7697213b02333a9e16fc6699d07fda",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      }
+    ]
+  },
+  "settings": {
+    "resamples": 10000,
+    "seed": 0,
+    "confidence": 0.95,
+    "alpha": 0.05,
+    "power": 0.8
+  },
+  "contrasts": [
+    {
+      "id": "m14ft_vs_llamaft",
+      "label": "Ministral 14B ft $-$ Llama 8B ft",
+      "section": "39.4",
+      "group": "matrix",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "m14_ft": 1,
+        "llama_ft": -1
+      },
+      "runs": {
+        "m14_ft": "eval_runs/matrix_v2/merged_regold_20260922",
+        "llama_ft": "eval_runs/matrix_v2/merged_regold_20260922"
+      },
+      "n": 135,
+      "mean": 0.006024927160493827,
+      "ci": [
+        -0.027190639722222222,
+        0.03953075240740739
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 31,
+      "worse": 28,
+      "p": 0.7948436539828609,
+      "evaluated_gained": 59,
+      "evaluated_lost": 40,
+      "evaluated_p": 0.06990057369494637,
+      "identical": null,
+      "paired_sd": 0.19657937857708457,
+      "min_detectable_effect": 0.04739962555796462,
+      "questions_needed": 8356
+    },
+    {
+      "id": "m14base_vs_m3ft",
+      "label": "Ministral 14B base $-$ Ministral 3B ft",
+      "section": "39.4",
+      "group": "matrix",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "m14_base": 1,
+        "m3_ft": -1
+      },
+      "runs": {
+        "m14_base": "eval_runs/matrix_v2/merged_regold_20260922",
+        "m3_ft": "eval_runs/matrix_v2/merged_regold_20260922"
+      },
+      "n": 135,
+      "mean": -0.00033830123456790156,
+      "ci": [
+        -0.023797497469135797,
+        0.023496159814814798
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 21,
+      "worse": 30,
+      "p": 0.2624375357110438,
+      "evaluated_gained": 13,
+      "evaluated_lost": 98,
+      "evaluated_p": 2.6582841860054018e-17,
+      "identical": null,
+      "paired_sd": 0.14070969962290103,
+      "min_detectable_effect": 0.03392821323770663,
+      "questions_needed": 1357840
+    },
+    {
+      "id": "ft_llama",
+      "label": "Llama 3.1 8B: ft $-$ base",
+      "section": "39.4",
+      "group": "matrix",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "llama_ft": 1,
+        "llama_base": -1
+      },
+      "runs": {
+        "llama_ft": "eval_runs/matrix_v2/merged_regold_20260922",
+        "llama_base": "eval_runs/matrix_v2/merged_regold_20260922"
+      },
+      "n": 135,
+      "mean": 0.05549024567901235,
+      "ci": [
+        0.026020344567901234,
+        0.0855051359567901
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 43,
+      "worse": 13,
+      "p": 7.333218396948782e-05,
+      "evaluated_gained": 99,
+      "evaluated_lost": 15,
+      "evaluated_p": 2.3557999012403864e-16,
+      "identical": null,
+      "paired_sd": 0.17760326627324305,
+      "min_detectable_effect": 0.04282406618719741,
+      "questions_needed": 81
+    },
+    {
+      "id": "ft_m14",
+      "label": "Ministral 3 14B: ft $-$ base",
+      "section": "39.4",
+      "group": "matrix",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "m14_ft": 1,
+        "m14_base": -1
+      },
+      "runs": {
+        "m14_ft": "eval_runs/matrix_v2/merged_regold_20260922",
+        "m14_base": "eval_runs/matrix_v2/merged_regold_20260922"
+      },
+      "n": 135,
+      "mean": 0.03923305925925926,
+      "ci": [
+        0.009212497901234578,
+        0.0699819572530864
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 38,
+      "worse": 18,
+      "p": 0.010454818321892184,
+      "evaluated_gained": 111,
+      "evaluated_lost": 5,
+      "evaluated_p": 4.0398783181127895e-27,
+      "identical": null,
+      "paired_sd": 0.18037668988477856,
+      "min_detectable_effect": 0.043492799813541906,
+      "questions_needed": 166
+    },
+    {
+      "id": "ft_m3",
+      "label": "Ministral 3 3B: ft $-$ base",
+      "section": "39.4",
+      "group": "matrix",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "m3_ft": 1,
+        "m3_base": -1
+      },
+      "runs": {
+        "m3_ft": "eval_runs/matrix_v2/merged_regold_20260922",
+        "m3_base": "eval_runs/matrix_v2/merged_regold_20260922"
+      },
+      "n": 135,
+      "mean": 0.048631864197530864,
+      "ci": [
+        0.03195126404320988,
+        0.06706216929012346
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 42,
+      "worse": 5,
+      "p": 2.4579776436439715e-08,
+      "evaluated_gained": 112,
+      "evaluated_lost": 5,
+      "evaluated_p": 2.1092600824619318e-27,
+      "identical": null,
+      "paired_sd": 0.10548578733656885,
+      "min_detectable_effect": 0.025434950795104924,
+      "questions_needed": 37
+    },
+    {
+      "id": "ft_gemma",
+      "label": "Gemma 3 4B: ft $-$ base",
+      "section": "39.4",
+      "group": "matrix",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "gemma_ft": 1,
+        "gemma_base": -1
+      },
+      "runs": {
+        "gemma_ft": "eval_runs/matrix_v2/merged_regold_20260922",
+        "gemma_base": "eval_runs/matrix_v2/merged_regold_20260922"
+      },
+      "n": 135,
+      "mean": 0.014346335802469135,
+      "ci": [
+        -0.004223291512345674,
+        0.031578983672839504
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 24,
+      "worse": 12,
+      "p": 0.06524533522315323,
+      "evaluated_gained": 45,
+      "evaluated_lost": 53,
+      "evaluated_p": 0.479692499567487,
+      "identical": null,
+      "paired_sd": 0.10564332666542159,
+      "min_detectable_effect": 0.02547293700328365,
+      "questions_needed": 426
+    },
+    {
+      "id": "N0_N1",
+      "label": "N0 $\\to$ N1 (constrained decoding)",
+      "section": "36.1",
+      "group": "ablations_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "N1": 1,
+        "N0": -1
+      },
+      "runs": {
+        "N1": "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_tok4000_20260913_164029_recomputed",
+        "N0": "eval_runs/arity_ablation/shard_m1_s0_e0_20260913_164030_recomputed"
+      },
+      "n": 135,
+      "mean": 0.03240614074074074,
+      "ci": [
+        0.009141629629629628,
+        0.061792928333333295
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 6,
+      "worse": 0,
+      "p": 0.03125,
+      "evaluated_gained": 13,
+      "evaluated_lost": 0,
+      "evaluated_p": 0.000244140625,
+      "identical": 115,
+      "paired_sd": 0.15826714190226876,
+      "min_detectable_effect": 0.03816169996363638,
+      "questions_needed": 188
+    },
+    {
+      "id": "N1_N2",
+      "label": "N1 $\\to$ N2 (arity forced, oracle)",
+      "section": "36.1",
+      "group": "ablations",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "N2": 1,
+        "N1": -1
+      },
+      "runs": {
+        "N2": "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260913_164048_recomputed",
+        "N1": "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_tok4000_20260913_164029_recomputed"
+      },
+      "n": 135,
+      "mean": 0.0911450962962963,
+      "ci": [
+        0.05109455722222223,
+        0.13676418925925923
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 21,
+      "worse": 0,
+      "p": 9.5367431640625e-07,
+      "evaluated_gained": 12,
+      "evaluated_lost": 21,
+      "evaluated_p": 0.16275565745308995,
+      "identical": 71,
+      "paired_sd": 0.2561046983992334,
+      "min_detectable_effect": 0.06175249355058348,
+      "questions_needed": 62
+    },
+    {
+      "id": "N0_N2",
+      "label": "N0 $\\to$ N2",
+      "section": "36.1",
+      "group": "ablations_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "N2": 1,
+        "N0": -1
+      },
+      "runs": {
+        "N2": "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260913_164048_recomputed",
+        "N0": "eval_runs/arity_ablation/shard_m1_s0_e0_20260913_164030_recomputed"
+      },
+      "n": 135,
+      "mean": 0.12355123703703705,
+      "ci": [
+        0.07790814000000001,
+        0.17575587388888883
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 27,
+      "worse": 0,
+      "p": 1.4901161193847656e-08,
+      "evaluated_gained": 21,
+      "evaluated_lost": 17,
+      "evaluated_p": 0.6271025701571489,
+      "identical": 58,
+      "paired_sd": 0.29100979128104254,
+      "min_detectable_effect": 0.07016888160023313,
+      "questions_needed": 44
+    },
+    {
+      "id": "N1_S0",
+      "label": "N1 $\\to$ S0 (reproduction)",
+      "section": "37",
+      "group": "ablations_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "S0": 1,
+        "N1": -1
+      },
+      "runs": {
+        "S0": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_tok4000_20260914_194256",
+        "N1": "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_tok4000_20260913_164029_recomputed"
+      },
+      "n": 135,
+      "mean": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 0,
+      "worse": 0,
+      "p": null,
+      "evaluated_gained": 0,
+      "evaluated_lost": 1,
+      "evaluated_p": 1.0,
+      "identical": 157,
+      "paired_sd": 0.0,
+      "min_detectable_effect": 0.0,
+      "questions_needed": null
+    },
+    {
+      "id": "N2_S2",
+      "label": "N2 $\\to$ S2 (reproduction)",
+      "section": "37",
+      "group": "ablations_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "S2": 1,
+        "N2": -1
+      },
+      "runs": {
+        "S2": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260914_201903",
+        "N2": "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260913_164048_recomputed"
+      },
+      "n": 135,
+      "mean": -0.0070480148148148155,
+      "ci": [
+        -0.021144044444444447,
+        0.0
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 0,
+      "worse": 1,
+      "p": 1.0,
+      "evaluated_gained": 0,
+      "evaluated_lost": 1,
+      "evaluated_p": 1.0,
+      "identical": 160,
+      "paired_sd": 0.08189053200480279,
+      "min_detectable_effect": 0.019745614122226394,
+      "questions_needed": 1060
+    },
+    {
+      "id": "S0_S1",
+      "label": "S0 $\\to$ S1 (structural check)",
+      "section": "37",
+      "group": "ablations",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "S1": 1,
+        "S0": -1
+      },
+      "runs": {
+        "S1": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_structval_tok4000_20260914_200456",
+        "S0": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_tok4000_20260914_194256"
+      },
+      "n": 135,
+      "mean": 0.014582592592592593,
+      "ci": [
+        0.0,
+        0.036572592592592594
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 2,
+      "worse": 0,
+      "p": 0.5,
+      "evaluated_gained": 6,
+      "evaluated_lost": 0,
+      "evaluated_p": 0.03125,
+      "identical": 138,
+      "paired_sd": 0.11937570197004181,
+      "min_detectable_effect": 0.028784115684241773,
+      "questions_needed": 526
+    },
+    {
+      "id": "S2_S3",
+      "label": "S2 $\\to$ S3 (check under forced arity)",
+      "section": "37",
+      "group": "ablations_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "S3": 1,
+        "S2": -1
+      },
+      "runs": {
+        "S3": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_structval_arityforced_tok4000_20260914_201931",
+        "S2": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260914_201903"
+      },
+      "n": 135,
+      "mean": 0.008861451851851852,
+      "ci": [
+        -0.0036837925925925926,
+        0.027321125925925928
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 2,
+      "worse": 1,
+      "p": 1.0,
+      "evaluated_gained": 4,
+      "evaluated_lost": 0,
+      "evaluated_p": 0.125,
+      "identical": 143,
+      "paired_sd": 0.09589427388767048,
+      "min_detectable_effect": 0.02312222527270895,
+      "questions_needed": 920
+    },
+    {
+      "id": "S0_S2",
+      "label": "S0 $\\to$ S2 (arity forced, oracle)",
+      "section": "37",
+      "group": "ablations_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "S2": 1,
+        "S0": -1
+      },
+      "runs": {
+        "S2": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260914_201903",
+        "S0": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_tok4000_20260914_194256"
+      },
+      "n": 135,
+      "mean": 0.08409708148148148,
+      "ci": [
+        0.04052596481481482,
+        0.13198724296296296
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 21,
+      "worse": 1,
+      "p": 1.0967254638671875e-05,
+      "evaluated_gained": 12,
+      "evaluated_lost": 21,
+      "evaluated_p": 0.16275565745308995,
+      "identical": 71,
+      "paired_sd": 0.2712748563584805,
+      "min_detectable_effect": 0.06541035335321545,
+      "questions_needed": 82
+    },
+    {
+      "id": "S0_B0",
+      "label": "S0 $\\to$ B0 (reproduction)",
+      "section": "41",
+      "group": "ablations_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "B0": 1,
+        "S0": -1
+      },
+      "runs": {
+        "B0": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_tok4000_20260918_132544",
+        "S0": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_tok4000_20260914_194256"
+      },
+      "n": 135,
+      "mean": -0.0070480148148148155,
+      "ci": [
+        -0.021144044444444447,
+        0.0
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 0,
+      "worse": 1,
+      "p": 1.0,
+      "evaluated_gained": 0,
+      "evaluated_lost": 1,
+      "evaluated_p": 1.0,
+      "identical": 155,
+      "paired_sd": 0.08189053200480279,
+      "min_detectable_effect": 0.019745614122226394,
+      "questions_needed": 1060
+    },
+    {
+      "id": "S1_B1",
+      "label": "S1 $\\to$ B1 (reproduction)",
+      "section": "41",
+      "group": "ablations_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "B1": 1,
+        "S1": -1
+      },
+      "runs": {
+        "B1": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_tok4000_20260918_135412",
+        "S1": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_structval_tok4000_20260914_200456"
+      },
+      "n": 135,
+      "mean": 0.0034410296296296296,
+      "ci": [
+        0.0,
+        0.010323088888888887
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 1,
+      "worse": 0,
+      "p": 1.0,
+      "evaluated_gained": 2,
+      "evaluated_lost": 1,
+      "evaluated_p": 1.0,
+      "identical": 156,
+      "paired_sd": 0.03998115134808549,
+      "min_detectable_effect": 0.009640337745459112,
+      "questions_needed": 1060
+    },
+    {
+      "id": "B0_B1",
+      "label": "B0 $\\to$ B1 (structural check)",
+      "section": "41",
+      "group": "ablations",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "B1": 1,
+        "B0": -1
+      },
+      "runs": {
+        "B1": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_tok4000_20260918_135412",
+        "B0": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_tok4000_20260918_132544"
+      },
+      "n": 135,
+      "mean": 0.025071637037037037,
+      "ci": [
+        0.0034410296296296296,
+        0.05299268888888889
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 4,
+      "worse": 0,
+      "p": 0.125,
+      "evaluated_gained": 9,
+      "evaluated_lost": 1,
+      "evaluated_p": 0.021484375,
+      "identical": 137,
+      "paired_sd": 0.14899008427747487,
+      "min_detectable_effect": 0.03592479667867427,
+      "questions_needed": 278
+    },
+    {
+      "id": "B0_B2",
+      "label": "B0 $\\to$ B2 (constant arity)",
+      "section": "41",
+      "group": "ablations",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "B2": 1,
+        "B0": -1
+      },
+      "runs": {
+        "B2": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_arityconst_tok4000_20260918_135842",
+        "B0": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_tok4000_20260918_132544"
+      },
+      "n": 135,
+      "mean": 0.01991548888888889,
+      "ci": [
+        -0.014225246666666651,
+        0.056443556666666665
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 8,
+      "worse": 4,
+      "p": 0.3876953125,
+      "evaluated_gained": 15,
+      "evaluated_lost": 21,
+      "evaluated_p": 0.40503224614076316,
+      "identical": 85,
+      "paired_sd": 0.20962412149521295,
+      "min_detectable_effect": 0.05054500089842403,
+      "questions_needed": 870
+    },
+    {
+      "id": "B2_B3",
+      "label": "B2 $\\to$ B3 (check under constant arity)",
+      "section": "41",
+      "group": "ablations_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "B3": 1,
+        "B2": -1
+      },
+      "runs": {
+        "B3": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_arityconst_tok4000_20260918_144134",
+        "B2": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_arityconst_tok4000_20260918_135842"
+      },
+      "n": 135,
+      "mean": 0.0034803851851851857,
+      "ci": [
+        -0.010237777777777776,
+        0.021872266666666668
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 1,
+      "worse": 2,
+      "p": 1.0,
+      "evaluated_gained": 2,
+      "evaluated_lost": 1,
+      "evaluated_p": 1.0,
+      "identical": 145,
+      "paired_sd": 0.09392935236416793,
+      "min_detectable_effect": 0.022648439338808026,
+      "questions_needed": 5717
+    },
+    {
+      "id": "B1_B3",
+      "label": "B1 $\\to$ B3 (constant arity under check)",
+      "section": "41",
+      "group": "ablations_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "B3": 1,
+        "B1": -1
+      },
+      "runs": {
+        "B3": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_arityconst_tok4000_20260918_144134",
+        "B1": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_tok4000_20260918_135412"
+      },
+      "n": 135,
+      "mean": -0.0016757629629629619,
+      "ci": [
+        -0.046286061666666656,
+        0.04407873777777776
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 8,
+      "worse": 9,
+      "p": 1.0,
+      "evaluated_gained": 14,
+      "evaluated_lost": 27,
+      "evaluated_p": 0.05958388801809633,
+      "identical": 71,
+      "paired_sd": 0.2698841444418191,
+      "min_detectable_effect": 0.06507502202504716,
+      "questions_needed": 203581
+    },
+    {
+      "id": "B0_B3",
+      "label": "B0 $\\to$ B3 (both)",
+      "section": "41",
+      "group": "ablations",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "B3": 1,
+        "B0": -1
+      },
+      "runs": {
+        "B3": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_arityconst_tok4000_20260918_144134",
+        "B0": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_tok4000_20260918_132544"
+      },
+      "n": 135,
+      "mean": 0.023395874074074074,
+      "ci": [
+        -0.01263849203703702,
+        0.06316685222222221
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 8,
+      "worse": 5,
+      "p": 0.5810546875,
+      "evaluated_gained": 14,
+      "evaluated_lost": 19,
+      "evaluated_p": 0.48685024166479707,
+      "identical": 81,
+      "paired_sd": 0.2223904351885098,
+      "min_detectable_effect": 0.05362324080943535,
+      "questions_needed": 710
+    },
+    {
+      "id": "B_interaction",
+      "label": "interaction (B3 $-$ B2) $-$ (B1 $-$ B0)",
+      "section": "41",
+      "group": "ablations",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "B3": 1,
+        "B2": -1,
+        "B1": -1,
+        "B0": 1
+      },
+      "runs": {
+        "B3": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_arityconst_tok4000_20260918_144134",
+        "B2": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_arityconst_tok4000_20260918_135842",
+        "B1": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_tok4000_20260918_135412",
+        "B0": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_tok4000_20260918_132544"
+      },
+      "n": 135,
+      "mean": -0.021591251851851852,
+      "ci": [
+        -0.05135850166666666,
+        0.007124146666666666
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 1,
+      "worse": 6,
+      "p": 0.125,
+      "evaluated_gained": 3,
+      "evaluated_lost": 10,
+      "evaluated_p": 0.09228515625,
+      "identical": null,
+      "paired_sd": 0.17662556080373704,
+      "min_detectable_effect": 0.042588319826129394,
+      "questions_needed": 526
+    },
+    {
+      "id": "e1_log",
+      "label": "Eval.~1: A1 $-$ A1$'$ (log access)",
+      "section": "43.15",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "A1": 1,
+        "A1p": -1
+      },
+      "runs": {
+        "A1": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726",
+        "A1p": "eval_runs/agentic/shard_m2_s2_e0_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXL_20260927_090726"
+      },
+      "n": 135,
+      "mean": 0.01955857037037037,
+      "ci": [
+        -0.03748988574074072,
+        0.07913264074074075
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 18,
+      "worse": 20,
+      "p": 0.8714146793645341,
+      "evaluated_gained": 51,
+      "evaluated_lost": 16,
+      "evaluated_p": 2.1689238760717064e-05,
+      "identical": 2,
+      "paired_sd": 0.34428247578521787,
+      "min_detectable_effect": 0.0830141012577738,
+      "questions_needed": 2432
+    },
+    {
+      "id": "e1_budget",
+      "label": "Eval.~1: A2 $-$ A1 (budget)",
+      "section": "43.15",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "A2": 1,
+        "A1": -1
+      },
+      "runs": {
+        "A2": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns16_tools24_turntok2000_pFBEXL_20260927_090739",
+        "A1": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726"
+      },
+      "n": 135,
+      "mean": 0.007541540740740741,
+      "ci": [
+        -0.03340516925925923,
+        0.049275744259259235
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 10,
+      "worse": 8,
+      "p": 0.8145294189453125,
+      "evaluated_gained": 11,
+      "evaluated_lost": 14,
+      "evaluated_p": 0.6900379657745361,
+      "identical": 46,
+      "paired_sd": 0.24599118586972477,
+      "min_detectable_effect": 0.05931390253231695,
+      "questions_needed": 8351
+    },
+    {
+      "id": "e1_thought",
+      "label": "Eval.~1: A1+thought $-$ A1",
+      "section": "43.15",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "A1t": 1,
+        "A1": -1
+      },
+      "runs": {
+        "A1t": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260927_090739",
+        "A1": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726"
+      },
+      "n": 135,
+      "mean": 0.0007351851851851846,
+      "ci": [
+        -0.04445491037037036,
+        0.04424313203703704
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 21,
+      "worse": 13,
+      "p": 0.22948101302608848,
+      "evaluated_gained": 19,
+      "evaluated_lost": 22,
+      "evaluated_p": 0.755228657504631,
+      "identical": 6,
+      "paired_sd": 0.2636383939630299,
+      "min_detectable_effect": 0.06356903377660533,
+      "questions_needed": 1009327
+    },
+    {
+      "id": "e1_arm",
+      "label": "Eval.~1: A1 $-$ A0",
+      "section": "43.15",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "A1": 1,
+        "A0": -1
+      },
+      "runs": {
+        "A1": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726",
+        "A0": "eval_runs/agentic/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_20260927_090726"
+      },
+      "n": 135,
+      "mean": 0.11032270370370371,
+      "ci": [
+        0.06529564944444445,
+        0.1613969885185185
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 27,
+      "worse": 1,
+      "p": 2.1606683731079102e-07,
+      "evaluated_gained": 50,
+      "evaluated_lost": 9,
+      "evaluated_p": 5.264832102225281e-08,
+      "identical": 0,
+      "paired_sd": 0.28078213287715775,
+      "min_detectable_effect": 0.06770276749310765,
+      "questions_needed": 51
+    },
+    {
+      "id": "e1_loop",
+      "label": "Eval.~1: A1$'$ $-$ A0",
+      "section": "43.15",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "A1p": 1,
+        "A0": -1
+      },
+      "runs": {
+        "A1p": "eval_runs/agentic/shard_m2_s2_e0_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXL_20260927_090726",
+        "A0": "eval_runs/agentic/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_20260927_090726"
+      },
+      "n": 135,
+      "mean": 0.09076413333333333,
+      "ci": [
+        0.053070518703703704,
+        0.1320246048148148
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 30,
+      "worse": 1,
+      "p": 2.9802322387695312e-08,
+      "evaluated_gained": 43,
+      "evaluated_lost": 37,
+      "evaluated_p": 0.5764306261883931,
+      "identical": 0,
+      "paired_sd": 0.23609632852995696,
+      "min_detectable_effect": 0.05692803410476692,
+      "questions_needed": 54
+    },
+    {
+      "id": "e1_log_noangular",
+      "label": "Eval.~1: A1 $-$ A1$'$, without the angular log",
+      "section": "43.15",
+      "group": "agentic_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": {
+        "exclude_logs": [
+          "angular_github_commits_ocel.xml"
+        ],
+        "post_hoc": true
+      },
+      "post_hoc": true,
+      "terms": {
+        "A1": 1,
+        "A1p": -1
+      },
+      "runs": {
+        "A1": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726",
+        "A1p": "eval_runs/agentic/shard_m2_s2_e0_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXL_20260927_090726"
+      },
+      "n": 125,
+      "mean": 0.021123256,
+      "ci": [
+        -0.041105105399999994,
+        0.08304149919999998
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 18,
+      "worse": 20,
+      "p": 0.8714146793645341,
+      "evaluated_gained": 45,
+      "evaluated_lost": 16,
+      "evaluated_p": 0.00026427866182729843,
+      "identical": 2,
+      "paired_sd": 0.35784914478961627,
+      "min_detectable_effect": 0.08967033958224557,
+      "questions_needed": 2253
+    },
+    {
+      "id": "e1_arm_noangular",
+      "label": "Eval.~1: A1 $-$ A0, without the angular log",
+      "section": "43.15",
+      "group": "agentic_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": {
+        "exclude_logs": [
+          "angular_github_commits_ocel.xml"
+        ],
+        "post_hoc": true
+      },
+      "post_hoc": true,
+      "terms": {
+        "A1": 1,
+        "A0": -1
+      },
+      "runs": {
+        "A1": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726",
+        "A0": "eval_runs/agentic/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_20260927_090726"
+      },
+      "n": 125,
+      "mean": 0.11914852000000001,
+      "ci": [
+        0.0708839404,
+        0.17163338579999998
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 27,
+      "worse": 1,
+      "p": 2.1606683731079102e-07,
+      "evaluated_gained": 50,
+      "evaluated_lost": 8,
+      "evaluated_p": 1.5702617754687065e-08,
+      "identical": 0,
+      "paired_sd": 0.29006291523426986,
+      "min_detectable_effect": 0.07268437129999207,
+      "questions_needed": 47
+    },
+    {
+      "id": "e2_log",
+      "label": "Eval.~2: A1$^*$ $-$ A1$'^*$ (log access, headline)",
+      "section": "44.9",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "Q_A1": 1,
+        "Q_A1p": -1
+      },
+      "runs": {
+        "Q_A1": "eval_runs/unleashed/merged_m1_s1",
+        "Q_A1p": "eval_runs/unleashed/merged_m1_s2"
+      },
+      "n": 135,
+      "mean": 0.045286829629629634,
+      "ci": [
+        0.008713052222222227,
+        0.08482894935185185
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 39,
+      "worse": 22,
+      "p": 0.03961701489849968,
+      "evaluated_gained": 26,
+      "evaluated_lost": 19,
+      "evaluated_p": 0.3712980344710104,
+      "identical": null,
+      "paired_sd": 0.22612185181440225,
+      "min_detectable_effect": 0.054522967688970234,
+      "questions_needed": 196
+    },
+    {
+      "id": "e2_arm",
+      "label": "Eval.~2: A1$^*$ $-$ A0$^*$",
+      "section": "44.9",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "Q_A1": 1,
+        "Q_A0": -1
+      },
+      "runs": {
+        "Q_A1": "eval_runs/unleashed/merged_m1_s1",
+        "Q_A0": "eval_runs/unleashed/merged_m1_s0"
+      },
+      "n": 135,
+      "mean": 0.13281055555555554,
+      "ci": [
+        0.09020870990740741,
+        0.17856590759259258
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 53,
+      "worse": 7,
+      "p": 7.671918274276823e-10,
+      "evaluated_gained": 82,
+      "evaluated_lost": 9,
+      "evaluated_p": 7.088912032076995e-16,
+      "identical": null,
+      "paired_sd": 0.26706761565610604,
+      "min_detectable_effect": 0.0643958947901237,
+      "questions_needed": 32
+    },
+    {
+      "id": "e2_loop",
+      "label": "Eval.~2: A1$'^*$ $-$ A0$^*$",
+      "section": "44.9",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "Q_A1p": 1,
+        "Q_A0": -1
+      },
+      "runs": {
+        "Q_A1p": "eval_runs/unleashed/merged_m1_s2",
+        "Q_A0": "eval_runs/unleashed/merged_m1_s0"
+      },
+      "n": 135,
+      "mean": 0.08752372592592592,
+      "ci": [
+        0.048860506296296305,
+        0.128725004537037
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 36,
+      "worse": 9,
+      "p": 6.57466324582856e-05,
+      "evaluated_gained": 78,
+      "evaluated_lost": 14,
+      "evaluated_p": 6.162186756126439e-12,
+      "identical": null,
+      "paired_sd": 0.2388338492432937,
+      "min_detectable_effect": 0.05758811075018399,
+      "questions_needed": 59
+    },
+    {
+      "id": "e2_log_evaluated_all",
+      "label": "Eval.~2: A1$^*$ $-$ A1$'^*$, questions evaluated in every draw of both",
+      "section": "44.9",
+      "group": "agentic_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": {
+        "evaluated_in_all": [
+          "Q_A1",
+          "Q_A1p"
+        ],
+        "post_hoc": true
+      },
+      "post_hoc": true,
+      "terms": {
+        "Q_A1": 1,
+        "Q_A1p": -1
+      },
+      "runs": {
+        "Q_A1": "eval_runs/unleashed/merged_m1_s1",
+        "Q_A1p": "eval_runs/unleashed/merged_m1_s2"
+      },
+      "n": 88,
+      "mean": 0.05983972159090909,
+      "ci": [
+        0.01473448352272728,
+        0.10755921193181818
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 26,
+      "worse": 15,
+      "p": 0.11727520595741225,
+      "evaluated_gained": 0,
+      "evaluated_lost": 0,
+      "evaluated_p": null,
+      "identical": null,
+      "paired_sd": 0.2236313701061306,
+      "min_detectable_effect": 0.06678750593521704,
+      "questions_needed": 110
+    },
+    {
+      "id": "e2_log_noangular",
+      "label": "Eval.~2: A1$^*$ $-$ A1$'^*$, without the angular log",
+      "section": "44.9",
+      "group": "agentic_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": {
+        "exclude_logs": [
+          "angular_github_commits_ocel.xml"
+        ],
+        "post_hoc": true
+      },
+      "post_hoc": true,
+      "terms": {
+        "Q_A1": 1,
+        "Q_A1p": -1
+      },
+      "runs": {
+        "Q_A1": "eval_runs/unleashed/merged_m1_s1",
+        "Q_A1p": "eval_runs/unleashed/merged_m1_s2"
+      },
+      "n": 125,
+      "mean": 0.047801659999999996,
+      "ci": [
+        0.006766849000000011,
+        0.08987135729999998
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 35,
+      "worse": 21,
+      "p": 0.08142681460950621,
+      "evaluated_gained": 25,
+      "evaluated_lost": 17,
+      "evaluated_p": 0.27995623852893914,
+      "identical": null,
+      "paired_sd": 0.23472925777899573,
+      "min_detectable_effect": 0.05881878596441951,
+      "questions_needed": 190
+    },
+    {
+      "id": "e2_log_draw1",
+      "label": "Eval.~2: A1$^*$ $-$ A1$'^*$, draw 1 only",
+      "section": "44.9",
+      "group": "agentic_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": {
+        "draw": 1
+      },
+      "post_hoc": false,
+      "terms": {
+        "Q_A1": 1,
+        "Q_A1p": -1
+      },
+      "runs": {
+        "Q_A1": "eval_runs/unleashed/merged_m1_s1",
+        "Q_A1p": "eval_runs/unleashed/merged_m1_s2"
+      },
+      "n": 135,
+      "mean": 0.023835207407407407,
+      "ci": [
+        -0.02458067888888887,
+        0.07372777296296296
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 17,
+      "worse": 15,
+      "p": 0.860050065908581,
+      "evaluated_gained": 18,
+      "evaluated_lost": 12,
+      "evaluated_p": 0.361594608053565,
+      "identical": null,
+      "paired_sd": 0.29240698907169027,
+      "min_detectable_effect": 0.07050577681572569,
+      "questions_needed": 1182
+    },
+    {
+      "id": "e2_log_draw2",
+      "label": "Eval.~2: A1$^*$ $-$ A1$'^*$, draw 2 only",
+      "section": "44.9",
+      "group": "agentic_detail",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": {
+        "draw": 2
+      },
+      "post_hoc": false,
+      "terms": {
+        "Q_A1": 1,
+        "Q_A1p": -1
+      },
+      "runs": {
+        "Q_A1": "eval_runs/unleashed/merged_m1_s1",
+        "Q_A1p": "eval_runs/unleashed/merged_m1_s2"
+      },
+      "n": 135,
+      "mean": 0.06673845185185186,
+      "ci": [
+        0.009587176851851856,
+        0.12582349629629624
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 33,
+      "worse": 14,
+      "p": 0.007942726509483578,
+      "evaluated_gained": 12,
+      "evaluated_lost": 10,
+      "evaluated_p": 0.8318119049072266,
+      "identical": null,
+      "paired_sd": 0.34606867168915667,
+      "min_detectable_effect": 0.08344479250134525,
+      "questions_needed": 212
+    },
+    {
+      "id": "ex_q_with_log",
+      "label": "Qwen: examples, with log access (A1$^*$+S $-$ A1$^*$)",
+      "section": "45.9",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "Q_A1S": 1,
+        "Q_A1": -1
+      },
+      "runs": {
+        "Q_A1S": "eval_runs/unleashed_examples/merged_m1_s0",
+        "Q_A1": "eval_runs/unleashed/merged_m1_s1"
+      },
+      "n": 135,
+      "mean": 0.06419072222222222,
+      "ci": [
+        0.00933513898148149,
+        0.12099787953703703
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 41,
+      "worse": 29,
+      "p": 0.18821620302302766,
+      "evaluated_gained": 23,
+      "evaluated_lost": 12,
+      "evaluated_p": 0.0895310789346695,
+      "identical": null,
+      "paired_sd": 0.3346542312085618,
+      "min_detectable_effect": 0.08069251905002944,
+      "questions_needed": 214
+    },
+    {
+      "id": "ex_q_without_log",
+      "label": "Qwen: examples, without log access (A1$'^*$+S $-$ A1$'^*$)",
+      "section": "45.9",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "Q_A1pS": 1,
+        "Q_A1p": -1
+      },
+      "runs": {
+        "Q_A1pS": "eval_runs/unleashed_examples/merged_m1_s1",
+        "Q_A1p": "eval_runs/unleashed/merged_m1_s2"
+      },
+      "n": 135,
+      "mean": 0.057770570370370374,
+      "ci": [
+        0.007520128055555559,
+        0.10930006712962959
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 40,
+      "worse": 24,
+      "p": 0.05994118956699923,
+      "evaluated_gained": 26,
+      "evaluated_lost": 12,
+      "evaluated_p": 0.03355243967962451,
+      "identical": null,
+      "paired_sd": 0.30296978211408204,
+      "min_detectable_effect": 0.07305269927870067,
+      "questions_needed": 216
+    },
+    {
+      "id": "ex_q_log_given_S",
+      "label": "Qwen: log access, given examples (A1$^*$+S $-$ A1$'^*$+S)",
+      "section": "45.9",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "Q_A1S": 1,
+        "Q_A1pS": -1
+      },
+      "runs": {
+        "Q_A1S": "eval_runs/unleashed_examples/merged_m1_s0",
+        "Q_A1pS": "eval_runs/unleashed_examples/merged_m1_s1"
+      },
+      "n": 135,
+      "mean": 0.051706981481481486,
+      "ci": [
+        0.0026497522222222237,
+        0.0998910961111111
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 43,
+      "worse": 23,
+      "p": 0.018657260354021005,
+      "evaluated_gained": 15,
+      "evaluated_lost": 11,
+      "evaluated_p": 0.557197093963623,
+      "identical": null,
+      "paired_sd": 0.2907965174840643,
+      "min_detectable_effect": 0.07011745658204828,
+      "questions_needed": 249
+    },
+    {
+      "id": "ex_g_log_given_S",
+      "label": "Glimmer: log access, given examples (A1$^*$+S $-$ A1$'^*$+S)",
+      "section": "45.9",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "G_A1S": 1,
+        "G_A1pS": -1
+      },
+      "runs": {
+        "G_A1S": "eval_runs/unleashed_examples/merged_m2_s0",
+        "G_A1pS": "eval_runs/unleashed_examples/merged_m2_s1"
+      },
+      "n": 135,
+      "mean": 0.06963127407407407,
+      "ci": [
+        0.022838917407407414,
+        0.11840973138888888
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 45,
+      "worse": 17,
+      "p": 0.0004970915863810334,
+      "evaluated_gained": 7,
+      "evaluated_lost": 3,
+      "evaluated_p": 0.34375,
+      "identical": null,
+      "paired_sd": 0.28423179958129086,
+      "min_detectable_effect": 0.06853455824989635,
+      "questions_needed": 131
+    },
+    {
+      "id": "ex_q_interaction",
+      "label": "Qwen interaction: log effect with S $-$ without S",
+      "section": "45.9",
+      "group": "agentic",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "Q_A1S": 1,
+        "Q_A1pS": -1,
+        "Q_A1": -1,
+        "Q_A1p": 1
+      },
+      "runs": {
+        "Q_A1S": "eval_runs/unleashed_examples/merged_m1_s0",
+        "Q_A1pS": "eval_runs/unleashed_examples/merged_m1_s1",
+        "Q_A1": "eval_runs/unleashed/merged_m1_s1",
+        "Q_A1p": "eval_runs/unleashed/merged_m1_s2"
+      },
+      "n": 135,
+      "mean": 0.006420151851851853,
+      "ci": [
+        -0.05044996462962963,
+        0.06163484592592593
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 46,
+      "worse": 41,
+      "p": 0.6682849967188074,
+      "evaluated_gained": 30,
+      "evaluated_lost": 30,
+      "evaluated_p": 1.0,
+      "identical": null,
+      "paired_sd": 0.338577236709665,
+      "min_detectable_effect": 0.08163844223464878,
+      "questions_needed": 21829
+    },
+    {
+      "id": "H0_H1",
+      "label": "H0 $\\to$ H1 (skeleton given, oracle)",
+      "section": "25.4",
+      "group": "decoding_hint",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "H1": 1,
+        "H0": -1
+      },
+      "runs": {
+        "H1": "eval_runs/structure_ablation/shard_m1_s1_e0_20261027_120414",
+        "H0": "eval_runs/structure_ablation/shard_m1_s0_e0_20261027_120413"
+      },
+      "n": 135,
+      "mean": -0.06403196296296297,
+      "ci": [
+        -0.11930335907407406,
+        -0.0097701588888889
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 9,
+      "worse": 22,
+      "p": 0.029449373483657837,
+      "evaluated_gained": 23,
+      "evaluated_lost": 12,
+      "evaluated_p": 0.0895310789346695,
+      "identical": 51,
+      "paired_sd": 0.3261676279294978,
+      "min_detectable_effect": 0.07864621174863115,
+      "questions_needed": 204
+    },
+    {
+      "id": "H0_H2",
+      "label": "H0 $\\to$ H2 (skeleton and constraint types, oracle)",
+      "section": "25.4",
+      "group": "decoding_hint",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "H2": 1,
+        "H0": -1
+      },
+      "runs": {
+        "H2": "eval_runs/structure_ablation/shard_m1_s2_e0_20261027_120413",
+        "H0": "eval_runs/structure_ablation/shard_m1_s0_e0_20261027_120413"
+      },
+      "n": 135,
+      "mean": -0.08504617777777779,
+      "ci": [
+        -0.14631237648148146,
+        -0.026098364074074086
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 9,
+      "worse": 27,
+      "p": 0.00393317302223295,
+      "evaluated_gained": 20,
+      "evaluated_lost": 20,
+      "evaluated_p": 1.0,
+      "identical": 43,
+      "paired_sd": 0.35902557676960045,
+      "min_detectable_effect": 0.08656898820106,
+      "questions_needed": 140
+    },
+    {
+      "id": "D0_D1",
+      "label": "D0 $\\to$ D1 (token budget doubled)",
+      "section": "31.2",
+      "group": "decoding_hint",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "D1": 1,
+        "D0": -1
+      },
+      "runs": {
+        "D1": "eval_runs/decoding_ablation/shard_m1_s0_e0_tok4000_20261027_120413",
+        "D0": "eval_runs/decoding_ablation/shard_m1_s0_e0_20261027_120413"
+      },
+      "n": 135,
+      "mean": 0.010489044444444444,
+      "ci": [
+        0.0,
+        0.028026103703703703
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 2,
+      "worse": 0,
+      "p": 0.5,
+      "evaluated_gained": 2,
+      "evaluated_lost": 1,
+      "evaluated_p": 1.0,
+      "identical": 160,
+      "paired_sd": 0.09086079937463687,
+      "min_detectable_effect": 0.021908543507610706,
+      "questions_needed": 589
+    },
+    {
+      "id": "D1_D2",
+      "label": "D1 $\\to$ D2 (constrained decoding)",
+      "section": "31.2",
+      "group": "decoding_hint",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "D2": 1,
+        "D1": -1
+      },
+      "runs": {
+        "D2": "eval_runs/decoding_ablation/shard_m1_s0_e0_constrained_tok4000_20261027_120413",
+        "D1": "eval_runs/decoding_ablation/shard_m1_s0_e0_tok4000_20261027_120413"
+      },
+      "n": 135,
+      "mean": 0.021917096296296297,
+      "ci": [
+        -0.007870911111111111,
+        0.05519897111111111
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 6,
+      "worse": 2,
+      "p": 0.2890625,
+      "evaluated_gained": 13,
+      "evaluated_lost": 2,
+      "evaluated_p": 0.00738525390625,
+      "identical": 115,
+      "paired_sd": 0.18436123574465602,
+      "min_detectable_effect": 0.04445356173650561,
+      "questions_needed": 556
+    },
+    {
+      "id": "D0_D2",
+      "label": "D0 $\\to$ D2 (both)",
+      "section": "31.2",
+      "group": "decoding_hint",
+      "corpus": "pinned",
+      "population": "discriminating",
+      "subset": null,
+      "post_hoc": false,
+      "terms": {
+        "D2": 1,
+        "D0": -1
+      },
+      "runs": {
+        "D2": "eval_runs/decoding_ablation/shard_m1_s0_e0_constrained_tok4000_20261027_120413",
+        "D0": "eval_runs/decoding_ablation/shard_m1_s0_e0_20261027_120413"
+      },
+      "n": 135,
+      "mean": 0.03240614074074074,
+      "ci": [
+        0.009141629629629628,
+        0.061792928333333295
+      ],
+      "resamples": 10000,
+      "seed": 0,
+      "better": 6,
+      "worse": 0,
+      "p": 0.03125,
+      "evaluated_gained": 12,
+      "evaluated_lost": 0,
+      "evaluated_p": 0.00048828125,
+      "identical": 116,
+      "paired_sd": 0.15826714190226876,
+      "min_detectable_effect": 0.03816169996363638,
+      "questions_needed": 188
+    }
+  ]
+}

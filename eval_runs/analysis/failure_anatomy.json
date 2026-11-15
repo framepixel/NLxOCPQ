@@ -1,0 +1,1470 @@
+{
+  "run_dir": "eval_runs\\matrix_v2\\merged",
+  "disjoint_threshold": 0.05,
+  "conditions": {
+    "primary: llama31-8b-finetuned / schema-allowed-entities-only / schema=on": {
+      "n": 169,
+      "buckets": {
+        "unscored": 61,
+        "disjoint": 63,
+        "partial": 13,
+        "exact": 19,
+        "over_broad": 10,
+        "over_narrow": 3
+      },
+      "executed": 108,
+      "entities": {
+        "object_types": 46,
+        "event_activities": 42,
+        "both": 32,
+        "n": 63
+      },
+      "composition": {
+        "node_count": 17,
+        "filter_multiset": 27,
+        "constraint_multiset": 10,
+        "n": 63,
+        "gold_boxes": 2.492063492063492,
+        "pred_boxes": 1.6349206349206349,
+        "constructs": {
+          "AND": {
+            "gold": 2,
+            "predicted": 1
+          },
+          "ANY": {
+            "gold": 4,
+            "predicted": 1
+          },
+          "Filter:BasicFilterCEL": {
+            "gold": 1,
+            "predicted": 1
+          },
+          "Filter:NotEqual": {
+            "gold": 0,
+            "predicted": 1
+          },
+          "Filter:ObjectAttributeValueFilter": {
+            "gold": 1,
+            "predicted": 1
+          },
+          "Filter:TimeBetweenEvents": {
+            "gold": 22,
+            "predicted": 19
+          },
+          "NOT": {
+            "gold": 7,
+            "predicted": 6
+          },
+          "OR": {
+            "gold": 2,
+            "predicted": 4
+          },
+          "SAT": {
+            "gold": 50,
+            "predicted": 5
+          },
+          "SizeFilter": {
+            "gold": 50,
+            "predicted": 13
+          }
+        },
+        "size_filter_field": {
+          "gold": 1,
+          "predicted": 6
+        }
+      },
+      "bucket_table": {
+        "exact": {
+          "n": 19,
+          "gold_nodes": 2.1578947368421053,
+          "pred_nodes": 1.7894736842105263,
+          "node_match": 0.631578947368421,
+          "gold_sat_per_query": 0.631578947368421,
+          "pred_sat_per_query": 0.21052631578947367
+        },
+        "partial": {
+          "n": 13,
+          "gold_nodes": 2.5384615384615383,
+          "pred_nodes": 2.3076923076923075,
+          "node_match": 0.8461538461538461,
+          "gold_sat_per_query": 0.6923076923076923,
+          "pred_sat_per_query": 0.07692307692307693
+        },
+        "disjoint": {
+          "n": 63,
+          "gold_nodes": 2.492063492063492,
+          "pred_nodes": 1.6349206349206349,
+          "node_match": 0.2698412698412698,
+          "gold_sat_per_query": 0.7936507936507936,
+          "pred_sat_per_query": 0.07936507936507936
+        }
+      },
+      "depth": {
+        "2": {
+          "n": 81,
+          "executed": 54,
+          "f1_sum": 14.820761,
+          "exact": 8
+        },
+        "3": {
+          "n": 58,
+          "executed": 37,
+          "f1_sum": 11.978258,
+          "exact": 7
+        },
+        "4+": {
+          "n": 15,
+          "executed": 6,
+          "f1_sum": 0.926528,
+          "exact": 0
+        },
+        "1": {
+          "n": 15,
+          "executed": 11,
+          "f1_sum": 4.680282000000001,
+          "exact": 4
+        }
+      },
+      "emitted": {
+        "n": 122,
+        "one_box": 46,
+        "mean_boxes": 1.8442622950819672,
+        "with_sat": 13
+      },
+      "shape": {
+        "shape_matched": {
+          "n": 50,
+          "mean_f1": 0.42091051999999995,
+          "exact": 12,
+          "still_disjoint": 17
+        },
+        "shape_mismatched": {
+          "n": 58,
+          "mean_f1": 0.19586729310344828,
+          "exact": 7,
+          "still_disjoint": 46
+        }
+      }
+    },
+    "base pair: llama31-8b-base / schema-chain-of-thought-plus / schema=on": {
+      "n": 169,
+      "buckets": {
+        "disjoint": 45,
+        "unscored": 101,
+        "partial": 8,
+        "exact": 7,
+        "over_broad": 5,
+        "over_narrow": 3
+      },
+      "executed": 68,
+      "entities": {
+        "object_types": 32,
+        "event_activities": 22,
+        "both": 19,
+        "n": 45
+      },
+      "composition": {
+        "node_count": 16,
+        "filter_multiset": 10,
+        "constraint_multiset": 3,
+        "n": 45,
+        "gold_boxes": 2.422222222222222,
+        "pred_boxes": 2.6666666666666665,
+        "constructs": {
+          "AND": {
+            "gold": 3,
+            "predicted": 1
+          },
+          "ANY": {
+            "gold": 3,
+            "predicted": 1
+          },
+          "Filter:EventAttributeValueFilter": {
+            "gold": 0,
+            "predicted": 5
+          },
+          "Filter:ObjectAttributeValueFilter": {
+            "gold": 1,
+            "predicted": 4
+          },
+          "Filter:TimeBetweenEvents": {
+            "gold": 16,
+            "predicted": 10
+          },
+          "NOT": {
+            "gold": 5,
+            "predicted": 0
+          },
+          "OR": {
+            "gold": 3,
+            "predicted": 3
+          },
+          "SAT": {
+            "gold": 32,
+            "predicted": 27
+          },
+          "SizeFilter": {
+            "gold": 31,
+            "predicted": 28
+          }
+        },
+        "size_filter_field": {
+          "gold": 1,
+          "predicted": 1
+        }
+      },
+      "bucket_table": {
+        "exact": {
+          "n": 7,
+          "gold_nodes": 2.4285714285714284,
+          "pred_nodes": 2.4285714285714284,
+          "node_match": 0.7142857142857143,
+          "gold_sat_per_query": 0.7142857142857143,
+          "pred_sat_per_query": 0.14285714285714285
+        },
+        "partial": {
+          "n": 8,
+          "gold_nodes": 2.75,
+          "pred_nodes": 2.875,
+          "node_match": 0.125,
+          "gold_sat_per_query": 1.0,
+          "pred_sat_per_query": 0.5
+        },
+        "disjoint": {
+          "n": 45,
+          "gold_nodes": 2.422222222222222,
+          "pred_nodes": 2.6666666666666665,
+          "node_match": 0.35555555555555557,
+          "gold_sat_per_query": 0.7111111111111111,
+          "pred_sat_per_query": 0.6
+        }
+      },
+      "depth": {
+        "2": {
+          "n": 81,
+          "executed": 29,
+          "f1_sum": 7.426516,
+          "exact": 4
+        },
+        "3": {
+          "n": 58,
+          "executed": 26,
+          "f1_sum": 8.250706999999998,
+          "exact": 3
+        },
+        "4+": {
+          "n": 15,
+          "executed": 6,
+          "f1_sum": 0.775691,
+          "exact": 0
+        },
+        "1": {
+          "n": 15,
+          "executed": 7,
+          "f1_sum": 0.673036,
+          "exact": 0
+        }
+      },
+      "emitted": {
+        "n": 82,
+        "one_box": 4,
+        "mean_boxes": 2.9146341463414633,
+        "with_sat": 36
+      },
+      "shape": {
+        "shape_matched": {
+          "n": 26,
+          "mean_f1": 0.3371577307692308,
+          "exact": 5,
+          "still_disjoint": 16
+        },
+        "shape_mismatched": {
+          "n": 42,
+          "mean_f1": 0.19904402380952382,
+          "exact": 2,
+          "still_disjoint": 29
+        }
+      }
+    }
+  },
+  "pooled": {
+    "gemma3-4b-base": {
+      "n": 1014,
+      "buckets": {
+        "unscored": 729,
+        "disjoint": 231,
+        "partial": 27,
+        "exact": 18,
+        "over_broad": 9
+      },
+      "executed": 285,
+      "entities": {
+        "object_types": 98,
+        "event_activities": 80,
+        "both": 54,
+        "n": 231
+      },
+      "composition": {
+        "node_count": 84,
+        "filter_multiset": 36,
+        "constraint_multiset": 23,
+        "n": 231,
+        "gold_boxes": 2.432900432900433,
+        "pred_boxes": 1.8138528138528138,
+        "constructs": {
+          "AND": {
+            "gold": 12,
+            "predicted": 0
+          },
+          "ANY": {
+            "gold": 12,
+            "predicted": 2
+          },
+          "Filter:BasicFilterCEL": {
+            "gold": 5,
+            "predicted": 4
+          },
+          "Filter:O2E": {
+            "gold": 0,
+            "predicted": 1
+          },
+          "Filter:O2O": {
+            "gold": 0,
+            "predicted": 2
+          },
+          "Filter:ObjectAttributeValueFilter": {
+            "gold": 2,
+            "predicted": 11
+          },
+          "Filter:TimeBetweenEvents": {
+            "gold": 83,
+            "predicted": 27
+          },
+          "NOT": {
+            "gold": 25,
+            "predicted": 23
+          },
+          "OR": {
+            "gold": 4,
+            "predicted": 2
+          },
+          "SAT": {
+            "gold": 185,
+            "predicted": 38
+          },
+          "SizeFilter": {
+            "gold": 192,
+            "predicted": 39
+          }
+        },
+        "size_filter_field": {
+          "gold": 5,
+          "predicted": 16
+        }
+      },
+      "bucket_table": {
+        "exact": {
+          "n": 18,
+          "gold_nodes": 2.2222222222222223,
+          "pred_nodes": 2.0,
+          "node_match": 0.5555555555555556,
+          "gold_sat_per_query": 0.1111111111111111,
+          "pred_sat_per_query": 0.0
+        },
+        "partial": {
+          "n": 27,
+          "gold_nodes": 2.1481481481481484,
+          "pred_nodes": 1.8888888888888888,
+          "node_match": 0.5925925925925926,
+          "gold_sat_per_query": 0.9259259259259259,
+          "pred_sat_per_query": 0.07407407407407407
+        },
+        "disjoint": {
+          "n": 231,
+          "gold_nodes": 2.432900432900433,
+          "pred_nodes": 1.8138528138528138,
+          "node_match": 0.36363636363636365,
+          "gold_sat_per_query": 0.8008658008658008,
+          "pred_sat_per_query": 0.1645021645021645
+        }
+      },
+      "depth": {
+        "2": {
+          "n": 486,
+          "executed": 145,
+          "f1_sum": 17.404747999999998,
+          "exact": 10
+        },
+        "3": {
+          "n": 348,
+          "executed": 95,
+          "f1_sum": 9.081053,
+          "exact": 6
+        },
+        "4+": {
+          "n": 90,
+          "executed": 16,
+          "f1_sum": 0.0,
+          "exact": 0
+        },
+        "1": {
+          "n": 90,
+          "executed": 29,
+          "f1_sum": 3.797759,
+          "exact": 2
+        }
+      },
+      "emitted": {
+        "n": 669,
+        "one_box": 200,
+        "mean_boxes": 2.0448430493273544,
+        "with_sat": 63
+      },
+      "shape": {
+        "shape_matched": {
+          "n": 112,
+          "mean_f1": 0.13301849999999998,
+          "exact": 10,
+          "still_disjoint": 84
+        },
+        "shape_mismatched": {
+          "n": 173,
+          "mean_f1": 0.08893345664739885,
+          "exact": 8,
+          "still_disjoint": 147
+        }
+      }
+    },
+    "gemma3-4b-finetuned": {
+      "n": 1014,
+      "buckets": {
+        "unscored": 743,
+        "exact": 12,
+        "disjoint": 216,
+        "partial": 30,
+        "over_broad": 13
+      },
+      "executed": 271,
+      "entities": {
+        "object_types": 123,
+        "event_activities": 57,
+        "both": 38,
+        "n": 216
+      },
+      "composition": {
+        "node_count": 62,
+        "filter_multiset": 35,
+        "constraint_multiset": 16,
+        "n": 216,
+        "gold_boxes": 2.5277777777777777,
+        "pred_boxes": 2.2175925925925926,
+        "constructs": {
+          "AND": {
+            "gold": 16,
+            "predicted": 6
+          },
+          "ANY": {
+            "gold": 8,
+            "predicted": 2
+          },
+          "Filter:BasicFilterCEL": {
+            "gold": 1,
+            "predicted": 2
+          },
+          "Filter:ObjectAttributeValueFilter": {
+            "gold": 5,
+            "predicted": 6
+          },
+          "Filter:TimeBetweenEvents": {
+            "gold": 68,
+            "predicted": 18
+          },
+          "NOT": {
+            "gold": 28,
+            "predicted": 15
+          },
+          "OR": {
+            "gold": 2,
+            "predicted": 4
+          },
+          "SAT": {
+            "gold": 185,
+            "predicted": 51
+          },
+          "SizeFilter": {
+            "gold": 203,
+            "predicted": 60
+          }
+        },
+        "size_filter_field": {
+          "gold": 0,
+          "predicted": 41
+        }
+      },
+      "bucket_table": {
+        "exact": {
+          "n": 12,
+          "gold_nodes": 2.5,
+          "pred_nodes": 2.0,
+          "node_match": 0.3333333333333333,
+          "gold_sat_per_query": 0.3333333333333333,
+          "pred_sat_per_query": 0.4166666666666667
+        },
+        "partial": {
+          "n": 30,
+          "gold_nodes": 2.7,
+          "pred_nodes": 2.2333333333333334,
+          "node_match": 0.23333333333333334,
+          "gold_sat_per_query": 1.2,
+          "pred_sat_per_query": 0.16666666666666666
+        },
+        "disjoint": {
+          "n": 216,
+          "gold_nodes": 2.5277777777777777,
+          "pred_nodes": 2.2175925925925926,
+          "node_match": 0.28703703703703703,
+          "gold_sat_per_query": 0.8564814814814815,
+          "pred_sat_per_query": 0.2361111111111111
+        }
+      },
+      "depth": {
+        "2": {
+          "n": 486,
+          "executed": 101,
+          "f1_sum": 14.735281999999996,
+          "exact": 6
+        },
+        "3": {
+          "n": 348,
+          "executed": 117,
+          "f1_sum": 13.600144,
+          "exact": 6
+        },
+        "4+": {
+          "n": 90,
+          "executed": 20,
+          "f1_sum": 3.5368829999999996,
+          "exact": 0
+        },
+        "1": {
+          "n": 90,
+          "executed": 33,
+          "f1_sum": 4.655733,
+          "exact": 0
+        }
+      },
+      "emitted": {
+        "n": 621,
+        "one_box": 153,
+        "mean_boxes": 2.391304347826087,
+        "with_sat": 89
+      },
+      "shape": {
+        "shape_matched": {
+          "n": 83,
+          "mean_f1": 0.1751946987951807,
+          "exact": 4,
+          "still_disjoint": 62
+        },
+        "shape_mismatched": {
+          "n": 188,
+          "mean_f1": 0.11695150000000001,
+          "exact": 8,
+          "still_disjoint": 154
+        }
+      }
+    },
+    "llama31-8b-base": {
+      "n": 1014,
+      "buckets": {
+        "unscored": 804,
+        "disjoint": 141,
+        "partial": 25,
+        "exact": 24,
+        "over_broad": 15,
+        "over_narrow": 5
+      },
+      "executed": 210,
+      "entities": {
+        "object_types": 87,
+        "event_activities": 60,
+        "both": 44,
+        "n": 141
+      },
+      "composition": {
+        "node_count": 52,
+        "filter_multiset": 26,
+        "constraint_multiset": 14,
+        "n": 141,
+        "gold_boxes": 2.482269503546099,
+        "pred_boxes": 2.8085106382978724,
+        "constructs": {
+          "AND": {
+            "gold": 10,
+            "predicted": 4
+          },
+          "ANY": {
+            "gold": 8,
+            "predicted": 3
+          },
+          "Filter:EventAttributeValueFilter": {
+            "gold": 0,
+            "predicted": 13
+          },
+          "Filter:ObjectAttributeValueFilter": {
+            "gold": 2,
+            "predicted": 11
+          },
+          "Filter:TimeBetweenEvents": {
+            "gold": 45,
+            "predicted": 45
+          },
+          "NOT": {
+            "gold": 17,
+            "predicted": 2
+          },
+          "OR": {
+            "gold": 7,
+            "predicted": 8
+          },
+          "SAT": {
+            "gold": 104,
+            "predicted": 74
+          },
+          "SizeFilter": {
+            "gold": 111,
+            "predicted": 82
+          }
+        },
+        "size_filter_field": {
+          "gold": 5,
+          "predicted": 7
+        }
+      },
+      "bucket_table": {
+        "exact": {
+          "n": 24,
+          "gold_nodes": 2.5,
+          "pred_nodes": 2.3333333333333335,
+          "node_match": 0.5833333333333334,
+          "gold_sat_per_query": 0.6666666666666666,
+          "pred_sat_per_query": 0.20833333333333334
+        },
+        "partial": {
+          "n": 25,
+          "gold_nodes": 2.52,
+          "pred_nodes": 2.84,
+          "node_match": 0.24,
+          "gold_sat_per_query": 0.88,
+          "pred_sat_per_query": 0.32
+        },
+        "disjoint": {
+          "n": 141,
+          "gold_nodes": 2.482269503546099,
+          "pred_nodes": 2.8085106382978724,
+          "node_match": 0.36879432624113473,
+          "gold_sat_per_query": 0.7375886524822695,
+          "pred_sat_per_query": 0.524822695035461
+        }
+      },
+      "depth": {
+        "2": {
+          "n": 486,
+          "executed": 92,
+          "f1_sum": 22.140305999999995,
+          "exact": 12
+        },
+        "3": {
+          "n": 348,
+          "executed": 85,
+          "f1_sum": 24.535494,
+          "exact": 12
+        },
+        "4+": {
+          "n": 90,
+          "executed": 14,
+          "f1_sum": 1.5506760000000002,
+          "exact": 0
+        },
+        "1": {
+          "n": 90,
+          "executed": 19,
+          "f1_sum": 1.511956,
+          "exact": 0
+        }
+      },
+      "emitted": {
+        "n": 571,
+        "one_box": 51,
+        "mean_boxes": 3.555166374781086,
+        "with_sat": 131
+      },
+      "shape": {
+        "shape_matched": {
+          "n": 82,
+          "mean_f1": 0.2990370243902439,
+          "exact": 14,
+          "still_disjoint": 52
+        },
+        "shape_mismatched": {
+          "n": 128,
+          "mean_f1": 0.19701090625,
+          "exact": 10,
+          "still_disjoint": 89
+        }
+      }
+    },
+    "llama31-8b-finetuned": {
+      "n": 1014,
+      "buckets": {
+        "unscored": 492,
+        "disjoint": 409,
+        "partial": 34,
+        "exact": 44,
+        "over_broad": 24,
+        "over_narrow": 11
+      },
+      "executed": 522,
+      "entities": {
+        "object_types": 258,
+        "event_activities": 177,
+        "both": 145,
+        "n": 409
+      },
+      "composition": {
+        "node_count": 121,
+        "filter_multiset": 124,
+        "constraint_multiset": 62,
+        "n": 409,
+        "gold_boxes": 2.4621026894865525,
+        "pred_boxes": 1.7579462102689487,
+        "constructs": {
+          "AND": {
+            "gold": 12,
+            "predicted": 34
+          },
+          "ANY": {
+            "gold": 12,
+            "predicted": 8
+          },
+          "Filter:BasicFilterCEL": {
+            "gold": 4,
+            "predicted": 4
+          },
+          "Filter:EventAttributeValueFilter": {
+            "gold": 0,
+            "predicted": 2
+          },
+          "Filter:NotEqual": {
+            "gold": 0,
+            "predicted": 1
+          },
+          "Filter:ObjectAttributeValueFilter": {
+            "gold": 4,
+            "predicted": 8
+          },
+          "Filter:TimeBetweenEvents": {
+            "gold": 138,
+            "predicted": 89
+          },
+          "NOT": {
+            "gold": 59,
+            "predicted": 48
+          },
+          "OR": {
+            "gold": 12,
+            "predicted": 22
+          },
+          "SAT": {
+            "gold": 339,
+            "predicted": 41
+          },
+          "SizeFilter": {
+            "gold": 339,
+            "predicted": 74
+          }
+        },
+        "size_filter_field": {
+          "gold": 4,
+          "predicted": 99
+        }
+      },
+      "bucket_table": {
+        "exact": {
+          "n": 44,
+          "gold_nodes": 2.0,
+          "pred_nodes": 1.6818181818181819,
+          "node_match": 0.6818181818181818,
+          "gold_sat_per_query": 0.5454545454545454,
+          "pred_sat_per_query": 0.18181818181818182
+        },
+        "partial": {
+          "n": 34,
+          "gold_nodes": 2.7058823529411766,
+          "pred_nodes": 2.4705882352941178,
+          "node_match": 0.7647058823529411,
+          "gold_sat_per_query": 0.7941176470588235,
+          "pred_sat_per_query": 0.23529411764705882
+        },
+        "disjoint": {
+          "n": 409,
+          "gold_nodes": 2.4621026894865525,
+          "pred_nodes": 1.7579462102689487,
+          "node_match": 0.29584352078239606,
+          "gold_sat_per_query": 0.8288508557457213,
+          "pred_sat_per_query": 0.10024449877750612
+        }
+      },
+      "depth": {
+        "2": {
+          "n": 486,
+          "executed": 262,
+          "f1_sum": 32.467332999999996,
+          "exact": 16
+        },
+        "3": {
+          "n": 348,
+          "executed": 165,
+          "f1_sum": 27.773497999999996,
+          "exact": 14
+        },
+        "4+": {
+          "n": 90,
+          "executed": 43,
+          "f1_sum": 6.137628,
+          "exact": 0
+        },
+        "1": {
+          "n": 90,
+          "executed": 52,
+          "f1_sum": 15.396533999999999,
+          "exact": 14
+        }
+      },
+      "emitted": {
+        "n": 803,
+        "one_box": 282,
+        "mean_boxes": 1.9975093399750934,
+        "with_sat": 97
+      },
+      "shape": {
+        "shape_matched": {
+          "n": 202,
+          "mean_f1": 0.2669613465346535,
+          "exact": 30,
+          "still_disjoint": 121
+        },
+        "shape_mismatched": {
+          "n": 320,
+          "mean_f1": 0.087027503125,
+          "exact": 14,
+          "still_disjoint": 288
+        }
+      }
+    },
+    "ministral3-14b-base": {
+      "n": 1014,
+      "buckets": {
+        "unscored": 813,
+        "disjoint": 99,
+        "exact": 39,
+        "over_narrow": 8,
+        "partial": 35,
+        "over_broad": 20
+      },
+      "executed": 201,
+      "entities": {
+        "object_types": 79,
+        "event_activities": 76,
+        "both": 62,
+        "n": 99
+      },
+      "composition": {
+        "node_count": 41,
+        "filter_multiset": 30,
+        "constraint_multiset": 10,
+        "n": 99,
+        "gold_boxes": 2.303030303030303,
+        "pred_boxes": 2.3636363636363638,
+        "constructs": {
+          "AND": {
+            "gold": 4,
+            "predicted": 2
+          },
+          "ANY": {
+            "gold": 4,
+            "predicted": 2
+          },
+          "Filter:O2O": {
+            "gold": 0,
+            "predicted": 1
+          },
+          "Filter:ObjectAttributeValueFilter": {
+            "gold": 1,
+            "predicted": 5
+          },
+          "Filter:TimeBetweenEvents": {
+            "gold": 33,
+            "predicted": 15
+          },
+          "NOT": {
+            "gold": 15,
+            "predicted": 14
+          },
+          "OR": {
+            "gold": 2,
+            "predicted": 4
+          },
+          "SAT": {
+            "gold": 65,
+            "predicted": 44
+          },
+          "SizeFilter": {
+            "gold": 75,
+            "predicted": 61
+          }
+        },
+        "size_filter_field": {
+          "gold": 6,
+          "predicted": 12
+        }
+      },
+      "bucket_table": {
+        "exact": {
+          "n": 39,
+          "gold_nodes": 2.2051282051282053,
+          "pred_nodes": 2.1538461538461537,
+          "node_match": 0.8461538461538461,
+          "gold_sat_per_query": 0.05128205128205128,
+          "pred_sat_per_query": 0.358974358974359
+        },
+        "partial": {
+          "n": 35,
+          "gold_nodes": 2.5142857142857142,
+          "pred_nodes": 2.5714285714285716,
+          "node_match": 0.7428571428571429,
+          "gold_sat_per_query": 0.8571428571428571,
+          "pred_sat_per_query": 0.5142857142857142
+        },
+        "disjoint": {
+          "n": 99,
+          "gold_nodes": 2.303030303030303,
+          "pred_nodes": 2.3636363636363638,
+          "node_match": 0.41414141414141414,
+          "gold_sat_per_query": 0.6565656565656566,
+          "pred_sat_per_query": 0.4444444444444444
+        }
+      },
+      "depth": {
+        "2": {
+          "n": 486,
+          "executed": 97,
+          "f1_sum": 34.815423,
+          "exact": 23
+        },
+        "3": {
+          "n": 348,
+          "executed": 71,
+          "f1_sum": 34.265964000000004,
+          "exact": 12
+        },
+        "4+": {
+          "n": 90,
+          "executed": 6,
+          "f1_sum": 0.0,
+          "exact": 0
+        },
+        "1": {
+          "n": 90,
+          "executed": 27,
+          "f1_sum": 7.074419,
+          "exact": 4
+        }
+      },
+      "emitted": {
+        "n": 605,
+        "one_box": 72,
+        "mean_boxes": 2.7454545454545456,
+        "with_sat": 180
+      },
+      "shape": {
+        "shape_matched": {
+          "n": 124,
+          "mean_f1": 0.49349663709677416,
+          "exact": 33,
+          "still_disjoint": 41
+        },
+        "shape_mismatched": {
+          "n": 77,
+          "mean_f1": 0.1943145844155844,
+          "exact": 6,
+          "still_disjoint": 58
+        }
+      }
+    },
+    "ministral3-14b-finetuned": {
+      "n": 1014,
+      "buckets": {
+        "unscored": 394,
+        "partial": 71,
+        "disjoint": 474,
+        "over_narrow": 8,
+        "exact": 45,
+        "over_broad": 22
+      },
+      "executed": 620,
+      "entities": {
+        "object_types": 345,
+        "event_activities": 293,
+        "both": 219,
+        "n": 474
+      },
+      "composition": {
+        "node_count": 141,
+        "filter_multiset": 149,
+        "constraint_multiset": 67,
+        "n": 474,
+        "gold_boxes": 2.548523206751055,
+        "pred_boxes": 1.738396624472574,
+        "constructs": {
+          "AND": {
+            "gold": 16,
+            "predicted": 9
+          },
+          "ANY": {
+            "gold": 12,
+            "predicted": 6
+          },
+          "Filter:BasicFilterCEL": {
+            "gold": 10,
+            "predicted": 2
+          },
+          "Filter:EventAttributeValueFilter": {
+            "gold": 0,
+            "predicted": 6
+          },
+          "Filter:O2E": {
+            "gold": 0,
+            "predicted": 1
+          },
+          "Filter:O2O": {
+            "gold": 0,
+            "predicted": 7
+          },
+          "Filter:ObjectAttributeValueFilter": {
+            "gold": 4,
+            "predicted": 52
+          },
+          "Filter:TimeBetweenEvents": {
+            "gold": 171,
+            "predicted": 156
+          },
+          "NOT": {
+            "gold": 74,
+            "predicted": 54
+          },
+          "OR": {
+            "gold": 20,
+            "predicted": 39
+          },
+          "SAT": {
+            "gold": 406,
+            "predicted": 90
+          },
+          "SizeFilter": {
+            "gold": 413,
+            "predicted": 85
+          }
+        },
+        "size_filter_field": {
+          "gold": 10,
+          "predicted": 70
+        }
+      },
+      "bucket_table": {
+        "exact": {
+          "n": 45,
+          "gold_nodes": 2.1555555555555554,
+          "pred_nodes": 1.9111111111111112,
+          "node_match": 0.5777777777777777,
+          "gold_sat_per_query": 0.5777777777777777,
+          "pred_sat_per_query": 0.4222222222222222
+        },
+        "partial": {
+          "n": 71,
+          "gold_nodes": 3.084507042253521,
+          "pred_nodes": 2.507042253521127,
+          "node_match": 0.5070422535211268,
+          "gold_sat_per_query": 0.971830985915493,
+          "pred_sat_per_query": 0.43661971830985913
+        },
+        "disjoint": {
+          "n": 474,
+          "gold_nodes": 2.548523206751055,
+          "pred_nodes": 1.738396624472574,
+          "node_match": 0.2974683544303797,
+          "gold_sat_per_query": 0.8565400843881856,
+          "pred_sat_per_query": 0.189873417721519
+        }
+      },
+      "depth": {
+        "2": {
+          "n": 486,
+          "executed": 279,
+          "f1_sum": 41.607028,
+          "exact": 18
+        },
+        "3": {
+          "n": 348,
+          "executed": 230,
+          "f1_sum": 33.83033600000001,
+          "exact": 17
+        },
+        "4+": {
+          "n": 90,
+          "executed": 60,
+          "f1_sum": 9.967308999999997,
+          "exact": 0
+        },
+        "1": {
+          "n": 90,
+          "executed": 51,
+          "f1_sum": 12.935794,
+          "exact": 10
+        }
+      },
+      "emitted": {
+        "n": 838,
+        "one_box": 304,
+        "mean_boxes": 1.8770883054892602,
+        "with_sat": 163
+      },
+      "shape": {
+        "shape_matched": {
+          "n": 229,
+          "mean_f1": 0.261857327510917,
+          "exact": 26,
+          "still_disjoint": 141
+        },
+        "shape_mismatched": {
+          "n": 391,
+          "mean_f1": 0.09814613554987212,
+          "exact": 19,
+          "still_disjoint": 333
+        }
+      }
+    },
+    "ministral3-3b-base": {
+      "n": 1014,
+      "buckets": {
+        "unscored": 906,
+        "disjoint": 82,
+        "partial": 12,
+        "over_narrow": 2,
+        "over_broad": 6,
+        "exact": 6
+      },
+      "executed": 108,
+      "entities": {
+        "object_types": 63,
+        "event_activities": 52,
+        "both": 42,
+        "n": 82
+      },
+      "composition": {
+        "node_count": 29,
+        "filter_multiset": 20,
+        "constraint_multiset": 12,
+        "n": 82,
+        "gold_boxes": 2.5121951219512195,
+        "pred_boxes": 2.231707317073171,
+        "constructs": {
+          "AND": {
+            "gold": 1,
+            "predicted": 0
+          },
+          "Filter:BasicFilterCEL": {
+            "gold": 1,
+            "predicted": 0
+          },
+          "Filter:O2E": {
+            "gold": 0,
+            "predicted": 1
+          },
+          "Filter:ObjectAttributeValueFilter": {
+            "gold": 4,
+            "predicted": 10
+          },
+          "Filter:TimeBetweenEvents": {
+            "gold": 30,
+            "predicted": 30
+          },
+          "NOT": {
+            "gold": 7,
+            "predicted": 8
+          },
+          "OR": {
+            "gold": 4,
+            "predicted": 4
+          },
+          "SAT": {
+            "gold": 69,
+            "predicted": 42
+          },
+          "SizeFilter": {
+            "gold": 63,
+            "predicted": 30
+          }
+        },
+        "size_filter_field": {
+          "gold": 2,
+          "predicted": 13
+        }
+      },
+      "bucket_table": {
+        "exact": {
+          "n": 6,
+          "gold_nodes": 2.0,
+          "pred_nodes": 1.6666666666666667,
+          "node_match": 0.6666666666666666,
+          "gold_sat_per_query": 0.0,
+          "pred_sat_per_query": 0.6666666666666666
+        },
+        "partial": {
+          "n": 12,
+          "gold_nodes": 2.4166666666666665,
+          "pred_nodes": 2.3333333333333335,
+          "node_match": 0.5833333333333334,
+          "gold_sat_per_query": 0.8333333333333334,
+          "pred_sat_per_query": 0.4166666666666667
+        },
+        "disjoint": {
+          "n": 82,
+          "gold_nodes": 2.5121951219512195,
+          "pred_nodes": 2.231707317073171,
+          "node_match": 0.35365853658536583,
+          "gold_sat_per_query": 0.8414634146341463,
+          "pred_sat_per_query": 0.5121951219512195
+        }
+      },
+      "depth": {
+        "2": {
+          "n": 486,
+          "executed": 44,
+          "f1_sum": 6.160112,
+          "exact": 2
+        },
+        "3": {
+          "n": 348,
+          "executed": 42,
+          "f1_sum": 3.220946,
+          "exact": 2
+        },
+        "4+": {
+          "n": 90,
+          "executed": 7,
+          "f1_sum": 0.9454100000000001,
+          "exact": 0
+        },
+        "1": {
+          "n": 90,
+          "executed": 15,
+          "f1_sum": 3.3555520000000003,
+          "exact": 2
+        }
+      },
+      "emitted": {
+        "n": 543,
+        "one_box": 79,
+        "mean_boxes": 2.826887661141805,
+        "with_sat": 137
+      },
+      "shape": {
+        "shape_matched": {
+          "n": 48,
+          "mean_f1": 0.19657777083333336,
+          "exact": 4,
+          "still_disjoint": 29
+        },
+        "shape_mismatched": {
+          "n": 60,
+          "mean_f1": 0.07077145,
+          "exact": 2,
+          "still_disjoint": 53
+        }
+      }
+    },
+    "ministral3-3b-finetuned": {
+      "n": 1014,
+      "buckets": {
+        "unscored": 508,
+        "disjoint": 394,
+        "over_broad": 18,
+        "exact": 29,
+        "partial": 50,
+        "over_narrow": 15
+      },
+      "executed": 506,
+      "entities": {
+        "object_types": 232,
+        "event_activities": 148,
+        "both": 91,
+        "n": 394
+      },
+      "composition": {
+        "node_count": 110,
+        "filter_multiset": 54,
+        "constraint_multiset": 54,
+        "n": 394,
+        "gold_boxes": 2.532994923857868,
+        "pred_boxes": 1.7690355329949239,
+        "constructs": {
+          "AND": {
+            "gold": 16,
+            "predicted": 22
+          },
+          "ANY": {
+            "gold": 22,
+            "predicted": 15
+          },
+          "Filter:BasicFilterCEL": {
+            "gold": 6,
+            "predicted": 6
+          },
+          "Filter:O2E": {
+            "gold": 0,
+            "predicted": 2
+          },
+          "Filter:ObjectAttributeValueFilter": {
+            "gold": 5,
+            "predicted": 21
+          },
+          "Filter:TimeBetweenEvents": {
+            "gold": 136,
+            "predicted": 142
+          },
+          "NOT": {
+            "gold": 65,
+            "predicted": 40
+          },
+          "OR": {
+            "gold": 18,
+            "predicted": 14
+          },
+          "SAT": {
+            "gold": 323,
+            "predicted": 71
+          },
+          "SizeFilter": {
+            "gold": 336,
+            "predicted": 51
+          }
+        },
+        "size_filter_field": {
+          "gold": 5,
+          "predicted": 106
+        }
+      },
+      "bucket_table": {
+        "exact": {
+          "n": 29,
+          "gold_nodes": 2.413793103448276,
+          "pred_nodes": 2.0689655172413794,
+          "node_match": 0.4482758620689655,
+          "gold_sat_per_query": 0.3103448275862069,
+          "pred_sat_per_query": 0.4827586206896552
+        },
+        "partial": {
+          "n": 50,
+          "gold_nodes": 2.44,
+          "pred_nodes": 2.5,
+          "node_match": 0.56,
+          "gold_sat_per_query": 1.06,
+          "pred_sat_per_query": 0.48
+        },
+        "disjoint": {
+          "n": 394,
+          "gold_nodes": 2.532994923857868,
+          "pred_nodes": 1.7690355329949239,
+          "node_match": 0.27918781725888325,
+          "gold_sat_per_query": 0.8197969543147208,
+          "pred_sat_per_query": 0.1802030456852792
+        }
+      },
+      "depth": {
+        "2": {
+          "n": 486,
+          "executed": 255,
+          "f1_sum": 30.904704000000002,
+          "exact": 9
+        },
+        "3": {
+          "n": 348,
+          "executed": 167,
+          "f1_sum": 24.921658,
+          "exact": 16
+        },
+        "4+": {
+          "n": 90,
+          "executed": 43,
+          "f1_sum": 4.048998,
+          "exact": 0
+        },
+        "1": {
+          "n": 90,
+          "executed": 39,
+          "f1_sum": 5.1984699999999995,
+          "exact": 4
+        }
+      },
+      "emitted": {
+        "n": 815,
+        "one_box": 301,
+        "mean_boxes": 2.10920245398773,
+        "with_sat": 161
+      },
+      "shape": {
+        "shape_matched": {
+          "n": 175,
+          "mean_f1": 0.20253342285714285,
+          "exact": 13,
+          "still_disjoint": 110
+        },
+        "shape_mismatched": {
+          "n": 331,
+          "mean_f1": 0.08951806948640484,
+          "exact": 16,
+          "still_disjoint": 284
+        }
+      }
+    }
+  },
+  "gold_distribution": {
+    "n": 169,
+    "one_box_share": 0.08875739644970414,
+    "mean_boxes": 2.5088757396449703,
+    "sat_share": 0.5857988165680473,
+    "sizes": {
+      "2": 81,
+      "3": 58,
+      "4": 7,
+      "1": 15,
+      "5": 6,
+      "8": 1,
+      "7": 1
+    }
+  },
+  "training_distribution": {
+    "source": "C:\\RWTH\\Thesis\\Bread\\NLxOCPQ\\data\\finetune_ocpq.jsonl",
+    "n": 60018,
+    "one_box_share": 0.34617947948948646,
+    "mean_boxes": 2.0605485021160317,
+    "sat_share": 0.22101702822486588,
+    "sizes": {
+      "1": 20777,
+      "2": 19138,
+      "3": 15795,
+      "4": 4308
+    }
+  }
+}

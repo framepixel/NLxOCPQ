@@ -72,7 +72,7 @@ STATUSES = [
 COLUMNS = [
     ("strict_f1", "F1", lambda v: ac.fmt(v)),
     ("executed_f1", r"\makecell[r]{F1\\executed}", lambda v: ac.fmt(v)),
-    ("skill", "Skill", lambda v: ac.fmt(v, digits=3)),
+    ("skill", ac.SKILL_HEADER, lambda v: ac.fmt(v, digits=3)),
     ("evaluated", "Evaluated", lambda v: ac.fmt_pct(v)),
     ("structural_f1", r"\makecell[r]{Structural\\F1}", lambda v: ac.fmt(v, digits=3)),
 ]
@@ -132,20 +132,18 @@ def build(run: ac.Run, population: str) -> Dict[str, dict]:
 
     by_arm = grouped(records, lambda r: r.get("model_label"))
     arm_rows = [(arm_label(a), metric_row(by_arm[a])) for a in arms() if a in by_arm]
-    arm_rows += [(None, None), ("pooled", metric_row(records))]
+    arm_rows += [(None, None), ("average", metric_row(records))]
     tables["arms"] = {
         "rows": arm_rows,
-        "caption": f"Matrix results per arm on {label}, each arm pooled over its three prompting "
-                   f"strategies and validation-repair on and off. Skill is relative to the trivial "
-                   f"floor; Evaluated is the share of records that \\texttt{{ocpq\\_cli}} "
-                   f"evaluated.",
+        "caption": f"Matrix results per arm on {label}, each arm averaged over its three prompting "
+                   f"strategies and validation-repair on and off.",
     }
 
     by_strategy = grouped(records, lambda r: r.get("prompt_strategy"))
     tables["strategy"] = {
         "rows": [(name, metric_row(by_strategy[key])) for key, name in STRATEGIES
                  if key in by_strategy],
-        "caption": f"Matrix results per prompting strategy on {label}, each pooled over the "
+        "caption": f"Matrix results per prompting strategy on {label}, each averaged over the "
                    f"eight arms and validation-repair on and off.",
     }
 
@@ -155,7 +153,7 @@ def build(run: ac.Run, population: str) -> Dict[str, dict]:
                  for flag, name in ((True, "validation-repair on"),
                                     (False, "validation-repair off"))
                  if flag in by_validation],
-        "caption": f"Matrix results with validation-repair on and off on {label}, each pooled "
+        "caption": f"Matrix results with validation-repair on and off on {label}, each averaged "
                    f"over the eight arms and three prompting strategies.",
     }
 
@@ -194,7 +192,7 @@ def interaction_table(records: List[dict], label: str) -> dict:
     return {
         "rows": [(arm, [None if v is None else v for v in vals]) for arm, vals in rows],
         "caption": f"Strict result F1 and evaluated share per arm and prompting strategy on "
-                   f"{label}, each cell pooled over validation-repair on and off.",
+                   f"{label}, each cell averaged over validation-repair on and off.",
         "tabular": "\n".join(lines),
     }
 

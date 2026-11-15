@@ -1,0 +1,1685 @@
+{
+  "generated": {
+    "command": "python src/agent_gate_report.py",
+    "utc": "2026-11-06T16:10:00+00:00",
+    "nlxocpq_commit": "644d44673a5065ccb5fd1223baae669986c59e19-dirty",
+    "inputs": [
+      {
+        "run": "eval_runs/agentic_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260926_201716",
+        "predictions_sha256": "af9a13abb22b7d1386c13c6c359fddd01e6cd554f5e769fb7bfe5ffefe443c8c",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260926_201716",
+        "predictions_sha256": "fa0f8858c85b0bce3a07a659b83bbb1bbbb18f275de01aea5f6d2f0e93795a6a",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic_gate/shard_m8_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_193501",
+        "predictions_sha256": "4cce40c0e8337f7486aba670648e3446f0b231bd86b6e107875329278e99fa8e",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic_gate/shard_m8_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260927_193501",
+        "predictions_sha256": "60dae7bf3b9af269dde6bf65d9e06bdd5c1d26b79e80abf51aab33e61527c0e8",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic_gate/shard_m9_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260928_150922",
+        "predictions_sha256": "ebd8f080ffad002fbc58aac05187d5f6f26e7c33645da8efc875cb2283e4eed8",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic_gate/shard_m9_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260928_150922",
+        "predictions_sha256": "c4cb47e15665ac0043c9c5ef6914ac05be1287a5d1c567e46cdc4f3f88cf0cdf",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic_gate/shard_m10_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260928_150930",
+        "predictions_sha256": "8c7b2254755d6dc0ac2e41c457b0dbec6c188933f0b8b5b6ae21eb8148fe8e3c",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic_gate/shard_m10_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260928_150930",
+        "predictions_sha256": "74db5c5e620c554cae065b1bcbd17c51e3e7b69d152052aa74abf165140ac83f",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed_gate/shard_m0_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160854",
+        "predictions_sha256": "63a6275b24b1a6ddbb489d75f1ac5de435f099dd83e8b84aa12e1ce1e9aa9ca4",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed_gate/shard_m1_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160912",
+        "predictions_sha256": "ef5a150ac4aedc205063a102e0c98db28114b8a38656f166419f3c32f99343cb",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160911",
+        "predictions_sha256": "5614bbab8289b38652fe35f6a2ea75867dbf720f43eecea681a35908a98a027f",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed_gate/shard_m3_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160854",
+        "predictions_sha256": "a2e1f027daffbe56df4fa2ba43304a21afff6376c7a3a3be10237d4d8d8e6814",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed_examples_gate/shard_m0_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222316",
+        "predictions_sha256": "b73ea313c109efee36af77c78fd9ba59f40f524e46b73e9e6d9f30f7da93fdbf",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed_examples_gate/shard_m1_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222345",
+        "predictions_sha256": "07356ef5024f2d60580bde379f5f58e92cdf0e00d8de0fdebc61226b3d5cccda",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed_examples_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222345",
+        "predictions_sha256": "94dcc699627b68153cb89317b7d8dfc152bab5737f79d1d5b85ccd418cec08aa",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed_examples_gate/shard_m3_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222316",
+        "predictions_sha256": "c7c95e6b2ebbb80e29870471bb258e4daf1cf91a7403cf234a4669284a074607",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      }
+    ]
+  },
+  "eval1": {
+    "title": "Evaluation 1 model gate (A1, 38 dev cases, thought off and on)",
+    "rule_section": "43.18",
+    "criteria": {
+      "malformed_max": 0.05,
+      "repeat_max": 0.1,
+      "repeat_applies_to": "thought_off",
+      "loop_timeout_min_repeats": 2,
+      "p90_seconds_per_turn_max": {
+        "thought_off": 30,
+        "thought_on": 60
+      },
+      "declared_min": 0.9,
+      "probe_cli_agreement": 1.0
+    },
+    "models": [
+      {
+        "name": "Ministral 3 14B (reference)",
+        "passes": true,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "thought_off",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "thought_off",
+            "value": 0.04,
+            "threshold": 0.1,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "thought_off",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": null,
+            "passes": true
+          },
+          {
+            "criterion": "p90 s/turn",
+            "task": "thought_off",
+            "value": 8.727975,
+            "threshold": 30,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "thought_off",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "thought_off",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "malformed",
+            "task": "thought_on",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "thought_on",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": null,
+            "passes": true
+          },
+          {
+            "criterion": "p90 s/turn",
+            "task": "thought_on",
+            "value": 9.368775,
+            "threshold": 60,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "thought_on",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "thought_on",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          }
+        ],
+        "measures": {
+          "thought_off": {
+            "run": "eval_runs/agentic_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260926_201716",
+            "cases": 38,
+            "turns": 275,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 11,
+            "repeat_source": "trajectory raw-action equality",
+            "repeat_rate": 0.04,
+            "reasoning_steps": 0,
+            "forced_closes": 0,
+            "forced_close_rate": null,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 8.727975,
+            "p90_case_seconds": 74.05454,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 31,
+            "probe_cli_agree": 31,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.0,
+            "repeats_with_result": 11,
+            "repeats_identical": 11,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 32,
+              "execution_failed": 6
+            }
+          },
+          "thought_on": {
+            "run": "eval_runs/agentic_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260926_201716",
+            "cases": 38,
+            "turns": 270,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 9,
+            "repeat_source": "trajectory raw-action equality",
+            "repeat_rate": 0.03333333333333333,
+            "reasoning_steps": 0,
+            "forced_closes": 0,
+            "forced_close_rate": null,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 9.368775,
+            "p90_case_seconds": 79.43338000000001,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 26,
+            "probe_cli_agree": 26,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.0,
+            "repeats_with_result": 9,
+            "repeats_identical": 9,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 26,
+              "execution_failed": 12
+            }
+          }
+        },
+        "differences_from_notes": []
+      },
+      {
+        "name": "Muse Glimmer 30B",
+        "passes": false,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "thought_off",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "thought_off",
+            "value": 0.5676567656765676,
+            "threshold": 0.1,
+            "passes": false
+          },
+          {
+            "criterion": "timeouts",
+            "task": "thought_off",
+            "value": {
+              "timeouts": 1,
+              "loop_driven": 1
+            },
+            "threshold": null,
+            "passes": false
+          },
+          {
+            "criterion": "p90 s/turn",
+            "task": "thought_off",
+            "value": 19.6619,
+            "threshold": 30,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "thought_off",
+            "value": 0.9736842105263158,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "thought_off",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "malformed",
+            "task": "thought_on",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "thought_on",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": null,
+            "passes": true
+          },
+          {
+            "criterion": "p90 s/turn",
+            "task": "thought_on",
+            "value": 46.56556666666666,
+            "threshold": 60,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "thought_on",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "thought_on",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          }
+        ],
+        "measures": {
+          "thought_off": {
+            "run": "eval_runs/agentic_gate/shard_m8_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_193501",
+            "cases": 38,
+            "turns": 303,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 172,
+            "repeat_source": "trajectory raw-action equality",
+            "repeat_rate": 0.5676567656765676,
+            "reasoning_steps": 0,
+            "forced_closes": 0,
+            "forced_close_rate": null,
+            "timeouts": 1,
+            "timeout_rate": 0.02631578947368421,
+            "loop_timeouts": 1,
+            "p90_seconds_per_turn": 19.6619,
+            "p90_case_seconds": 155.78760000000005,
+            "declared": 37,
+            "declared_rate": 0.9736842105263158,
+            "probe_cli_checked": 36,
+            "probe_cli_agree": 36,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.0,
+            "repeats_with_result": 172,
+            "repeats_identical": 172,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 36,
+              "execution_failed": 1,
+              "timeout": 1
+            }
+          },
+          "thought_on": {
+            "run": "eval_runs/agentic_gate/shard_m8_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260927_193501",
+            "cases": 38,
+            "turns": 250,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 56,
+            "repeat_source": "trajectory raw-action equality",
+            "repeat_rate": 0.224,
+            "reasoning_steps": 0,
+            "forced_closes": 0,
+            "forced_close_rate": null,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 46.56556666666666,
+            "p90_case_seconds": 271.69436,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 37,
+            "probe_cli_agree": 37,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.0,
+            "repeats_with_result": 56,
+            "repeats_identical": 56,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 37,
+              "execution_failed": 1
+            }
+          }
+        },
+        "differences_from_notes": [
+          "repeat_rate: computed 0.5677, notes 0.57"
+        ]
+      },
+      {
+        "name": "Qwen3.8 27B",
+        "passes": false,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "thought_off",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "thought_off",
+            "value": 0.2138157894736842,
+            "threshold": 0.1,
+            "passes": false
+          },
+          {
+            "criterion": "timeouts",
+            "task": "thought_off",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": null,
+            "passes": true
+          },
+          {
+            "criterion": "p90 s/turn",
+            "task": "thought_off",
+            "value": 27.176175,
+            "threshold": 30,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "thought_off",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "thought_off",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "malformed",
+            "task": "thought_on",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "thought_on",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": null,
+            "passes": true
+          },
+          {
+            "criterion": "p90 s/turn",
+            "task": "thought_on",
+            "value": 34.1587875,
+            "threshold": 60,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "thought_on",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "thought_on",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          }
+        ],
+        "measures": {
+          "thought_off": {
+            "run": "eval_runs/agentic_gate/shard_m9_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260928_150922",
+            "cases": 38,
+            "turns": 304,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 65,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.2138157894736842,
+            "reasoning_steps": 0,
+            "forced_closes": 0,
+            "forced_close_rate": null,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 27.176175,
+            "p90_case_seconds": 226.55643000000003,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 34,
+            "probe_cli_agree": 34,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.0,
+            "repeats_with_result": 65,
+            "repeats_identical": 64,
+            "repeats_differing": [
+              {
+                "record_key": "33a6454d3a39e97a:qwen3_8-27b-base_agentic-log-tools_schema-on_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL:1",
+                "turn": 6,
+                "repeats_turn": 3,
+                "action": "inspect_situations"
+              }
+            ],
+            "status_counts": {
+              "success": 34,
+              "execution_failed": 4
+            }
+          },
+          "thought_on": {
+            "run": "eval_runs/agentic_gate/shard_m9_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260928_150922",
+            "cases": 38,
+            "turns": 291,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 40,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.13745704467353953,
+            "reasoning_steps": 0,
+            "forced_closes": 0,
+            "forced_close_rate": null,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 34.1587875,
+            "p90_case_seconds": 282.99796000000003,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 28,
+            "probe_cli_agree": 28,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.0,
+            "repeats_with_result": 40,
+            "repeats_identical": 40,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 28,
+              "execution_failed": 10
+            }
+          }
+        },
+        "differences_from_notes": []
+      },
+      {
+        "name": "Gemma 4 31B",
+        "passes": false,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "thought_off",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "thought_off",
+            "value": 0.14102564102564102,
+            "threshold": 0.1,
+            "passes": false
+          },
+          {
+            "criterion": "timeouts",
+            "task": "thought_off",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": null,
+            "passes": true
+          },
+          {
+            "criterion": "p90 s/turn",
+            "task": "thought_off",
+            "value": 32.9016,
+            "threshold": 30,
+            "passes": false
+          },
+          {
+            "criterion": "declared",
+            "task": "thought_off",
+            "value": 0.9736842105263158,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "thought_off",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "malformed",
+            "task": "thought_on",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "thought_on",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": null,
+            "passes": true
+          },
+          {
+            "criterion": "p90 s/turn",
+            "task": "thought_on",
+            "value": 44.1363,
+            "threshold": 60,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "thought_on",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "thought_on",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          }
+        ],
+        "measures": {
+          "thought_off": {
+            "run": "eval_runs/agentic_gate/shard_m10_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260928_150930",
+            "cases": 38,
+            "turns": 78,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 11,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.14102564102564102,
+            "reasoning_steps": 0,
+            "forced_closes": 0,
+            "forced_close_rate": null,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 32.9016,
+            "p90_case_seconds": 124.0779100000001,
+            "declared": 37,
+            "declared_rate": 0.9736842105263158,
+            "probe_cli_checked": 28,
+            "probe_cli_agree": 28,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [
+              "pipeline_error"
+            ],
+            "uptake": 0.0,
+            "repeats_with_result": 11,
+            "repeats_identical": 11,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 28,
+              "execution_failed": 9,
+              "pipeline_error": 1
+            }
+          },
+          "thought_on": {
+            "run": "eval_runs/agentic_gate/shard_m10_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260928_150930",
+            "cases": 38,
+            "turns": 69,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 4,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.057971014492753624,
+            "reasoning_steps": 0,
+            "forced_closes": 0,
+            "forced_close_rate": null,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 44.1363,
+            "p90_case_seconds": 113.08125000000007,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 28,
+            "probe_cli_agree": 28,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.0,
+            "repeats_with_result": 4,
+            "repeats_identical": 4,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 28,
+              "execution_failed": 10
+            }
+          }
+        },
+        "differences_from_notes": [
+          "repeat_rate: computed 0.1410, notes 0.143"
+        ]
+      }
+    ],
+    "repeats_identical": {
+      "identical": 367,
+      "compared": 368
+    }
+  },
+  "eval2": {
+    "title": "Evaluation 2 model gate (A1*, 38 dev cases, one draw)",
+    "rule_section": "44.4",
+    "criteria": {
+      "malformed_max": 0.05,
+      "repeat_max": 0.1,
+      "forced_close_max": 0.25,
+      "timeout_max": 0.05,
+      "loop_timeout_min_repeats": 2,
+      "p90_case_seconds_max": 1500,
+      "declared_min": 0.9,
+      "probe_cli_agreement": 1.0,
+      "no_pipeline_errors": true
+    },
+    "models": [
+      {
+        "name": "Ministral 3 14B Reasoning",
+        "passes": false,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "gate",
+            "value": 0.007633587786259542,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "gate",
+            "value": 0.0916030534351145,
+            "threshold": 0.1,
+            "passes": true
+          },
+          {
+            "criterion": "forced closes",
+            "task": "gate",
+            "value": 0.7307692307692307,
+            "threshold": 0.25,
+            "passes": false
+          },
+          {
+            "criterion": "timeouts",
+            "task": "gate",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "p90 case s",
+            "task": "gate",
+            "value": 466.0222100000001,
+            "threshold": 1500,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "gate",
+            "value": 0.9736842105263158,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "pipeline errors",
+            "task": "gate",
+            "value": [
+              "probe_unavailable"
+            ],
+            "threshold": 0,
+            "passes": false
+          }
+        ],
+        "measures": {
+          "gate": {
+            "run": "eval_runs/unleashed_gate/shard_m0_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160854",
+            "cases": 38,
+            "turns": 131,
+            "malformed": 1,
+            "malformed_rate": 0.007633587786259542,
+            "repeats": 12,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.0916030534351145,
+            "reasoning_steps": 130,
+            "forced_closes": 95,
+            "forced_close_rate": 0.7307692307692307,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 95.43536666666667,
+            "p90_case_seconds": 466.0222100000001,
+            "declared": 37,
+            "declared_rate": 0.9736842105263158,
+            "probe_cli_checked": 30,
+            "probe_cli_agree": 30,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [
+              "probe_unavailable"
+            ],
+            "uptake": 0.0,
+            "repeats_with_result": 12,
+            "repeats_identical": 12,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 30,
+              "execution_failed": 7,
+              "probe_unavailable": 1
+            }
+          }
+        },
+        "differences_from_notes": [
+          "probe-CLI: computed 30/30, notes 29/29"
+        ]
+      },
+      {
+        "name": "Qwen3.8 27B",
+        "passes": true,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "gate",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "gate",
+            "value": 0.0798611111111111,
+            "threshold": 0.1,
+            "passes": true
+          },
+          {
+            "criterion": "forced closes",
+            "task": "gate",
+            "value": 0.03819444444444445,
+            "threshold": 0.25,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "gate",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "p90 case s",
+            "task": "gate",
+            "value": 710.3426400000003,
+            "threshold": 1500,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "pipeline errors",
+            "task": "gate",
+            "value": [],
+            "threshold": 0,
+            "passes": true
+          }
+        ],
+        "measures": {
+          "gate": {
+            "run": "eval_runs/unleashed_gate/shard_m1_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160912",
+            "cases": 38,
+            "turns": 288,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 23,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.0798611111111111,
+            "reasoning_steps": 288,
+            "forced_closes": 11,
+            "forced_close_rate": 0.03819444444444445,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 94.7669375,
+            "p90_case_seconds": 710.3426400000003,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 33,
+            "probe_cli_agree": 33,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.0,
+            "repeats_with_result": 23,
+            "repeats_identical": 23,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 35,
+              "execution_failed": 3
+            }
+          }
+        },
+        "differences_from_notes": []
+      },
+      {
+        "name": "Muse Glimmer 30B",
+        "passes": false,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "gate",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "gate",
+            "value": 0.124,
+            "threshold": 0.1,
+            "passes": false
+          },
+          {
+            "criterion": "forced closes",
+            "task": "gate",
+            "value": 0.036,
+            "threshold": 0.25,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "gate",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "p90 case s",
+            "task": "gate",
+            "value": 402.91285000000016,
+            "threshold": 1500,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "pipeline errors",
+            "task": "gate",
+            "value": [],
+            "threshold": 0,
+            "passes": true
+          }
+        ],
+        "measures": {
+          "gate": {
+            "run": "eval_runs/unleashed_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160911",
+            "cases": 38,
+            "turns": 250,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 31,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.124,
+            "reasoning_steps": 250,
+            "forced_closes": 9,
+            "forced_close_rate": 0.036,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 60.80914285714285,
+            "p90_case_seconds": 402.91285000000016,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 37,
+            "probe_cli_agree": 37,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.0,
+            "repeats_with_result": 30,
+            "repeats_identical": 30,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 37,
+              "execution_failed": 1
+            }
+          }
+        },
+        "differences_from_notes": []
+      },
+      {
+        "name": "Gemma 4 31B",
+        "passes": false,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "gate",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "gate",
+            "value": 0.22764227642276422,
+            "threshold": 0.1,
+            "passes": false
+          },
+          {
+            "criterion": "forced closes",
+            "task": "gate",
+            "value": 0.09349593495934959,
+            "threshold": 0.25,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "gate",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "p90 case s",
+            "task": "gate",
+            "value": 1166.3951500000003,
+            "threshold": 1500,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "pipeline errors",
+            "task": "gate",
+            "value": [],
+            "threshold": 0,
+            "passes": true
+          }
+        ],
+        "measures": {
+          "gate": {
+            "run": "eval_runs/unleashed_gate/shard_m3_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160854",
+            "cases": 38,
+            "turns": 246,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 56,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.22764227642276422,
+            "reasoning_steps": 246,
+            "forced_closes": 23,
+            "forced_close_rate": 0.09349593495934959,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 180.44192,
+            "p90_case_seconds": 1166.3951500000003,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 27,
+            "probe_cli_agree": 27,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.0,
+            "repeats_with_result": 56,
+            "repeats_identical": 56,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 27,
+              "execution_failed": 11
+            }
+          }
+        },
+        "differences_from_notes": []
+      }
+    ],
+    "repeats_identical": {
+      "identical": 121,
+      "compared": 121
+    }
+  },
+  "examples": {
+    "title": "Example-lookup gate (A1*+S, 38 dev cases, one draw)",
+    "rule_section": "45.4",
+    "criteria": {
+      "malformed_max": 0.05,
+      "repeat_max": 0.1,
+      "forced_close_max": 0.25,
+      "timeout_max": 0.05,
+      "loop_timeout_min_repeats": 2,
+      "p90_case_seconds_max": 1500,
+      "declared_min": 0.9,
+      "probe_cli_agreement": 1.0,
+      "no_pipeline_errors": true,
+      "uptake_min": 0.25
+    },
+    "models": [
+      {
+        "name": "Ministral 3 14B Reasoning",
+        "passes": false,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "gate",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "gate",
+            "value": 0.0625,
+            "threshold": 0.1,
+            "passes": true
+          },
+          {
+            "criterion": "forced closes",
+            "task": "gate",
+            "value": 0.7578125,
+            "threshold": 0.25,
+            "passes": false
+          },
+          {
+            "criterion": "timeouts",
+            "task": "gate",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "p90 case s",
+            "task": "gate",
+            "value": 509.68118000000015,
+            "threshold": 1500,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "pipeline errors",
+            "task": "gate",
+            "value": [],
+            "threshold": 0,
+            "passes": true
+          },
+          {
+            "criterion": "uptake",
+            "task": "gate",
+            "value": 0.13157894736842105,
+            "threshold": 0.25,
+            "passes": false
+          }
+        ],
+        "measures": {
+          "gate": {
+            "run": "eval_runs/unleashed_examples_gate/shard_m0_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222316",
+            "cases": 38,
+            "turns": 128,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 8,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.0625,
+            "reasoning_steps": 128,
+            "forced_closes": 97,
+            "forced_close_rate": 0.7578125,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 103.09415,
+            "p90_case_seconds": 509.68118000000015,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 31,
+            "probe_cli_agree": 31,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.13157894736842105,
+            "repeats_with_result": 8,
+            "repeats_identical": 8,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 32,
+              "execution_failed": 6
+            }
+          }
+        },
+        "differences_from_notes": []
+      },
+      {
+        "name": "Qwen3.8 27B",
+        "passes": true,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "gate",
+            "value": 0.0035971223021582736,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "gate",
+            "value": 0.07553956834532374,
+            "threshold": 0.1,
+            "passes": true
+          },
+          {
+            "criterion": "forced closes",
+            "task": "gate",
+            "value": 0.05755395683453238,
+            "threshold": 0.25,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "gate",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "p90 case s",
+            "task": "gate",
+            "value": 763.9896100000001,
+            "threshold": 1500,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "gate",
+            "value": 0.9736842105263158,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "pipeline errors",
+            "task": "gate",
+            "value": [],
+            "threshold": 0,
+            "passes": true
+          },
+          {
+            "criterion": "uptake",
+            "task": "gate",
+            "value": 0.7368421052631579,
+            "threshold": 0.25,
+            "passes": true
+          }
+        ],
+        "measures": {
+          "gate": {
+            "run": "eval_runs/unleashed_examples_gate/shard_m1_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222345",
+            "cases": 38,
+            "turns": 278,
+            "malformed": 1,
+            "malformed_rate": 0.0035971223021582736,
+            "repeats": 21,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.07553956834532374,
+            "reasoning_steps": 278,
+            "forced_closes": 16,
+            "forced_close_rate": 0.05755395683453238,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 103.21681428571428,
+            "p90_case_seconds": 763.9896100000001,
+            "declared": 37,
+            "declared_rate": 0.9736842105263158,
+            "probe_cli_checked": 34,
+            "probe_cli_agree": 34,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.7368421052631579,
+            "repeats_with_result": 21,
+            "repeats_identical": 21,
+            "repeats_differing": [],
+            "status_counts": {
+              "success": 34,
+              "execution_failed": 3,
+              "agent_no_answer": 1
+            }
+          }
+        },
+        "differences_from_notes": []
+      },
+      {
+        "name": "Muse Glimmer 30B",
+        "passes": true,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "gate",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "gate",
+            "value": 0.02510460251046025,
+            "threshold": 0.1,
+            "passes": true
+          },
+          {
+            "criterion": "forced closes",
+            "task": "gate",
+            "value": 0.0041841004184100415,
+            "threshold": 0.25,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "gate",
+            "value": {
+              "timeouts": 0,
+              "loop_driven": 0
+            },
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "p90 case s",
+            "task": "gate",
+            "value": 361.7010300000001,
+            "threshold": 1500,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "pipeline errors",
+            "task": "gate",
+            "value": [],
+            "threshold": 0,
+            "passes": true
+          },
+          {
+            "criterion": "uptake",
+            "task": "gate",
+            "value": 0.7894736842105263,
+            "threshold": 0.25,
+            "passes": true
+          }
+        ],
+        "measures": {
+          "gate": {
+            "run": "eval_runs/unleashed_examples_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222345",
+            "cases": 38,
+            "turns": 239,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 6,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.02510460251046025,
+            "reasoning_steps": 239,
+            "forced_closes": 1,
+            "forced_close_rate": 0.0041841004184100415,
+            "timeouts": 0,
+            "timeout_rate": 0.0,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 63.367375,
+            "p90_case_seconds": 361.7010300000001,
+            "declared": 38,
+            "declared_rate": 1.0,
+            "probe_cli_checked": 37,
+            "probe_cli_agree": 37,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.7894736842105263,
+            "repeats_with_result": 6,
+            "repeats_identical": 5,
+            "repeats_differing": [
+              {
+                "record_key": "69661c25151a325b:muse-glimmer-30b-reasoning_agentic-log-tools_schema-on_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS:1",
+                "turn": 4,
+                "repeats_turn": 2,
+                "action": "inspect_situations"
+              }
+            ],
+            "status_counts": {
+              "success": 37,
+              "execution_failed": 1
+            }
+          }
+        },
+        "differences_from_notes": []
+      },
+      {
+        "name": "Gemma 4 31B",
+        "passes": false,
+        "checks": [
+          {
+            "criterion": "malformed",
+            "task": "gate",
+            "value": 0.0,
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "repeats",
+            "task": "gate",
+            "value": 0.2336065573770492,
+            "threshold": 0.1,
+            "passes": false
+          },
+          {
+            "criterion": "forced closes",
+            "task": "gate",
+            "value": 0.09876543209876543,
+            "threshold": 0.25,
+            "passes": true
+          },
+          {
+            "criterion": "timeouts",
+            "task": "gate",
+            "value": {
+              "timeouts": 1,
+              "loop_driven": 0
+            },
+            "threshold": 0.05,
+            "passes": true
+          },
+          {
+            "criterion": "p90 case s",
+            "task": "gate",
+            "value": 1084.6035300000003,
+            "threshold": 1500,
+            "passes": true
+          },
+          {
+            "criterion": "declared",
+            "task": "gate",
+            "value": 0.9736842105263158,
+            "threshold": 0.9,
+            "passes": true
+          },
+          {
+            "criterion": "probe-CLI",
+            "task": "gate",
+            "value": 1.0,
+            "threshold": 1.0,
+            "passes": true
+          },
+          {
+            "criterion": "pipeline errors",
+            "task": "gate",
+            "value": [],
+            "threshold": 0,
+            "passes": true
+          },
+          {
+            "criterion": "uptake",
+            "task": "gate",
+            "value": 0.3684210526315789,
+            "threshold": 0.25,
+            "passes": true
+          }
+        ],
+        "measures": {
+          "gate": {
+            "run": "eval_runs/unleashed_examples_gate/shard_m3_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222316",
+            "cases": 38,
+            "turns": 244,
+            "malformed": 0,
+            "malformed_rate": 0.0,
+            "repeats": 57,
+            "repeat_source": "agent.repeat_turns",
+            "repeat_rate": 0.2336065573770492,
+            "reasoning_steps": 243,
+            "forced_closes": 24,
+            "forced_close_rate": 0.09876543209876543,
+            "timeouts": 1,
+            "timeout_rate": 0.02631578947368421,
+            "loop_timeouts": 0,
+            "p90_seconds_per_turn": 196.91683333333333,
+            "p90_case_seconds": 1084.6035300000003,
+            "declared": 37,
+            "declared_rate": 0.9736842105263158,
+            "probe_cli_checked": 26,
+            "probe_cli_agree": 26,
+            "probe_cli_excused": 0,
+            "probe_cli_rate": 1.0,
+            "pipeline_errors": [],
+            "uptake": 0.3684210526315789,
+            "repeats_with_result": 57,
+            "repeats_identical": 57,
+            "repeats_differing": [],
+            "status_counts": {
+              "execution_failed": 11,
+              "success": 26,
+              "timeout": 1
+            }
+          }
+        },
+        "differences_from_notes": []
+      }
+    ],
+    "repeats_identical": {
+      "identical": 91,
+      "compared": 92
+    }
+  }
+}

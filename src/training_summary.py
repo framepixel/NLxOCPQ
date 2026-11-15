@@ -42,6 +42,8 @@ import paths
 
 RUNS_PATH = paths.CONFIGS / "training_runs.json"
 PROJECTIONS = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
+# Row order of the table: the matrix tables' (smallest model first).
+SIZE_ORDER = ("Ministral 3 3B", "Gemma 3 4B", "Llama 3.1 8B", "Ministral 3 14B")
 
 
 def safetensors_header(path: Path) -> Dict[str, Any]:
@@ -189,27 +191,29 @@ def tex_table(rows: List[dict]) -> str:
             return "--" if value is None else fmt(value) + "$^{\\dagger}$"
         return fmt(value)
 
-    lines = ["  \\small",
-             "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}X" + "r" * len(rows)
-             + "@{}}",
-             "    \\toprule", "    & " + " & ".join(r["model"] for r in rows) + " \\\\",
-             "    \\midrule"]
+    # One row per model, smallest first as in the matrix tables (supervisor, 2026-11-06: models
+    # as rows). The job, adapted layers, LoRA and vision-tower tensor counts and the SLURM job
+    # time stay in training_summary.json for the reproducibility appendix.
+    # Short headers: with longer ones the model names wrap at the thesis's text width.
     specs = [
-        ("SLURM job", lambda r: str(r["job"])),
-        ("Adapted layers", lambda r: str(r["layers"])),
-        ("LoRA tensors", lambda r: str(r["lora_tensors"])),
-        ("Trainable parameters", lambda r: f"\\num{{{r['trainable_params']}}}"),
-        ("Adapter size (MiB)", lambda r: f"{r['file_mib']:.1f}"),
-        ("Vision-tower tensors", lambda r: str(r["vision_tensors"])),
-        ("Job time, SLURM (h)", lambda r: "--" if r.get("job_hours") is None
-         else f"{r['job_hours']:.2f}"),
-        ("Training time (h)", lambda r: cell(r, "wall_hours", lambda v: f"{v:.2f}")),
-        ("Samples per second", lambda r: cell(r, "samples_per_second", lambda v: f"{v:.3f}")),
-        ("Final training loss", lambda r: cell(r, "train_loss", lambda v: f"{v:.5f}")),
-        ("Best evaluation loss", lambda r: cell(r, "best_eval_loss", lambda v: f"{v:.6f}")),
+        ("\\makecell[r]{Trainable\\\\params (M)}",
+         lambda r: f"{r['trainable_params'] / 1e6:.1f}"),
+        ("\\makecell[r]{Adapter\\\\(MiB)}", lambda r: f"{r['file_mib']:.1f}"),
+        ("\\makecell[r]{Training\\\\(h)}", lambda r: cell(r, "wall_hours", lambda v: f"{v:.2f}")),
+        ("\\makecell[r]{Samples\\\\per s}",
+         lambda r: cell(r, "samples_per_second", lambda v: f"{v:.3f}")),
+        ("\\makecell[r]{Final\\\\train loss}", lambda r: cell(r, "train_loss", lambda v: f"{v:.5f}")),
+        ("\\makecell[r]{Best\\\\eval.~loss}",
+         lambda r: cell(r, "best_eval_loss", lambda v: f"{v:.6f}")),
     ]
-    for name, render in specs:
-        lines.append(f"    {name} & " + " & ".join(render(r) for r in rows) + " \\\\")
+    lines = ["  \\small",
+             "  \\begin{tabularx}{\\textwidth}{@{}>{\\raggedright\\arraybackslash}X" + "r" * len(specs)
+             + "@{}}",
+             "    \\toprule", "    Model & " + " & ".join(name for name, _ in specs) + " \\\\",
+             "    \\midrule"]
+    for row in sorted(rows, key=lambda r: SIZE_ORDER.index(r["model"])):
+        lines.append(f"    {row['model']} & " + " & ".join(render(row) for _, render in specs)
+                     + " \\\\")
     lines += ["    \\bottomrule", "  \\end{tabularx}"]
     return "\n".join(lines)
 
@@ -254,12 +258,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     out = ac.write_json("training_summary", {"runs": rows, "differences_from_notes": problems})
     table = ac.write_tex(
         "training_summary", tex_table(rows),
-        "The four fine-tuning runs. Adapter figures are measured from the saved adapters, job "
-        "times from SLURM accounting (including model loading), evaluation losses from the last "
-        "checkpoint's trainer state. Figures marked $\\dagger$ were transcribed from job logs "
+        "The four fine-tuning runs; figures marked $\\dagger$ were transcribed from job logs "
         "that no longer exist.",
         "tab:training", notes=["dagger = transcribed in notes 04 on 2026-08-15; the logs of jobs "
-                               "2945122, 2960623 and 2960624 were deleted"])
+                               "2945122, 2960623 and 2960624 were deleted",
+                               "adapter figures are measured from the saved adapters, evaluation "
+                               "losses from the last checkpoint's trainer state"])
     print(f"wrote {out}\nwrote {table}")
     return 0
 

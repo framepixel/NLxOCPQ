@@ -368,7 +368,14 @@ def tex_table(gate: dict, results: List[dict]) -> str:
             for name, _ in used:
                 match = [c for c in result["checks"]
                          if c["criterion"] == name and c["task"] == task]
-                cells.append(_cell(match[0]) if match else "")
+                if match:
+                    cells.append(_cell(match[0]))
+                elif name == "repeats":
+                    # Measured but not judged (evaluation 1 reads repeats on thought off only);
+                    # shown because the thought's effect on looping is part of the result.
+                    cells.append(f"({ac.fmt_pct(result['measures'][task]['repeat_rate'])})")
+                else:
+                    cells.append("")
             verdict_text = ("passes" if result["passes"] else "fails") if position == 0 else ""
             lines.append(f"    {label} & " + " & ".join(cells) + f" & {verdict_text} \\\\")
     lines += ["    \\bottomrule", "  \\end{tabularx}"]
@@ -411,8 +418,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                                "criteria": criteria, "models": results,
                                "repeats_identical": {"identical": same, "compared": compared}}
         if not args.no_write:
-            caption = (f"{gate['title']}: each pre-registered criterion, computed from the gate "
-                       f"runs. Values that fail their criterion are in bold.")
+            caption = (f"{gate['title']}; failing values in bold"
+                       + (", values in parentheses not judged."
+                          if gate["criteria"].get("repeat_applies_to") else "."))
             ac.write_tex(f"agent_gate_{gate['id']}", tex_table(gate, results), caption,
                          f"tab:gate:{gate['id']}", gate_runs,
                          notes=[f"criteria: notes 11 section {gate['rule_section']}; published "

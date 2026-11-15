@@ -296,7 +296,7 @@ def coverage_table(coverage: dict) -> str:
     lines = ["  \\small",
              "  \\begin{tabular}{@{}lrrrr@{}}",
              "    \\toprule",
-             "    Block & Testset & Share & Training & Share \\\\",
+             "    Block & Testset & Share & Corpus & Share \\\\",
              "    \\midrule"]
     for row in coverage["blocks"]:
         lines.append(f"    {row['block']} & {row['testset']} & {ac.fmt_pct(row['testset_share'])} & "
@@ -386,7 +386,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                      "many occur among the training corpora's type names, exactly and ignoring "
                      "case.", "tab:corpus:overlap"),
         ac.write_tex("corpus_block_coverage", coverage_table(coverage),
-                     "Building blocks in the testset's gold queries and in the training pool's "
+                     "Building blocks in the testset's gold queries and in the synthetic corpus's "
                      "queries; shares are of entries and rows.", "tab:corpus:blocks"),
     ]
     print(f"\nwrote {out}")
