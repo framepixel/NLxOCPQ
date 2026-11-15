@@ -1,0 +1,79 @@
+{
+  "generated": {
+    "command": "python src/schema_arm_identity.py",
+    "utc": "2026-10-22T11:29:58+00:00",
+    "nlxocpq_commit": "e1712a6b6b229e0ed10fe4483b784f035e18d5b4-dirty",
+    "inputs": [
+      {
+        "run": "eval_runs/matrix_v2/merged",
+        "predictions_sha256": "8d32e62f9eb38f2b782c137fd53339f2ad51430b8c151baaf8f61676c88fa255",
+        "pipeline_fingerprints": [
+          "32dfd9156757c5744a103b947c07b7d2e3a9f6303ece353f8bd258f320686bf5"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/matrix_full",
+        "predictions_sha256": "2d54d07b182db44414c390783150c020adb923e5d1719fe314f1993cf51fa2c0",
+        "pipeline_fingerprints": [
+          "1854b4705fe7f95bd28c2a22bdf8e5fe56cd9a4c3363387996342aca269d8e9f",
+          "1872112c34420f0ece4ccd30485e8d15684f436782d8c8292f096ff645ddd946"
+        ],
+        "pipeline_consistent": false,
+        "corpus_consistent": null
+      },
+      {
+        "run": "logs/selfcons/merged",
+        "predictions_sha256": "a5cc78b0802b801426e8a33481b47c75f862442e8bfcba7afdb93b00cba7194c",
+        "pipeline_fingerprints": [
+          "ca616aa2123f5f3ac7764e3544eff30701a3cc5c1935c2b34a2c38118a8a741d"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": null
+      }
+    ]
+  },
+  "runs": [
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "pairs": 4056,
+      "single_call_pairs": 350,
+      "identical_prompt_tokens": 350,
+      "identical_completion_chars": 350,
+      "equal_call_counts": 1237,
+      "strict_f1_on": 0.056215691568047337,
+      "strict_f1_off": 0.05511989768244576,
+      "repair_runs": 2762,
+      "repair_failures": 2444,
+      "repair_failure_rate": 0.8848660391020999
+    },
+    {
+      "run": "eval_runs/matrix_full",
+      "pairs": 4056,
+      "single_call_pairs": 350,
+      "identical_prompt_tokens": 350,
+      "identical_completion_chars": 350,
+      "equal_call_counts": 1223,
+      "strict_f1_on": 0.057421936637080874,
+      "strict_f1_off": 0.05659507519723866,
+      "repair_runs": 2776,
+      "repair_failures": 2450,
+      "repair_failure_rate": 0.8825648414985591
+    },
+    {
+      "run": "logs/selfcons/merged",
+      "pairs": 0,
+      "single_call_pairs": 0,
+      "identical_prompt_tokens": 0,
+      "identical_completion_chars": 0,
+      "equal_call_counts": 0,
+      "strict_f1_on": null,
+      "strict_f1_off": null,
+      "repair_runs": 2043,
+      "repair_failures": 1613,
+      "repair_failure_rate": 0.7895252080274107
+    }
+  ],
+  "differences_from_notes": []
+}

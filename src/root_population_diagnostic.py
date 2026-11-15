@@ -36,6 +36,7 @@ Usage:
 import argparse
 import json
 from collections import Counter, defaultdict
+from itertools import combinations
 from pathlib import Path
 from typing import Any, Optional
 
@@ -186,6 +187,75 @@ def classify(gold_query: Any, prediction: Any) -> str:
     return "residual"
 
 
+# Filters that restrict by an attribute value (or a CEL expression over attributes), as opposed to
+# the structural O2E / O2O / TimeBetweenEvents / NotEqual links between variables.
+ATTRIBUTE_FILTERS = ("EventAttributeValueFilter", "ObjectAttributeValueFilter", "BasicFilterCEL")
+LINK_SUBCLASS_ORDER = ["placement", "attribute", "value_type", "bounds", "structural_link"]
+LINK_SUBCLASS_MEANS = {
+    "placement": "gold's root restricts no attribute; the prediction adds an attribute filter there",
+    "attribute": "an attribute filter is missing, extra, or on a different attribute",
+    "value_type": "same attribute, different value type (e.g. Boolean against Integer)",
+    "bounds": "same attribute and value type, different bounds or values",
+    "structural_link": "attribute filters agree; an O2E/O2O/time/inequality link differs",
+}
+
+
+def _attribute_key(query_filter: dict) -> tuple:
+    name = "cel" if query_filter.get("type") == "BasicFilterCEL" else query_filter.get(
+        "attribute_name")
+    return query_filter.get("type"), name
+
+
+def link_subclass(gold_query: Any, prediction: Any) -> str:
+    """Why two root boxes' filters differ, for a `link_mismatch` record. First match wins.
+
+    Notes 11 §36.3 decomposed N2's 26 `link_mismatch` cases by hand (10 / 7 / 6 / 2 / 1). These
+    rules make that decomposition reproducible. They reproduce it to within the cases that have
+    two causes at once, where a hand reading picked one and the rules take the first in
+    `LINK_SUBCLASS_ORDER` (N2: 11 / 7 / 6 / 1 / 1).
+    """
+    gold_filters = (root_box(gold_query) or {}).get("filters") or []
+    pred_filters = (root_box(prediction) or {}).get("filters") or []
+    gold_attrs = {_attribute_key(f): f for f in gold_filters
+                  if isinstance(f, dict) and f.get("type") in ATTRIBUTE_FILTERS}
+    pred_attrs = {_attribute_key(f): f for f in pred_filters
+                  if isinstance(f, dict) and f.get("type") in ATTRIBUTE_FILTERS}
+    if not gold_filters and pred_filters:
+        return "placement"
+    if set(gold_attrs) != set(pred_attrs):
+        return "attribute"
+    for key, gold_filter in gold_attrs.items():
+        gold_value = gold_filter.get("value_filter") or {}
+        pred_value = pred_attrs[key].get("value_filter") or {}
+        if gold_value.get("type") != pred_value.get("type"):
+            return "value_type"
+    for key, gold_filter in gold_attrs.items():
+        if _filter_key(gold_filter) != _filter_key(pred_attrs[key]):
+            return "bounds"
+    return "structural_link"
+
+
+def clearing_oracle(rows: list, max_classes: int = 2) -> dict:
+    """Mean strict F1 if every record of the chosen classes were answered perfectly.
+
+    Args:
+        rows: (class, strict F1) per record of one stratum; the class is `no_result`,
+            `population_exact` or a `CLASS_ORDER` label.
+        max_classes: Largest combination of classes to clear.
+
+    Returns:
+        {"a+b": mean F1}, highest first -- notes 11 §36.3's table. It bounds what fixing those
+        failure classes could buy; it is not a prediction of any fix.
+    """
+    classes = sorted({label for label, _ in rows})
+    oracle = {}
+    for size in range(1, max_classes + 1):
+        for combo in combinations(classes, size):
+            oracle["+".join(combo)] = sum(1.0 if label in combo else f1
+                                          for label, f1 in rows) / len(rows)
+    return dict(sorted(oracle.items(), key=lambda item: -item[1]))
+
+
 def _population(situations: Any) -> Optional[set]:
     """The row set with the violation flag dropped: which rows, not which are flagged."""
     if situations is None:
@@ -218,10 +288,12 @@ def analyse(run_dir: Path, store_dir: Path) -> dict:
 
     by_config = defaultdict(lambda: {
         "classes": Counter(),
+        "link_subclasses": Counter(),
         "arity_repaired_by_kind_projection": 0,
         "population_exact": 0,
         "no_result": 0,
         "n": 0,
+        "discriminating_rows": [],
     })
     gold_cache: dict = {}
 
@@ -242,19 +314,27 @@ def analyse(run_dir: Path, store_dir: Path) -> dict:
         loaded = result_store.load(store_dir, ocel_path, prediction) if prediction else None
         pred_situations = loaded[2] if loaded else None
 
+        # The record's strict F1 as eval_testset wrote it, for the clearing oracle.
+        strict_f1 = ((record.get("similarity") or {}).get("combined") or {}).get("f1") or 0.0
+
         # A prediction with no stored result cannot be classified here at all -- it never parsed,
         # never executed, or its blob is absent. Counted, never guessed at.
         if gold_situations is None or pred_situations is None:
             bucket["no_result"] += 1
-            continue
-        if _population(gold_situations) == _population(pred_situations):
+            label = "no_result"
+        elif _population(gold_situations) == _population(pred_situations):
             bucket["population_exact"] += 1
-            continue
-
-        label = classify(gold_query, prediction)
-        bucket["classes"][label] += 1
-        if label == "arity_mismatch" and _kind_projected_equal(gold_situations, pred_situations):
-            bucket["arity_repaired_by_kind_projection"] += 1
+            label = "population_exact"
+        else:
+            label = classify(gold_query, prediction)
+            bucket["classes"][label] += 1
+            if label == "arity_mismatch" and _kind_projected_equal(gold_situations,
+                                                                   pred_situations):
+                bucket["arity_repaired_by_kind_projection"] += 1
+            if label == "link_mismatch":
+                bucket["link_subclasses"][link_subclass(gold_query, prediction)] += 1
+        if record.get("discriminating") is True:
+            bucket["discriminating_rows"].append((label, strict_f1))
 
     report = {"run_dir": str(run_dir), "store_dir": str(store_dir),
               "class_meanings": CLASS_MEANS, "by_config": {}}
@@ -274,7 +354,12 @@ def analyse(run_dir: Path, store_dir: Path) -> dict:
                 for name in CLASS_ORDER + ["unreadable_root"]
             },
             "arity_repaired_by_kind_projection": bucket["arity_repaired_by_kind_projection"],
+            "link_subclasses": {name: bucket["link_subclasses"].get(name, 0)
+                                for name in LINK_SUBCLASS_ORDER},
+            "clearing_oracle_discriminating": (clearing_oracle(bucket["discriminating_rows"])
+                                               if bucket["discriminating_rows"] else {}),
         }
+    report["link_subclass_meanings"] = LINK_SUBCLASS_MEANS
     return report
 
 
@@ -301,6 +386,15 @@ def _print_report(report: dict) -> None:
                   f"REPAIRED by kind-projection")
             print(f"   -> {repaired} bound an extra column; {arity - repaired} selected "
                   f"different things")
+        if block["classes"]["link_mismatch"]:
+            parts = ", ".join(f"{name} {count}" for name, count in block["link_subclasses"].items()
+                              if count)
+            print(f"   link_mismatch by sub-class: {parts}")
+        oracle = block.get("clearing_oracle_discriminating") or {}
+        if oracle:
+            top = list(oracle.items())[:4]
+            print("   clearing oracle (discriminating): "
+                  + ", ".join(f"{combo} {value:.4f}" for combo, value in top))
 
 
 def main() -> None:
@@ -323,7 +417,9 @@ def main() -> None:
 
     report = analyse(run_dir, store_dir)
     _print_report(report)
-    out_path = run_dir / args.out
+    # A bare filename lands inside --run_dir (the original behaviour); a path is used as given, so
+    # a finished run directory need not be written to (CLAUDE.md 2.3).
+    out_path = Path(args.out) if Path(args.out).parent != Path(".") else run_dir / args.out
     _write_json(out_path, report)
     print(f"\nwrote {out_path}")
 

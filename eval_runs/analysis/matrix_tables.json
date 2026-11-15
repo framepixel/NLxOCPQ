@@ -1,0 +1,1118 @@
+{
+  "generated": {
+    "command": "python src/matrix_tables.py",
+    "utc": "2026-11-12T14:09:25+00:00",
+    "nlxocpq_commit": "644d44673a5065ccb5fd1223baae669986c59e19-dirty",
+    "inputs": [
+      {
+        "run": "eval_runs/matrix_v2/merged_regold_20260922",
+        "predictions_sha256": "ce99ed3e2045dd77cfc88a0d78d7fab0342f5ff20bd6633e1abb0d220cf9af1d",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      }
+    ]
+  },
+  "discriminating": {
+    "arms": [
+      [
+        "Llama 3.1 8B base",
+        {
+          "strict_f1": 0.03312085679012346,
+          "executed_f1": 0.17885262666666668,
+          "skill": -0.9434357178440445,
+          "evaluated": 0.19506172839506172,
+          "structural_f1": 0.233263012345679,
+          "records": 810
+        }
+      ],
+      [
+        "Llama 3.1 8B fine-tuned",
+        {
+          "strict_f1": 0.0886111024691358,
+          "executed_f1": 0.18498709536082472,
+          "skill": -0.838530250699788,
+          "evaluated": 0.5037037037037037,
+          "structural_f1": 0.4486226012345679,
+          "records": 810
+        }
+      ],
+      [
+        "Ministral 3 14B base",
+        {
+          "strict_f1": 0.055402970370370376,
+          "executed_f1": 0.29330984313725494,
+          "skill": -0.9064961904205044,
+          "evaluated": 0.18888888888888888,
+          "structural_f1": 0.28578804320987655,
+          "records": 810
+        }
+      ],
+      [
+        "Ministral 3 14B fine-tuned",
+        {
+          "strict_f1": 0.09463602962962964,
+          "executed_f1": 0.17910089719626168,
+          "skill": -0.8388742176294779,
+          "evaluated": 0.5777777777777777,
+          "structural_f1": 0.5031397209876544,
+          "records": 810
+        }
+      ],
+      [
+        "Ministral 3 3B base",
+        {
+          "strict_f1": 0.007109407407407408,
+          "executed_f1": 0.0872518181818182,
+          "skill": -0.9880028924172565,
+          "evaluated": 0.08888888888888889,
+          "structural_f1": 0.20582376049382714,
+          "records": 810
+        }
+      ],
+      [
+        "Ministral 3 3B fine-tuned",
+        {
+          "strict_f1": 0.055741271604938275,
+          "executed_f1": 0.12202818918918919,
+          "skill": -0.9028152353107377,
+          "evaluated": 0.4888888888888889,
+          "structural_f1": 0.3972984135802469,
+          "records": 810
+        }
+      ],
+      [
+        "Gemma 3 4B base",
+        {
+          "strict_f1": 0.01782934074074074,
+          "executed_f1": 0.07010566019417476,
+          "skill": -0.96433195982232,
+          "evaluated": 0.2765432098765432,
+          "structural_f1": 0.21198310987654323,
+          "records": 810
+        }
+      ],
+      [
+        "Gemma 3 4B fine-tuned",
+        {
+          "strict_f1": 0.03217567654320987,
+          "executed_f1": 0.13862924468085105,
+          "skill": -0.9530439616963121,
+          "evaluated": 0.2580246913580247,
+          "structural_f1": 0.2468507888888889,
+          "records": 810
+        }
+      ],
+      [
+        "average",
+        {
+          "strict_f1": 0.04807833194444445,
+          "executed_f1": 0.15984996972806567,
+          "skill": -0.9169413032300552,
+          "evaluated": 0.32222222222222224,
+          "structural_f1": 0.3165961813271605,
+          "records": 6480
+        }
+      ]
+    ],
+    "strategy": [
+      [
+        "allowed entities only",
+        {
+          "strict_f1": 0.06281505972222222,
+          "executed_f1": 0.244910702166065,
+          "skill": -0.8895354583992712,
+          "evaluated": 0.2875,
+          "structural_f1": 0.2572829685185185,
+          "records": 2160
+        }
+      ],
+      [
+        "grammar-guided",
+        {
+          "strict_f1": 0.043570520833333334,
+          "executed_f1": 0.1441230091883614,
+          "skill": -0.9275136780984413,
+          "evaluated": 0.3162037037037037,
+          "structural_f1": 0.32561020879629626,
+          "records": 2160
+        }
+      ],
+      [
+        "chain-of-thought plus",
+        {
+          "strict_f1": 0.03784941527777778,
+          "executed_f1": 0.11018158625336928,
+          "skill": -0.933774773192453,
+          "evaluated": 0.362962962962963,
+          "structural_f1": 0.3668953666666666,
+          "records": 2160
+        }
+      ]
+    ],
+    "validation": [
+      [
+        "validation-repair on",
+        {
+          "strict_f1": 0.04869045339506173,
+          "executed_f1": 0.15967314676113362,
+          "skill": -0.9155631341941557,
+          "evaluated": 0.32469135802469135,
+          "structural_f1": 0.22875330277777778,
+          "records": 3240
+        }
+      ],
+      [
+        "validation-repair off",
+        {
+          "strict_f1": 0.04746621049382716,
+          "executed_f1": 0.16003176066597297,
+          "skill": -0.9183194722659546,
+          "evaluated": 0.3197530864197531,
+          "structural_f1": 0.4044390598765432,
+          "records": 3240
+        }
+      ]
+    ],
+    "interaction": [
+      [
+        "llama31-8b-base",
+        [
+          {
+            "strict_f1": 0.0,
+            "executed_f1": null,
+            "skill": -1.0,
+            "evaluated": 0.0,
+            "structural_f1": 0.008224837037037037,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.026908051851851852,
+            "executed_f1": 0.1862865128205128,
+            "skill": -0.9500387909622267,
+            "evaluated": 0.15925925925925927,
+            "structural_f1": 0.29506394444444445,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.07245451851851852,
+            "executed_f1": 0.17624072072072072,
+            "skill": -0.8802683625699066,
+            "evaluated": 0.42592592592592593,
+            "structural_f1": 0.39650025555555557,
+            "records": 270
+          }
+        ]
+      ],
+      [
+        "llama31-8b-finetuned",
+        [
+          {
+            "strict_f1": 0.20275783333333333,
+            "executed_f1": 0.36254711920529803,
+            "skill": -0.6235964588703844,
+            "evaluated": 0.5962962962962963,
+            "structural_f1": 0.5470426481481482,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.013595392592592593,
+            "executed_f1": 0.033069873873873876,
+            "skill": -0.9820418338216734,
+            "evaluated": 0.42962962962962964,
+            "structural_f1": 0.3573602444444445,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.04948008148148148,
+            "executed_f1": 0.10602874603174603,
+            "skill": -0.9099524594073062,
+            "evaluated": 0.48518518518518516,
+            "structural_f1": 0.44146491111111114,
+            "records": 270
+          }
+        ]
+      ],
+      [
+        "ministral3-14b-base",
+        [
+          {
+            "strict_f1": 0.0,
+            "executed_f1": null,
+            "skill": -1.0,
+            "evaluated": 0.0,
+            "structural_f1": 0.021355614814814818,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.11225371481481482,
+            "executed_f1": 0.365162686746988,
+            "skill": -0.822839699611788,
+            "evaluated": 0.3074074074074074,
+            "structural_f1": 0.4217164259259259,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.0539551962962963,
+            "executed_f1": 0.2081129,
+            "skill": -0.8966488716497253,
+            "evaluated": 0.25925925925925924,
+            "structural_f1": 0.41429208888888885,
+            "records": 270
+          }
+        ]
+      ],
+      [
+        "ministral3-14b-finetuned",
+        [
+          {
+            "strict_f1": 0.1492007851851852,
+            "executed_f1": 0.27404225850340136,
+            "skill": -0.73907351556564,
+            "evaluated": 0.6370370370370371,
+            "structural_f1": 0.5628558259259259,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.07028166666666667,
+            "executed_f1": 0.177346261682243,
+            "skill": -0.8747481363174251,
+            "evaluated": 0.4074074074074074,
+            "structural_f1": 0.40869091481481484,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.06442563703703705,
+            "executed_f1": 0.09997081609195403,
+            "skill": -0.9028010010053684,
+            "evaluated": 0.6888888888888889,
+            "structural_f1": 0.5378724222222222,
+            "records": 270
+          }
+        ]
+      ],
+      [
+        "ministral3-3b-base",
+        [
+          {
+            "strict_f1": 0.0,
+            "executed_f1": null,
+            "skill": -1.0,
+            "evaluated": 0.0,
+            "structural_f1": 0.022685574074074077,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.010375155555555555,
+            "executed_f1": 0.11205168,
+            "skill": -0.988113455344619,
+            "evaluated": 0.10740740740740741,
+            "structural_f1": 0.26801292962962964,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.010953066666666667,
+            "executed_f1": 0.0721299512195122,
+            "skill": -0.9758952219071505,
+            "evaluated": 0.15925925925925927,
+            "structural_f1": 0.3267727777777778,
+            "records": 270
+          }
+        ]
+      ],
+      [
+        "ministral3-3b-finetuned",
+        [
+          {
+            "strict_f1": 0.10170445185185185,
+            "executed_f1": 0.1615306,
+            "skill": -0.8208660369966001,
+            "evaluated": 0.6888888888888889,
+            "structural_f1": 0.5039714925925927,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.042407322222222224,
+            "executed_f1": 0.10504566055045872,
+            "skill": -0.9271068073456645,
+            "evaluated": 0.4222222222222222,
+            "structural_f1": 0.34467884074074073,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.02311204074074074,
+            "executed_f1": 0.0685741868131868,
+            "skill": -0.9604728615899483,
+            "evaluated": 0.35555555555555557,
+            "structural_f1": 0.34324490740740743,
+            "records": 270
+          }
+        ]
+      ],
+      [
+        "gemma3-4b-base",
+        [
+          {
+            "strict_f1": 0.0,
+            "executed_f1": null,
+            "skill": -1.0,
+            "evaluated": 0.0,
+            "structural_f1": 0.0,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.02955197777777778,
+            "executed_f1": 0.08141871428571429,
+            "skill": -0.9395830265705262,
+            "evaluated": 0.3851851851851852,
+            "structural_f1": 0.27709035555555556,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.023936044444444443,
+            "executed_f1": 0.05984011111111111,
+            "skill": -0.953412852896434,
+            "evaluated": 0.4444444444444444,
+            "structural_f1": 0.3588589740740741,
+            "records": 270
+          }
+        ]
+      ],
+      [
+        "gemma3-4b-finetuned",
+        [
+          {
+            "strict_f1": 0.048857407407407405,
+            "executed_f1": 0.15338953488372092,
+            "skill": -0.9327476557615446,
+            "evaluated": 0.37777777777777777,
+            "structural_f1": 0.39212775555555557,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.043190885185185185,
+            "executed_f1": 0.1439696172839506,
+            "skill": -0.9356376748136079,
+            "evaluated": 0.3111111111111111,
+            "structural_f1": 0.23226801481481482,
+            "records": 270
+          },
+          {
+            "strict_f1": 0.004478737037037037,
+            "executed_f1": 0.0575837619047619,
+            "skill": -0.9907465545137838,
+            "evaluated": 0.08518518518518518,
+            "structural_f1": 0.1161565962962963,
+            "records": 270
+          }
+        ]
+      ]
+    ],
+    "outcomes": [
+      [
+        "llama31-8b-base",
+        {
+          "records": 810,
+          "counts": {
+            "schema_invalid": 550,
+            "parse_failed": 45,
+            "success": 158,
+            "execution_failed": 57
+          }
+        }
+      ],
+      [
+        "llama31-8b-finetuned",
+        {
+          "records": 810,
+          "counts": {
+            "schema_invalid": 306,
+            "success": 408,
+            "execution_failed": 86,
+            "parse_failed": 10
+          }
+        }
+      ],
+      [
+        "ministral3-14b-base",
+        {
+          "records": 810,
+          "counts": {
+            "schema_invalid": 616,
+            "parse_failed": 12,
+            "success": 153,
+            "execution_failed": 29
+          }
+        }
+      ],
+      [
+        "ministral3-14b-finetuned",
+        {
+          "records": 810,
+          "counts": {
+            "schema_invalid": 283,
+            "success": 468,
+            "execution_failed": 55,
+            "parse_failed": 4
+          }
+        }
+      ],
+      [
+        "ministral3-3b-base",
+        {
+          "records": 810,
+          "counts": {
+            "schema_invalid": 686,
+            "parse_failed": 14,
+            "success": 72,
+            "execution_failed": 38
+          }
+        }
+      ],
+      [
+        "ministral3-3b-finetuned",
+        {
+          "records": 810,
+          "counts": {
+            "execution_failed": 93,
+            "success": 394,
+            "schema_invalid": 310,
+            "parse_failed": 13
+          }
+        }
+      ],
+      [
+        "gemma3-4b-base",
+        {
+          "records": 810,
+          "counts": {
+            "schema_invalid": 518,
+            "parse_failed": 12,
+            "execution_failed": 56,
+            "success": 224
+          }
+        }
+      ],
+      [
+        "gemma3-4b-finetuned",
+        {
+          "records": 810,
+          "counts": {
+            "schema_invalid": 481,
+            "execution_failed": 83,
+            "success": 209,
+            "parse_failed": 37
+          }
+        }
+      ]
+    ],
+    "best": [
+      [
+        "Llama 3.1 8B fine-tuned, allowed entities only, validation on",
+        {
+          "strict_f1": 0.20300614074074075,
+          "executed_f1": 0.3606030131578947,
+          "skill": -0.624027983377794,
+          "evaluated": 0.6,
+          "structural_f1": 0.4762425555555555,
+          "records": 135
+        }
+      ],
+      [
+        "Llama 3.1 8B fine-tuned, allowed entities only, validation off",
+        {
+          "strict_f1": 0.20250952592592592,
+          "executed_f1": 0.3645171466666666,
+          "skill": -0.6231649343629747,
+          "evaluated": 0.5925925925925926,
+          "structural_f1": 0.6178427407407407,
+          "records": 135
+        }
+      ],
+      [
+        "Ministral 3 14B fine-tuned, allowed entities only, validation on",
+        {
+          "strict_f1": 0.1492007851851852,
+          "executed_f1": 0.27219062162162166,
+          "skill": -0.73907351556564,
+          "evaluated": 0.6370370370370371,
+          "structural_f1": 0.5084664222222222,
+          "records": 135
+        }
+      ],
+      [
+        "Ministral 3 14B fine-tuned, allowed entities only, validation off",
+        {
+          "strict_f1": 0.1492007851851852,
+          "executed_f1": 0.2759192602739726,
+          "skill": -0.73907351556564,
+          "evaluated": 0.6370370370370371,
+          "structural_f1": 0.6172452296296297,
+          "records": 135
+        }
+      ],
+      [
+        "Ministral 3 14B base, grammar-guided, validation off",
+        {
+          "strict_f1": 0.11269474074074073,
+          "executed_f1": 0.3622330952380952,
+          "skill": -0.8223353227659354,
+          "evaluated": 0.3111111111111111,
+          "structural_f1": 0.5885842222222223,
+          "records": 135
+        }
+      ]
+    ]
+  },
+  "all": {
+    "arms": [
+      [
+        "Llama 3.1 8B base",
+        {
+          "strict_f1": 0.04905137475345167,
+          "executed_f1": 0.24745320398009948,
+          "skill": -0.9434357178440445,
+          "evaluated": 0.20710059171597633,
+          "structural_f1": 0.2398782406311637,
+          "records": 1014
+        }
+      ],
+      [
+        "Llama 3.1 8B fine-tuned",
+        {
+          "strict_f1": 0.080645949704142,
+          "executed_f1": 0.1675717069672131,
+          "skill": -0.838530250699788,
+          "evaluated": 0.514792899408284,
+          "structural_f1": 0.4499289773175542,
+          "records": 1014
+        }
+      ],
+      [
+        "Ministral 3 14B base",
+        {
+          "strict_f1": 0.07356884220907298,
+          "executed_f1": 0.3845299278350515,
+          "skill": -0.9064961904205044,
+          "evaluated": 0.19822485207100593,
+          "structural_f1": 0.2832899339250493,
+          "records": 1014
+        }
+      ],
+      [
+        "Ministral 3 14B fine-tuned",
+        {
+          "strict_f1": 0.09428977712031558,
+          "executed_f1": 0.1686240458553792,
+          "skill": -0.8388742176294779,
+          "evaluated": 0.611439842209073,
+          "structural_f1": 0.5179292889546351,
+          "records": 1014
+        }
+      ],
+      [
+        "Ministral 3 3B base",
+        {
+          "strict_f1": 0.013493116370808678,
+          "executed_f1": 0.13961244897959182,
+          "skill": -0.9880028924172565,
+          "evaluated": 0.10650887573964497,
+          "structural_f1": 0.21202668343195266,
+          "records": 1014
+        }
+      ],
+      [
+        "Ministral 3 3B fine-tuned",
+        {
+          "strict_f1": 0.06417537475345168,
+          "executed_f1": 0.1390466452991453,
+          "skill": -0.9028152353107377,
+          "evaluated": 0.4990138067061144,
+          "structural_f1": 0.4174591005917159,
+          "records": 1014
+        }
+      ],
+      [
+        "Gemma 3 4B base",
+        {
+          "strict_f1": 0.02986367455621302,
+          "executed_f1": 0.11737118604651163,
+          "skill": -0.96433195982232,
+          "evaluated": 0.28106508875739644,
+          "structural_f1": 0.2223214792899408,
+          "records": 1014
+        }
+      ],
+      [
+        "Gemma 3 4B fine-tuned",
+        {
+          "strict_f1": 0.0360237100591716,
+          "executed_f1": 0.1534791680672269,
+          "skill": -0.9530439616963121,
+          "evaluated": 0.267258382642998,
+          "structural_f1": 0.25415915483234713,
+          "records": 1014
+        }
+      ],
+      [
+        "average",
+        {
+          "strict_f1": 0.05513897744082841,
+          "executed_f1": 0.17806026472929937,
+          "skill": -0.9169413032300552,
+          "evaluated": 0.33567554240631164,
+          "structural_f1": 0.32462410737179487,
+          "records": 8112
+        }
+      ]
+    ],
+    "strategy": [
+      [
+        "allowed entities only",
+        {
+          "strict_f1": 0.06237286353550296,
+          "executed_f1": 0.23489724651810587,
+          "skill": -0.8895354583992712,
+          "evaluated": 0.3010355029585799,
+          "structural_f1": 0.26459267751479293,
+          "records": 2704
+        }
+      ],
+      [
+        "grammar-guided",
+        {
+          "strict_f1": 0.04955518676035502,
+          "executed_f1": 0.15990122315035799,
+          "skill": -0.9275136780984413,
+          "evaluated": 0.32840236686390534,
+          "structural_f1": 0.33233165976331364,
+          "records": 2704
+        }
+      ],
+      [
+        "chain-of-thought plus",
+        {
+          "strict_f1": 0.05348888202662722,
+          "executed_f1": 0.15129072907949792,
+          "skill": -0.933774773192453,
+          "evaluated": 0.3775887573964497,
+          "structural_f1": 0.3769479848372781,
+          "records": 2704
+        }
+      ]
+    ],
+    "validation": [
+      [
+        "validation-repair on",
+        {
+          "strict_f1": 0.05568718343195267,
+          "executed_f1": 0.17659672869429244,
+          "skill": -0.9155631341941557,
+          "evaluated": 0.33925049309664695,
+          "structural_f1": 0.24072594699211047,
+          "records": 4056
+        }
+      ],
+      [
+        "validation-repair off",
+        {
+          "strict_f1": 0.05459077144970414,
+          "executed_f1": 0.17957840145985401,
+          "skill": -0.9183194722659546,
+          "evaluated": 0.33210059171597633,
+          "structural_f1": 0.4085222677514793,
+          "records": 4056
+        }
+      ]
+    ],
+    "interaction": [
+      [
+        "llama31-8b-base",
+        [
+          {
+            "strict_f1": 0.0,
+            "executed_f1": null,
+            "skill": -1.0,
+            "evaluated": 0.0,
+            "structural_f1": 0.007415443786982248,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.04966678698224852,
+            "executed_f1": 0.2845317627118644,
+            "skill": -0.9500387909622267,
+            "evaluated": 0.1863905325443787,
+            "structural_f1": 0.30986616568047337,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.0974873372781065,
+            "executed_f1": 0.23204732394366195,
+            "skill": -0.8802683625699066,
+            "evaluated": 0.4349112426035503,
+            "structural_f1": 0.4023531124260355,
+            "records": 338
+          }
+        ]
+      ],
+      [
+        "llama31-8b-finetuned",
+        [
+          {
+            "strict_f1": 0.19155211538461536,
+            "executed_f1": 0.33546432642487045,
+            "skill": -0.6235964588703844,
+            "evaluated": 0.6301775147928994,
+            "structural_f1": 0.5536556331360947,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.010860224852071006,
+            "executed_f1": 0.026219685714285713,
+            "skill": -0.9820418338216734,
+            "evaluated": 0.4289940828402367,
+            "structural_f1": 0.3544079881656805,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.03952550887573964,
+            "executed_f1": 0.08619110967741936,
+            "skill": -0.9099524594073062,
+            "evaluated": 0.48520710059171596,
+            "structural_f1": 0.4417233106508876,
+            "records": 338
+          }
+        ]
+      ],
+      [
+        "ministral3-14b-base",
+        [
+          {
+            "strict_f1": 0.0,
+            "executed_f1": null,
+            "skill": -1.0,
+            "evaluated": 0.0,
+            "structural_f1": 0.02211932544378698,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.13676480177514794,
+            "executed_f1": 0.4402524095238095,
+            "skill": -0.822839699611788,
+            "evaluated": 0.3254437869822485,
+            "structural_f1": 0.41763877810650885,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.083941724852071,
+            "executed_f1": 0.3187899213483146,
+            "skill": -0.8966488716497253,
+            "evaluated": 0.2692307692307692,
+            "structural_f1": 0.41011169822485205,
+            "records": 338
+          }
+        ]
+      ],
+      [
+        "ministral3-14b-finetuned",
+        [
+          {
+            "strict_f1": 0.14590373372781065,
+            "executed_f1": 0.25033229441624366,
+            "skill": -0.73907351556564,
+            "evaluated": 0.6775147928994083,
+            "structural_f1": 0.5757001213017751,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.06205931952662722,
+            "executed_f1": 0.14668566433566435,
+            "skill": -0.8747481363174251,
+            "evaluated": 0.4349112426035503,
+            "structural_f1": 0.41723283136094674,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.07490627810650888,
+            "executed_f1": 0.11153445814977973,
+            "skill": -0.9028010010053684,
+            "evaluated": 0.7218934911242604,
+            "structural_f1": 0.5608549142011834,
+            "records": 338
+          }
+        ]
+      ],
+      [
+        "ministral3-3b-base",
+        [
+          {
+            "strict_f1": 0.0,
+            "executed_f1": null,
+            "skill": -1.0,
+            "evaluated": 0.0,
+            "structural_f1": 0.02763132544378698,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.008287846153846154,
+            "executed_f1": 0.08003691428571429,
+            "skill": -0.988113455344619,
+            "evaluated": 0.1242603550295858,
+            "structural_f1": 0.26935161834319526,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.03219150295857988,
+            "executed_f1": 0.17270996825396825,
+            "skill": -0.9758952219071505,
+            "evaluated": 0.1952662721893491,
+            "structural_f1": 0.33909710650887576,
+            "records": 338
+          }
+        ]
+      ],
+      [
+        "ministral3-3b-finetuned",
+        [
+          {
+            "strict_f1": 0.11082900000000001,
+            "executed_f1": 0.17753650236966825,
+            "skill": -0.8208660369966001,
+            "evaluated": 0.6893491124260355,
+            "structural_f1": 0.5266975147928994,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.05140052366863906,
+            "executed_f1": 0.12149214685314687,
+            "skill": -0.9271068073456645,
+            "evaluated": 0.44970414201183434,
+            "structural_f1": 0.36840822485207103,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.030296600591715978,
+            "executed_f1": 0.08982676315789474,
+            "skill": -0.9604728615899483,
+            "evaluated": 0.35798816568047337,
+            "structural_f1": 0.3572715621301775,
+            "records": 338
+          }
+        ]
+      ],
+      [
+        "gemma3-4b-base",
+        [
+          {
+            "strict_f1": 0.0,
+            "executed_f1": null,
+            "skill": -1.0,
+            "evaluated": 0.0,
+            "structural_f1": 0.0,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.023606609467455623,
+            "executed_f1": 0.06761893220338984,
+            "skill": -0.9395830265705262,
+            "evaluated": 0.3698224852071006,
+            "structural_f1": 0.2830618284023669,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.06598441420118342,
+            "executed_f1": 0.15930522857142856,
+            "skill": -0.953412852896434,
+            "evaluated": 0.47337278106508873,
+            "structural_f1": 0.38390260946745564,
+            "records": 338
+          }
+        ]
+      ],
+      [
+        "gemma3-4b-finetuned",
+        [
+          {
+            "strict_f1": 0.05069805917159763,
+            "executed_f1": 0.14646105982905983,
+            "skill": -0.9327476557615446,
+            "evaluated": 0.41124260355029585,
+            "structural_f1": 0.40352205621301773,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.05379538165680474,
+            "executed_f1": 0.1913983052631579,
+            "skill": -0.9356376748136079,
+            "evaluated": 0.3076923076923077,
+            "structural_f1": 0.23868584319526628,
+            "records": 338
+          },
+          {
+            "strict_f1": 0.003577689349112426,
+            "executed_f1": 0.046509961538461535,
+            "skill": -0.9907465545137838,
+            "evaluated": 0.08284023668639054,
+            "structural_f1": 0.1202695650887574,
+            "records": 338
+          }
+        ]
+      ]
+    ],
+    "outcomes": [
+      [
+        "llama31-8b-base",
+        {
+          "records": 1014,
+          "counts": {
+            "schema_invalid": 692,
+            "parse_failed": 50,
+            "success": 210,
+            "execution_failed": 62
+          }
+        }
+      ],
+      [
+        "llama31-8b-finetuned",
+        {
+          "records": 1014,
+          "counts": {
+            "schema_invalid": 379,
+            "success": 522,
+            "execution_failed": 103,
+            "parse_failed": 10
+          }
+        }
+      ],
+      [
+        "ministral3-14b-base",
+        {
+          "records": 1014,
+          "counts": {
+            "schema_invalid": 769,
+            "parse_failed": 13,
+            "success": 201,
+            "execution_failed": 31
+          }
+        }
+      ],
+      [
+        "ministral3-14b-finetuned",
+        {
+          "records": 1014,
+          "counts": {
+            "schema_invalid": 321,
+            "success": 620,
+            "execution_failed": 66,
+            "parse_failed": 7
+          }
+        }
+      ],
+      [
+        "ministral3-3b-base",
+        {
+          "records": 1014,
+          "counts": {
+            "schema_invalid": 842,
+            "parse_failed": 18,
+            "success": 108,
+            "execution_failed": 46
+          }
+        }
+      ],
+      [
+        "ministral3-3b-finetuned",
+        {
+          "records": 1014,
+          "counts": {
+            "execution_failed": 134,
+            "success": 504,
+            "schema_invalid": 363,
+            "parse_failed": 13
+          }
+        }
+      ],
+      [
+        "gemma3-4b-base",
+        {
+          "records": 1014,
+          "counts": {
+            "schema_invalid": 645,
+            "parse_failed": 12,
+            "execution_failed": 72,
+            "success": 285
+          }
+        }
+      ],
+      [
+        "gemma3-4b-finetuned",
+        {
+          "records": 1014,
+          "counts": {
+            "schema_invalid": 596,
+            "execution_failed": 102,
+            "success": 271,
+            "parse_failed": 45
+          }
+        }
+      ]
+    ],
+    "best": [
+      [
+        "Llama 3.1 8B fine-tuned, allowed entities only, validation on",
+        {
+          "strict_f1": 0.1917504674556213,
+          "executed_f1": 0.33067172448979587,
+          "skill": -0.624027983377794,
+          "evaluated": 0.6390532544378699,
+          "structural_f1": 0.4884452781065089,
+          "records": 169
+        }
+      ],
+      [
+        "Llama 3.1 8B fine-tuned, allowed entities only, validation off",
+        {
+          "strict_f1": 0.19135376331360945,
+          "executed_f1": 0.3404082736842105,
+          "skill": -0.6231649343629747,
+          "evaluated": 0.621301775147929,
+          "structural_f1": 0.6188659881656805,
+          "records": 169
+        }
+      ],
+      [
+        "Ministral 3 14B fine-tuned, allowed entities only, validation on",
+        {
+          "strict_f1": 0.14886231360946747,
+          "executed_f1": 0.25157731,
+          "skill": -0.73907351556564,
+          "evaluated": 0.6863905325443787,
+          "structural_f1": 0.5301034201183432,
+          "records": 169
+        }
+      ],
+      [
+        "Ministral 3 14B fine-tuned, allowed entities only, validation off",
+        {
+          "strict_f1": 0.14294515384615386,
+          "executed_f1": 0.24904877319587632,
+          "skill": -0.73907351556564,
+          "evaluated": 0.6686390532544378,
+          "structural_f1": 0.6212968224852071,
+          "records": 169
+        }
+      ],
+      [
+        "Ministral 3 14B base, grammar-guided, validation off",
+        {
+          "strict_f1": 0.13711710059171597,
+          "executed_f1": 0.4372224528301887,
+          "skill": -0.8223353227659354,
+          "evaluated": 0.3254437869822485,
+          "structural_f1": 0.5778989053254437,
+          "records": 169
+        }
+      ]
+    ]
+  }
+}

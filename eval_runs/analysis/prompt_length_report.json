@@ -1,0 +1,617 @@
+{
+  "generated": {
+    "command": "python prompt_length_report.py",
+    "utc": "2026-10-22T11:40:44+00:00",
+    "nlxocpq_commit": "e1712a6b6b229e0ed10fe4483b784f035e18d5b4-dirty",
+    "inputs": []
+  },
+  "chars_per_estimated_token": 3.6,
+  "training_max_seq_length": 4096,
+  "schema_blocks": [
+    {
+      "log": "angular_github_commits_ocel.xml",
+      "characters": 37778,
+      "estimated_tokens": 10493,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 13856,
+        "llama31-8b": 12271,
+        "ministral3-14b": 13275,
+        "ministral3-3b": 13275
+      }
+    },
+    {
+      "log": "bpic2017-ocel2.json",
+      "characters": 17446,
+      "estimated_tokens": 4846,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 4336,
+        "llama31-8b": 4281,
+        "ministral3-14b": 4535,
+        "ministral3-3b": 4535
+      }
+    },
+    {
+      "log": "reasoning_benchmark.json",
+      "characters": 8186,
+      "estimated_tokens": 2273,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 2025,
+        "llama31-8b": 2047,
+        "ministral3-14b": 2082,
+        "ministral3-3b": 2082
+      }
+    },
+    {
+      "log": "ocel2-p2p.json",
+      "characters": 5175,
+      "estimated_tokens": 1437,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 1376,
+        "llama31-8b": 1243,
+        "ministral3-14b": 1385,
+        "ministral3-3b": 1385
+      }
+    },
+    {
+      "log": "03_hiring.xml",
+      "characters": 3215,
+      "estimated_tokens": 893,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 781,
+        "llama31-8b": 726,
+        "ministral3-14b": 812,
+        "ministral3-3b": 812
+      }
+    },
+    {
+      "log": "container_logistics.json",
+      "characters": 2655,
+      "estimated_tokens": 737,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 650,
+        "llama31-8b": 616,
+        "ministral3-14b": 642,
+        "ministral3-3b": 642
+      }
+    },
+    {
+      "log": "order-management.json",
+      "characters": 2610,
+      "estimated_tokens": 725,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 661,
+        "llama31-8b": 603,
+        "ministral3-14b": 621,
+        "ministral3-3b": 621
+      }
+    },
+    {
+      "log": "renting_log_high.json",
+      "characters": 2066,
+      "estimated_tokens": 573,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 632,
+        "llama31-8b": 635,
+        "ministral3-14b": 673,
+        "ministral3-3b": 673
+      }
+    },
+    {
+      "log": "lending_log_high.json",
+      "characters": 1840,
+      "estimated_tokens": 511,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 555,
+        "llama31-8b": 553,
+        "ministral3-14b": 587,
+        "ministral3-3b": 587
+      }
+    },
+    {
+      "log": "hospital_log_high.json",
+      "characters": 1482,
+      "estimated_tokens": 411,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 477,
+        "llama31-8b": 474,
+        "ministral3-14b": 494,
+        "ministral3-3b": 494
+      }
+    },
+    {
+      "log": "04_hospital.xml",
+      "characters": 1181,
+      "estimated_tokens": 328,
+      "omitted_sections": [],
+      "tokens": {
+        "gemma3-4b": 246,
+        "llama31-8b": 250,
+        "ministral3-14b": 266,
+        "ministral3-3b": 266
+      }
+    }
+  ],
+  "longest_prompt_by_model": {
+    "llama31-8b-base": 6787,
+    "llama31-8b-finetuned": 6787,
+    "ministral3-14b-base": 7287,
+    "ministral3-14b-finetuned": 7287,
+    "ministral3-3b-base": 7287,
+    "ministral3-3b-finetuned": 7287,
+    "gemma3-4b-base": 7562,
+    "gemma3-4b-finetuned": 7562,
+    "qwen3.8-27b-thinking": 7091
+  },
+  "longest_prompt_by_condition": [
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-base_schema-allowed-entities-only_schema-on",
+      "model": "llama31-8b-base",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 14505
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-base_schema-allowed-entities-only_schema-off",
+      "model": "llama31-8b-base",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 169,
+      "longest_single_prompt": 6787,
+      "largest_case_prompt_total": 6787
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-base_schema-grammar-guided_schema-on",
+      "model": "llama31-8b-base",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 28232
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-base_schema-grammar-guided_schema-off",
+      "model": "llama31-8b-base",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 18642
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-base_schema-chain-of-thought-plus_schema-on",
+      "model": "llama31-8b-base",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 43931
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-base_schema-chain-of-thought-plus_schema-off",
+      "model": "llama31-8b-base",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 29429
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-finetuned_schema-allowed-entities-only_schema-on",
+      "model": "llama31-8b-finetuned",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 103,
+      "longest_single_prompt": 4613,
+      "largest_case_prompt_total": 15911
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-finetuned_schema-allowed-entities-only_schema-off",
+      "model": "llama31-8b-finetuned",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 169,
+      "longest_single_prompt": 6787,
+      "largest_case_prompt_total": 6787
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-finetuned_schema-grammar-guided_schema-on",
+      "model": "llama31-8b-finetuned",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 32379
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-finetuned_schema-grammar-guided_schema-off",
+      "model": "llama31-8b-finetuned",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 20946
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-finetuned_schema-chain-of-thought-plus_schema-on",
+      "model": "llama31-8b-finetuned",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 42497
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "llama31-8b-finetuned_schema-chain-of-thought-plus_schema-off",
+      "model": "llama31-8b-finetuned",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 29248
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-base_schema-allowed-entities-only_schema-on",
+      "model": "ministral3-14b-base",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 15879
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-base_schema-allowed-entities-only_schema-off",
+      "model": "ministral3-14b-base",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 169,
+      "longest_single_prompt": 7287,
+      "largest_case_prompt_total": 7287
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-base_schema-grammar-guided_schema-on",
+      "model": "ministral3-14b-base",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 34137
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-base_schema-grammar-guided_schema-off",
+      "model": "ministral3-14b-base",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 21644
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-base_schema-chain-of-thought-plus_schema-on",
+      "model": "ministral3-14b-base",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 40974
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-base_schema-chain-of-thought-plus_schema-off",
+      "model": "ministral3-14b-base",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 27344
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-finetuned_schema-allowed-entities-only_schema-on",
+      "model": "ministral3-14b-finetuned",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 112,
+      "longest_single_prompt": 4850,
+      "largest_case_prompt_total": 15848
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-finetuned_schema-allowed-entities-only_schema-off",
+      "model": "ministral3-14b-finetuned",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 169,
+      "longest_single_prompt": 7287,
+      "largest_case_prompt_total": 7287
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-finetuned_schema-grammar-guided_schema-on",
+      "model": "ministral3-14b-finetuned",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 33439
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-finetuned_schema-grammar-guided_schema-off",
+      "model": "ministral3-14b-finetuned",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 21968
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-finetuned_schema-chain-of-thought-plus_schema-on",
+      "model": "ministral3-14b-finetuned",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 43788
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-14b-finetuned_schema-chain-of-thought-plus_schema-off",
+      "model": "ministral3-14b-finetuned",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 30413
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-base_schema-allowed-entities-only_schema-on",
+      "model": "ministral3-3b-base",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 15793
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-base_schema-allowed-entities-only_schema-off",
+      "model": "ministral3-3b-base",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 169,
+      "longest_single_prompt": 7287,
+      "largest_case_prompt_total": 7287
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-base_schema-grammar-guided_schema-on",
+      "model": "ministral3-3b-base",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 33248
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-base_schema-grammar-guided_schema-off",
+      "model": "ministral3-3b-base",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 21288
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-base_schema-chain-of-thought-plus_schema-on",
+      "model": "ministral3-3b-base",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 46578
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-base_schema-chain-of-thought-plus_schema-off",
+      "model": "ministral3-3b-base",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 30460
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-finetuned_schema-allowed-entities-only_schema-on",
+      "model": "ministral3-3b-finetuned",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 94,
+      "longest_single_prompt": 4850,
+      "largest_case_prompt_total": 16390
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-finetuned_schema-allowed-entities-only_schema-off",
+      "model": "ministral3-3b-finetuned",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 169,
+      "longest_single_prompt": 7287,
+      "largest_case_prompt_total": 7287
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-finetuned_schema-grammar-guided_schema-on",
+      "model": "ministral3-3b-finetuned",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 32056
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-finetuned_schema-grammar-guided_schema-off",
+      "model": "ministral3-3b-finetuned",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 21100
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-finetuned_schema-chain-of-thought-plus_schema-on",
+      "model": "ministral3-3b-finetuned",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 45215
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "ministral3-3b-finetuned_schema-chain-of-thought-plus_schema-off",
+      "model": "ministral3-3b-finetuned",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 30607
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-base_schema-allowed-entities-only_schema-on",
+      "model": "gemma3-4b-base",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 16065
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-base_schema-allowed-entities-only_schema-off",
+      "model": "gemma3-4b-base",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 169,
+      "longest_single_prompt": 7562,
+      "largest_case_prompt_total": 7562
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-base_schema-grammar-guided_schema-on",
+      "model": "gemma3-4b-base",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 34913
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-base_schema-grammar-guided_schema-off",
+      "model": "gemma3-4b-base",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 22201
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-base_schema-chain-of-thought-plus_schema-on",
+      "model": "gemma3-4b-base",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 40259
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-base_schema-chain-of-thought-plus_schema-off",
+      "model": "gemma3-4b-base",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 27308
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-finetuned_schema-allowed-entities-only_schema-on",
+      "model": "gemma3-4b-finetuned",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 41,
+      "longest_single_prompt": 4669,
+      "largest_case_prompt_total": 16065
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-finetuned_schema-allowed-entities-only_schema-off",
+      "model": "gemma3-4b-finetuned",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 169,
+      "longest_single_prompt": 7562,
+      "largest_case_prompt_total": 7562
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-finetuned_schema-grammar-guided_schema-on",
+      "model": "gemma3-4b-finetuned",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 29958
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-finetuned_schema-grammar-guided_schema-off",
+      "model": "gemma3-4b-finetuned",
+      "strategy": "schema-grammar-guided",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 20061
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-finetuned_schema-chain-of-thought-plus_schema-on",
+      "model": "gemma3-4b-finetuned",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 48561
+    },
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "config_id": "gemma3-4b-finetuned_schema-chain-of-thought-plus_schema-off",
+      "model": "gemma3-4b-finetuned",
+      "strategy": "schema-chain-of-thought-plus",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 32530
+    },
+    {
+      "run": "eval_runs/unleashed/merged_m1_s0",
+      "config_id": "qwen3_8-27b-thinking_schema-allowed-entities-only_schema-on_constrained_ordered_bounded_tok4000_think2048keep",
+      "model": "qwen3.8-27b-thinking",
+      "strategy": "schema-allowed-entities-only",
+      "single_call_records": 50,
+      "longest_single_prompt": 7091,
+      "largest_case_prompt_total": 17795
+    },
+    {
+      "run": "eval_runs/unleashed/merged_m1_s1",
+      "config_id": "qwen3_8-27b-thinking_agentic-log-tools_schema-on_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL",
+      "model": "qwen3.8-27b-thinking",
+      "strategy": "agentic-log-tools",
+      "single_call_records": 0,
+      "longest_single_prompt": null,
+      "largest_case_prompt_total": 296418
+    },
+    {
+      "run": "eval_runs/unleashed/merged_m1_s2",
+      "config_id": "qwen3_8-27b-thinking_agentic-self-refine_schema-on_constrained_ordered_bounded_tok4000_think2048keep_turns8_turntok2000_pFBEXL",
+      "model": "qwen3.8-27b-thinking",
+      "strategy": "agentic-self-refine",
+      "single_call_records": 3,
+      "longest_single_prompt": 5116,
+      "largest_case_prompt_total": 99166
+    }
+  ],
+  "differences_from_notes": []
+}

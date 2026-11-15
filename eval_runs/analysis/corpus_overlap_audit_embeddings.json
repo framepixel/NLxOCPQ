@@ -1,0 +1,1182 @@
+{
+  "generated": {
+    "command": "python src/corpus_overlap_audit.py --with-embeddings",
+    "utc": "2026-10-30T15:52:40+00:00",
+    "nlxocpq_commit": "644d44673a5065ccb5fd1223baae669986c59e19-dirty",
+    "inputs": []
+  },
+  "results": {
+    "pool_rows": 20000,
+    "finetune_rows": 60018,
+    "pool_event_types": 78,
+    "pool_object_types": 46,
+    "finetune_type_names": 124,
+    "contamination": {
+      "pool": {
+        "nl_exact": 0,
+        "nl_folded": 0,
+        "gold_exact": 0
+      },
+      "finetune": {
+        "nl_exact": 0,
+        "nl_folded": 0,
+        "gold_exact": 0
+      }
+    },
+    "contamination_nl": 0,
+    "contamination_gold": 0,
+    "type_overlap": [
+      {
+        "log": "angular_github_commits_ocel.xml",
+        "types": 69,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 1,
+        "folded_share": 0.014492753623188406,
+        "exact_names": [],
+        "folded_names": [
+          "table"
+        ]
+      },
+      {
+        "log": "reasoning_benchmark.json",
+        "types": 32,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "03_hiring.xml",
+        "types": 17,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "container_logistics.json",
+        "types": 17,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "04_hospital.xml",
+        "types": 15,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "bpic2017-ocel2.json",
+        "types": 14,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "order-management.json",
+        "types": 14,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "renting_log_high.json",
+        "types": 13,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "ocel2-p2p.json",
+        "types": 12,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 1,
+        "folded_share": 0.08333333333333333,
+        "exact_names": [],
+        "folded_names": [
+          "goods receipt"
+        ]
+      },
+      {
+        "log": "hospital_log_high.json",
+        "types": 11,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "lending_log_high.json",
+        "types": 11,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      }
+    ],
+    "logs_with_any_exact_type_overlap": 0,
+    "logs_with_any_folded_type_overlap": 2,
+    "block_coverage": {
+      "testset_entries": 169,
+      "training_rows": 20000,
+      "blocks": [
+        {
+          "block": "C1",
+          "testset": 42,
+          "testset_share": 0.2485207100591716,
+          "training": 4447,
+          "training_share": 0.22235,
+          "under_trained": false
+        },
+        {
+          "block": "C2",
+          "testset": 104,
+          "testset_share": 0.6153846153846154,
+          "training": 8894,
+          "training_share": 0.4447,
+          "under_trained": false
+        },
+        {
+          "block": "C3",
+          "testset": 99,
+          "testset_share": 0.5857988165680473,
+          "training": 4421,
+          "training_share": 0.22105,
+          "under_trained": false
+        },
+        {
+          "block": "C4",
+          "testset": 6,
+          "testset_share": 0.03550295857988166,
+          "training": 438,
+          "training_share": 0.0219,
+          "under_trained": false
+        },
+        {
+          "block": "C5",
+          "testset": 26,
+          "testset_share": 0.15384615384615385,
+          "training": 416,
+          "training_share": 0.0208,
+          "under_trained": false
+        },
+        {
+          "block": "C6",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 665,
+          "training_share": 0.03325,
+          "under_trained": false
+        },
+        {
+          "block": "C7",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 707,
+          "training_share": 0.03535,
+          "under_trained": false
+        },
+        {
+          "block": "F1",
+          "testset": 151,
+          "testset_share": 0.893491124260355,
+          "training": 14272,
+          "training_share": 0.7136,
+          "under_trained": false
+        },
+        {
+          "block": "F2",
+          "testset": 15,
+          "testset_share": 0.08875739644970414,
+          "training": 4426,
+          "training_share": 0.2213,
+          "under_trained": false
+        },
+        {
+          "block": "F3",
+          "testset": 11,
+          "testset_share": 0.0650887573964497,
+          "training": 542,
+          "training_share": 0.0271,
+          "under_trained": false
+        },
+        {
+          "block": "F4",
+          "testset": 64,
+          "testset_share": 0.378698224852071,
+          "training": 6243,
+          "training_share": 0.31215,
+          "under_trained": false
+        },
+        {
+          "block": "F5",
+          "testset": 13,
+          "testset_share": 0.07692307692307693,
+          "training": 3858,
+          "training_share": 0.1929,
+          "under_trained": false
+        },
+        {
+          "block": "F6",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 810,
+          "training_share": 0.0405,
+          "under_trained": false
+        },
+        {
+          "block": "F7",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 355,
+          "training_share": 0.01775,
+          "under_trained": false
+        },
+        {
+          "block": "F8",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 453,
+          "training_share": 0.02265,
+          "under_trained": false
+        },
+        {
+          "block": "F9",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 796,
+          "training_share": 0.0398,
+          "under_trained": false
+        },
+        {
+          "block": "F10",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 480,
+          "training_share": 0.024,
+          "under_trained": false
+        },
+        {
+          "block": "F11",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 442,
+          "training_share": 0.0221,
+          "under_trained": false
+        },
+        {
+          "block": "F12",
+          "testset": 6,
+          "testset_share": 0.03550295857988166,
+          "training": 136,
+          "training_share": 0.0068,
+          "under_trained": false
+        },
+        {
+          "block": "F13",
+          "testset": 8,
+          "testset_share": 0.047337278106508875,
+          "training": 201,
+          "training_share": 0.01005,
+          "under_trained": false
+        },
+        {
+          "block": "F14",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 166,
+          "training_share": 0.0083,
+          "under_trained": false
+        },
+        {
+          "block": "F15",
+          "testset": 19,
+          "testset_share": 0.11242603550295859,
+          "training": 458,
+          "training_share": 0.0229,
+          "under_trained": false
+        },
+        {
+          "block": "F16",
+          "testset": 6,
+          "testset_share": 0.03550295857988166,
+          "training": 475,
+          "training_share": 0.02375,
+          "under_trained": false
+        },
+        {
+          "block": "F17",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 492,
+          "training_share": 0.0246,
+          "under_trained": false
+        },
+        {
+          "block": "F18",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 640,
+          "training_share": 0.032,
+          "under_trained": false
+        },
+        {
+          "block": "L1",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 2037,
+          "training_share": 0.10185,
+          "under_trained": false
+        },
+        {
+          "block": "L2",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 434,
+          "training_share": 0.0217,
+          "under_trained": false
+        },
+        {
+          "block": "L3",
+          "testset": 23,
+          "testset_share": 0.13609467455621302,
+          "training": 454,
+          "training_share": 0.0227,
+          "under_trained": false
+        },
+        {
+          "block": "S1",
+          "testset": 95,
+          "testset_share": 0.5621301775147929,
+          "training": 9750,
+          "training_share": 0.4875,
+          "under_trained": false
+        },
+        {
+          "block": "S2",
+          "testset": 10,
+          "testset_share": 0.05917159763313609,
+          "training": 2724,
+          "training_share": 0.1362,
+          "under_trained": false
+        },
+        {
+          "block": "S3",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 2037,
+          "training_share": 0.10185,
+          "under_trained": false
+        },
+        {
+          "block": "T1",
+          "testset": 15,
+          "testset_share": 0.08875739644970414,
+          "training": 6921,
+          "training_share": 0.34605,
+          "under_trained": false
+        },
+        {
+          "block": "T2",
+          "testset": 82,
+          "testset_share": 0.48520710059171596,
+          "training": 6378,
+          "training_share": 0.3189,
+          "under_trained": false
+        },
+        {
+          "block": "T3",
+          "testset": 53,
+          "testset_share": 0.3136094674556213,
+          "training": 3242,
+          "training_share": 0.1621,
+          "under_trained": false
+        },
+        {
+          "block": "T4",
+          "testset": 16,
+          "testset_share": 0.09467455621301775,
+          "training": 2730,
+          "training_share": 0.1365,
+          "under_trained": false
+        },
+        {
+          "block": "T5",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 729,
+          "training_share": 0.03645,
+          "under_trained": false
+        },
+        {
+          "block": "V1",
+          "testset": 144,
+          "testset_share": 0.8520710059171598,
+          "training": 19629,
+          "training_share": 0.98145,
+          "under_trained": false
+        },
+        {
+          "block": "V2",
+          "testset": 158,
+          "testset_share": 0.9349112426035503,
+          "training": 14765,
+          "training_share": 0.73825,
+          "under_trained": false
+        },
+        {
+          "block": "V3",
+          "testset": 24,
+          "testset_share": 0.14201183431952663,
+          "training": 620,
+          "training_share": 0.031,
+          "under_trained": false
+        },
+        {
+          "block": "V4",
+          "testset": 11,
+          "testset_share": 0.0650887573964497,
+          "training": 224,
+          "training_share": 0.0112,
+          "under_trained": false
+        },
+        {
+          "block": "V5",
+          "testset": 19,
+          "testset_share": 0.11242603550295859,
+          "training": 7209,
+          "training_share": 0.36045,
+          "under_trained": false
+        },
+        {
+          "block": "V6",
+          "testset": 10,
+          "testset_share": 0.05917159763313609,
+          "training": 175,
+          "training_share": 0.00875,
+          "under_trained": false
+        }
+      ],
+      "testset_uses_training_never_shows": [],
+      "under_trained": []
+    },
+    "blocks_testset_uses_training_never_shows": [],
+    "gold_shapes_in_pool": 5,
+    "gold_one_box_share": 0.08875739644970414,
+    "pool_one_box_share": 0.34605,
+    "gold_mean_boxes": 2.502958579881657,
+    "pool_mean_boxes": 2.0608,
+    "nearest_cosine_max": 0.8484464287757874,
+    "nearest_cosine_median": 0.5254327058792114,
+    "nearest_cosine_p90": 0.6837000966072083,
+    "nearest_cosine_at_least_090": 0,
+    "per_question": [
+      {
+        "nl_query": "What are the customers that received at least 50 payment reminders for their orders?",
+        "nearest_cosine": 0.6696560382843018
+      },
+      {
+        "nl_query": "orders with at most 10 items should be paid within three weeks after placement",
+        "nearest_cosine": 0.6410878300666809
+      },
+      {
+        "nl_query": "Which orders were fully delivered within 3.5 weeks?",
+        "nearest_cosine": 0.6000467538833618
+      },
+      {
+        "nl_query": "Which customers had at least 5 orders for which at least two payment reminder had to be sent out?",
+        "nearest_cosine": 0.6911277174949646
+      },
+      {
+        "nl_query": "What is the total order volume of customers, i.e. the sum of all order prices for which payment has been recorded, where all customers with a total order volume below €300,000 are shown as having violated the terms?",
+        "nearest_cosine": 0.731806755065918
+      },
+      {
+        "nl_query": "There are at least three items per package.",
+        "nearest_cosine": 0.5527833700180054
+      },
+      {
+        "nl_query": "Diagnostic equipment should not be used simultaneously for more than one diagnostic test.",
+        "nearest_cosine": 0.4518941640853882
+      },
+      {
+        "nl_query": "Every assigned bed must belong to the same room in which the patient receives care.",
+        "nearest_cosine": 0.42081499099731445
+      },
+      {
+        "nl_query": "Every completed assessment must have been previously sent to the candidate.",
+        "nearest_cosine": 0.5814247727394104
+      },
+      {
+        "nl_query": "Vehicles must be booked before containers are loaded onto them.",
+        "nearest_cosine": 0.4619482755661011
+      },
+      {
+        "nl_query": "Every backtracking step should eventually be followed by either new hypothesis generation or abductive reasoning.",
+        "nearest_cosine": 0.3243598937988281
+      },
+      {
+        "nl_query": "Pattern recognition should precede inductive reasoning in successful reasoning paths.",
+        "nearest_cosine": 0.25997674465179443
+      },
+      {
+        "nl_query": "Counterfactual reasoning must be validated before producing a correct conclusion.",
+        "nearest_cosine": 0.40557676553726196
+      },
+      {
+        "nl_query": "Ethical or moral reasoning should not directly produce wrong conclusions.",
+        "nearest_cosine": 0.2597542703151703
+      },
+      {
+        "nl_query": "Every reasoning sequence ending in a partially correct conclusion must contain at least one validation event.",
+        "nearest_cosine": 0.5447127819061279
+      },
+      {
+        "nl_query": "Abductive reasoning followed by counterfactual reasoning should eventually lead to either validation or backtracking.",
+        "nearest_cosine": 0.38176363706588745
+      },
+      {
+        "nl_query": "Every feature implementation should eventually be followed by at least one test activity on the affected files.",
+        "nearest_cosine": 0.4517292380332947
+      },
+      {
+        "nl_query": "Performance optimization activities should not directly introduce subsequent bug-fix events on the same files within 48 hours.",
+        "nearest_cosine": 0.5469686388969421
+      },
+      {
+        "nl_query": "Containers that were at some point empty must not depart",
+        "nearest_cosine": 0.3896845877170563
+      },
+      {
+        "nl_query": "Persons marked as non-citizens (isCitizen='0') must submit their file to the underwriter before signing the loan agreement.",
+        "nearest_cosine": 0.4757583737373352
+      },
+      {
+        "nl_query": "An order must have at least one item that was delivered within 3 weeks of placement",
+        "nearest_cosine": 0.6567153930664062
+      },
+      {
+        "nl_query": "At the time of shipping, the order price must be at least €100",
+        "nearest_cosine": 0.5329368114471436
+      },
+      {
+        "nl_query": "A patient may only be discharged if both the diagnostic test is complete AND the treatment is successful.",
+        "nearest_cosine": 0.4676481783390045
+      },
+      {
+        "nl_query": "For any loan approval, there must exist at least one prior submission to the underwriter by the applicant.",
+        "nearest_cosine": 0.5783023238182068
+      },
+      {
+        "nl_query": "After an abductive reasoning step, the next event must be either validation or counterfactual reasoning.",
+        "nearest_cosine": 0.5136115550994873
+      },
+      {
+        "nl_query": "Retrieve the payment events for all orders that received at least one reminder.",
+        "nearest_cosine": 0.8018979430198669
+      },
+      {
+        "nl_query": "Retrieve all containers that were rescheduled and subsequently reloaded.",
+        "nearest_cosine": 0.42839062213897705
+      },
+      {
+        "nl_query": "List all candidates who accepted an offer and completed onboarding.",
+        "nearest_cosine": 0.6465587615966797
+      },
+      {
+        "nl_query": "A backtracking event whose text contains 'failed' must not be followed by a conclusion event within one hour.",
+        "nearest_cosine": 0.680314302444458
+      },
+      {
+        "nl_query": "A reasoning module must not produce a wrong conclusion whose text is identical to a preceding correct conclusion's text.",
+        "nearest_cosine": 0.3663285970687866
+      },
+      {
+        "nl_query": "Show each candidate's total number of panel interviews, flagging those with fewer than 1.",
+        "nearest_cosine": 0.5178156495094299
+      },
+      {
+        "nl_query": "Show vehicles with total handling units across all containers, marking those exceeding 100.",
+        "nearest_cosine": 0.49844038486480713
+      },
+      {
+        "nl_query": "A rescheduled container must be reloaded within 48 hours.",
+        "nearest_cosine": 0.4998367428779602
+      },
+      {
+        "nl_query": "At the time of loading, a container must not have more than 5 handling units.",
+        "nearest_cosine": 0.521974503993988
+      },
+      {
+        "nl_query": "Containers with more than 5 handling units must not depart.",
+        "nearest_cosine": 0.4576719105243683
+      },
+      {
+        "nl_query": "A documentation commit must follow any feature commit on the same file within 7 days.",
+        "nearest_cosine": 0.5987570881843567
+      },
+      {
+        "nl_query": "No refactoring commit should introduce a new bug fix on the same file within 24 hours.",
+        "nearest_cosine": 0.5271045565605164
+      },
+      {
+        "nl_query": "Any file touched by a feature commit must have at least 3 test commits on the same file.",
+        "nearest_cosine": 0.6063709855079651
+      },
+      {
+        "nl_query": "A build-breaking commit must be immediately followed by a fix commit on the same file.",
+        "nearest_cosine": 0.5756760835647583
+      },
+      {
+        "nl_query": "A container that is placed in stock must then be brought to the loading bay and subsequently loaded to a vehicle.",
+        "nearest_cosine": 0.4480835497379303
+      },
+      {
+        "nl_query": "A container must remain in stock for at least 6 hours before being brought to the loading bay.",
+        "nearest_cosine": 0.5635572075843811
+      },
+      {
+        "nl_query": "List all panel interview events for candidates who subsequently received an offer letter.",
+        "nearest_cosine": 0.6397598385810852
+      },
+      {
+        "nl_query": "Which applicants older than 40 were rejected as prospective tenants?",
+        "nearest_cosine": 0.5570014715194702
+      },
+      {
+        "nl_query": "Which married applicants signed a contract before moving in?",
+        "nearest_cosine": 0.34649157524108887
+      },
+      {
+        "nl_query": "Persons aged 25 or younger who missed a rent payment at least twice.",
+        "nearest_cosine": 0.4493004381656647
+      },
+      {
+        "nl_query": "List every married person who was eventually evicted.",
+        "nearest_cosine": 0.49036213755607605
+      },
+      {
+        "nl_query": "Unmarried persons who missed a rent payment more than once.",
+        "nearest_cosine": 0.38995885848999023
+      },
+      {
+        "nl_query": "Show all persons older than 60 who paid rent at least once.",
+        "nearest_cosine": 0.42290982604026794
+      },
+      {
+        "nl_query": "A person who cancelled the apartment must not have moved in afterwards.",
+        "nearest_cosine": 0.4355754554271698
+      },
+      {
+        "nl_query": "Married applicants older than 35 must have had their paperwork checked before signing the contract.",
+        "nearest_cosine": 0.5429595708847046
+      },
+      {
+        "nl_query": "Materials with a net price above 500 must have their purchase requisition submitted before it is approved",
+        "nearest_cosine": 0.6052240133285522
+      },
+      {
+        "nl_query": "Purchase requisitions must be approved before a request for quotation is created.",
+        "nearest_cosine": 0.6297668814659119
+      },
+      {
+        "nl_query": "Materials with a quantity of at least 50 should be linked to at least one goods receipt.",
+        "nearest_cosine": 0.7253026962280273
+      },
+      {
+        "nl_query": "Every purchase order must be linked to at least one invoice receipt",
+        "nearest_cosine": 0.8216478228569031
+      },
+      {
+        "nl_query": "Every purchase requisition must have its approval delegated and must subsequently lead to a request for quotation.",
+        "nearest_cosine": 0.6668268442153931
+      },
+      {
+        "nl_query": "Every accepted application must subsequently go through a validation step.",
+        "nearest_cosine": 0.6414394378662109
+      },
+      {
+        "nl_query": "An offer that was created must eventually be either accepted or refused.",
+        "nearest_cosine": 0.45645102858543396
+      },
+      {
+        "nl_query": "An application must not be accepted before it has been validated.",
+        "nearest_cosine": 0.6608231663703918
+      },
+      {
+        "nl_query": "Which applications were denied without ever being validated?",
+        "nearest_cosine": 0.5788261890411377
+      },
+      {
+        "nl_query": "Every offer must have been sent and must be linked to exactly one application.",
+        "nearest_cosine": 0.6088892221450806
+      },
+      {
+        "nl_query": "An application must not be both accepted and denied.",
+        "nearest_cosine": 0.6772586703300476
+      },
+      {
+        "nl_query": "Which applications with more than two linked offers were eventually cancelled or denied?",
+        "nearest_cosine": 0.481171578168869
+      },
+      {
+        "nl_query": "Every application must be submitted, then accepted, and then validated in that order.",
+        "nearest_cosine": 0.7161828875541687
+      },
+      {
+        "nl_query": "List all offers that were returned and later refused.",
+        "nearest_cosine": 0.615901529788971
+      },
+      {
+        "nl_query": "Every treatment must eventually result in either a 'Treatment successful' or 'Treatment unsuccessful' event.",
+        "nearest_cosine": 0.5351349115371704
+      },
+      {
+        "nl_query": "A diagnosis must always be preceded by an examination.",
+        "nearest_cosine": 0.4361981153488159
+      },
+      {
+        "nl_query": "A patient must not be discharged without a prior treatment outcome.",
+        "nearest_cosine": 0.5235755443572998
+      },
+      {
+        "nl_query": "Every expert examination must eventually be followed by a thorough examination.",
+        "nearest_cosine": 0.3602786660194397
+      },
+      {
+        "nl_query": "Patients with private insurance must receive an expert examination.",
+        "nearest_cosine": 0.43071800470352173
+      },
+      {
+        "nl_query": "A patient must not be diagnosed more than once.",
+        "nearest_cosine": 0.5197454690933228
+      },
+      {
+        "nl_query": "Patients with an underlying condition must receive a thorough examination.",
+        "nearest_cosine": 0.39996474981307983
+      },
+      {
+        "nl_query": "List all patients who received a successful treatment.",
+        "nearest_cosine": 0.4269566833972931
+      },
+      {
+        "nl_query": "A patient must receive treatment within 2 days of their examination.",
+        "nearest_cosine": 0.4910091757774353
+      },
+      {
+        "nl_query": "Patients registered at the ER must receive a thorough examination.",
+        "nearest_cosine": 0.43131110072135925
+      },
+      {
+        "nl_query": "Every bug-fix commit must be associated with at least one file.",
+        "nearest_cosine": 0.630119800567627
+      },
+      {
+        "nl_query": "Which feature commits touched more than five files?",
+        "nearest_cosine": 0.6012428998947144
+      },
+      {
+        "nl_query": "Documentation commits should not modify build-configuration files in the same commit.",
+        "nearest_cosine": 0.4707511067390442
+      },
+      {
+        "nl_query": "List all commits that were applied to more than one branch.",
+        "nearest_cosine": 0.7443902492523193
+      },
+      {
+        "nl_query": "Persons whose throughput time was at some point above 5 days.",
+        "nearest_cosine": 0.3497285544872284
+      },
+      {
+        "nl_query": "Every item must have been picked when its price was above 100.",
+        "nearest_cosine": 0.6808366775512695
+      },
+      {
+        "nl_query": "Every container must have been loaded to a vehicle when it had more than three handling units.",
+        "nearest_cosine": 0.48266422748565674
+      },
+      {
+        "nl_query": "A patient must not register at the ER without private insurance.",
+        "nearest_cosine": 0.4361559748649597
+      },
+      {
+        "nl_query": "Patients who underwent two distinct examination events must eventually be discharged.",
+        "nearest_cosine": 0.5510300397872925
+      },
+      {
+        "nl_query": "Patients who were diagnosed on two distinct occasions must eventually receive treatment.",
+        "nearest_cosine": 0.44099161028862
+      },
+      {
+        "nl_query": "Persons who paid rent on two separate occasions must not be evicted.",
+        "nearest_cosine": 0.4252376854419708
+      },
+      {
+        "nl_query": "Packages with two distinct failed delivery attempts must eventually be delivered.",
+        "nearest_cosine": 0.5580432415008545
+      },
+      {
+        "nl_query": "Which persons are married?",
+        "nearest_cosine": 0.36335521936416626
+      },
+      {
+        "nl_query": "Which items are priced above 100?",
+        "nearest_cosine": 0.5231447815895081
+      },
+      {
+        "nl_query": "Which patients have an underlying condition?",
+        "nearest_cosine": 0.3217806816101074
+      },
+      {
+        "nl_query": "Containers loaded on a truck via the 'TR loads CR' relationship must eventually depart.",
+        "nearest_cosine": 0.5053836703300476
+      },
+      {
+        "nl_query": "Which vehicles have a departure date before July 2023?",
+        "nearest_cosine": 0.5182162523269653
+      },
+      {
+        "nl_query": "Which vehicles have a scheduled departure date after June 2024?",
+        "nearest_cosine": 0.4928440451622009
+      },
+      {
+        "nl_query": "Patients must register at the ER, then undergo an examination, then receive a diagnosis, then be discharged.",
+        "nearest_cosine": 0.4686892628669739
+      },
+      {
+        "nl_query": "A package must not be delivered less than one hour (3,600 s) after it was sent.",
+        "nearest_cosine": 0.6193068027496338
+      },
+      {
+        "nl_query": "A viewing appointment must be set at least one day (86,400 s) after the application for it was filed.",
+        "nearest_cosine": 0.5254327058792114
+      },
+      {
+        "nl_query": "A physician must not conduct two different pre-admission consultations at the same time.",
+        "nearest_cosine": 0.43662184476852417
+      },
+      {
+        "nl_query": "An insurance company must not verify insurance for two different patients at the same moment.",
+        "nearest_cosine": 0.5296636819839478
+      },
+      {
+        "nl_query": "An employee must not send two different packages at the same time.",
+        "nearest_cosine": 0.5730594992637634
+      },
+      {
+        "nl_query": "Candidates whose initial interview outcome was 'Pass' must eventually be scheduled for a panel interview.",
+        "nearest_cosine": 0.4752969741821289
+      },
+      {
+        "nl_query": "Which candidates had their background check come back flagged?",
+        "nearest_cosine": 0.43681079149246216
+      },
+      {
+        "nl_query": "Candidates whose interview evaluation decision was 'Proceed' must eventually have an offer letter prepared.",
+        "nearest_cosine": 0.4513561725616455
+      },
+      {
+        "nl_query": "Show persons together with their number of rent payments, flagging those with fewer than five.",
+        "nearest_cosine": 0.47389867901802063
+      },
+      {
+        "nl_query": "Show packages together with the total weight of the items they contain, flagging those below 4 kg.",
+        "nearest_cosine": 0.5191200971603394
+      },
+      {
+        "nl_query": "Every patient who receives a treatment must have that treatment recorded as either successful or unsuccessful.",
+        "nearest_cosine": 0.46275824308395386
+      },
+      {
+        "nl_query": "Every credit application handed in must end with either the loan agreement being signed or the loan being denied.",
+        "nearest_cosine": 0.5437981486320496
+      },
+      {
+        "nl_query": "Which transport documents are assigned to a vehicle scheduled to depart after June 2024?",
+        "nearest_cosine": 0.5594282150268555
+      },
+      {
+        "nl_query": "No vehicle whose departure date was at some point set before 1 September 2023 may have had one of its containers rescheduled.",
+        "nearest_cosine": 0.4968419671058655
+      },
+      {
+        "nl_query": "No vehicle whose departure date was at some point set on or after 1 September 2023 may have had one of its containers rescheduled.",
+        "nearest_cosine": 0.4867982268333435
+      },
+      {
+        "nl_query": "A package shipped by an employee through the 'shipped by' relationship must not have a failed delivery.",
+        "nearest_cosine": 0.6226889491081238
+      },
+      {
+        "nl_query": "A transport document assigned to a vehicle via the 'High-Prio VH for TD' relationship must depart at least three days after the document was created.",
+        "nearest_cosine": 0.4853762984275818
+      },
+      {
+        "nl_query": "Every registered customer order must lead to a transport document, which must be assigned to a vehicle, which must eventually depart.",
+        "nearest_cosine": 0.6077772974967957
+      },
+      {
+        "nl_query": "Show the persons who are older than 40 and whose throughput time exceeded 30 days.",
+        "nearest_cosine": 0.39881885051727295
+      },
+      {
+        "nl_query": "A warning must only be issued at least seven days after the person missed a rent payment.",
+        "nearest_cosine": 0.48602157831192017
+      },
+      {
+        "nl_query": "After missing a rent payment, a person must either pay rent again or have a late payment accepted.",
+        "nearest_cosine": 0.5365374684333801
+      },
+      {
+        "nl_query": "Persons who were married at some point must have signed a contract.",
+        "nearest_cosine": 0.42680877447128296
+      },
+      {
+        "nl_query": "Patients who at some point had an underlying condition recorded must have received at least one expert examination.",
+        "nearest_cosine": 0.47811126708984375
+      },
+      {
+        "nl_query": "Before treatment starts, a patient must have been both examined and diagnosed.",
+        "nearest_cosine": 0.4647727310657501
+      },
+      {
+        "nl_query": "A container must not be ordered and picked up at exactly the same moment.",
+        "nearest_cosine": 0.5766626596450806
+      },
+      {
+        "nl_query": "List only the treatment events, not the registration events, for patients whose treatment was unsuccessful.",
+        "nearest_cosine": 0.5124229788780212
+      },
+      {
+        "nl_query": "For every patient registered at the emergency room, at least one of their examinations must have been followed by a diagnosis.",
+        "nearest_cosine": 0.45945948362350464
+      },
+      {
+        "nl_query": "A candidate whose interview decision was 'Proceed' must have a background check with result 'Clear'.",
+        "nearest_cosine": 0.4372628927230835
+      },
+      {
+        "nl_query": "Which candidates had their assessment reviewed after passing the initial interview?",
+        "nearest_cosine": 0.5375552177429199
+      },
+      {
+        "nl_query": "A hypothesis generation step must be followed by at least one of deductive reasoning, inductive reasoning or abductive reasoning.",
+        "nearest_cosine": 0.29708683490753174
+      },
+      {
+        "nl_query": "A backtracking step must lead either to a validation step or to a new hypothesis generation, which must then reach a conclusion.",
+        "nearest_cosine": 0.3639047145843506
+      },
+      {
+        "nl_query": "Containers linked to a transport document through the 'CR for TD' relationship must have been placed in stock at least once.",
+        "nearest_cosine": 0.6660881042480469
+      },
+      {
+        "nl_query": "Every patient registered at the emergency room must have both a thorough examination and an expert examination recorded.",
+        "nearest_cosine": 0.3931916356086731
+      },
+      {
+        "nl_query": "Patients whose total throughput time exceeded seven days must have received at least one thorough examination.",
+        "nearest_cosine": 0.45674756169319153
+      },
+      {
+        "nl_query": "Every order must have at least one item that was delivered within five days of the order being placed.",
+        "nearest_cosine": 0.7205914258956909
+      },
+      {
+        "nl_query": "Which orders worth more than 3000 euros contain an item heavier than one kilogram?",
+        "nearest_cosine": 0.5374715328216553
+      },
+      {
+        "nl_query": "no payment reminder should be sent out after payment has been made",
+        "nearest_cosine": 0.7204256653785706
+      },
+      {
+        "nl_query": "Every item that is picked must be either sent in a package or marked as out of stock afterwards.",
+        "nearest_cosine": 0.6589860916137695
+      },
+      {
+        "nl_query": "Customers who place an order must have at least one payment event associated with one of their orders.",
+        "nearest_cosine": 0.8484464287757874
+      },
+      {
+        "nl_query": "Orders must not remain unpaid for more than 21 days after placement.",
+        "nearest_cosine": 0.5325782299041748
+      },
+      {
+        "nl_query": "Borrower information must be verified before the file is submitted to the underwriter.",
+        "nearest_cosine": 0.5203424692153931
+      },
+      {
+        "nl_query": "A person whose loan was denied must not sign a loan agreement afterwards.",
+        "nearest_cosine": 0.577736496925354
+      },
+      {
+        "nl_query": "Every signed loan agreement must be preceded by a submitted underwriting file.",
+        "nearest_cosine": 0.5369739532470703
+      },
+      {
+        "nl_query": "Appointment denial must only occur after a request appointment event.",
+        "nearest_cosine": 0.6215371489524841
+      },
+      {
+        "nl_query": "Every handed-in credit application must eventually lead to either a signed loan agreement, a rejected application, or a denied loan.",
+        "nearest_cosine": 0.5342580080032349
+      },
+      {
+        "nl_query": "Loan agreements should be signed within 30 days after handing in the credit application.",
+        "nearest_cosine": 0.6862879395484924
+      },
+      {
+        "nl_query": "Persons marked with skipped examination must not have their loan approved directly afterwards.",
+        "nearest_cosine": 0.5575172901153564
+      },
+      {
+        "nl_query": "Every patient arrival must be preceded by a completed registration.",
+        "nearest_cosine": 0.4893558621406555
+      },
+      {
+        "nl_query": "Initial evaluation must not occur before insurance verification has been completed.",
+        "nearest_cosine": 0.5915141105651855
+      },
+      {
+        "nl_query": "Candidates who rejected an offer must not start onboarding afterwards.",
+        "nearest_cosine": 0.555957019329071
+      },
+      {
+        "nl_query": "Rescheduled containers must not depart before being reassigned to a vehicle.",
+        "nearest_cosine": 0.4525763988494873
+      },
+      {
+        "nl_query": "Only items that are linked to an order via the 'comprises' qualifier must be counted as part of that order",
+        "nearest_cosine": 0.7660076022148132
+      },
+      {
+        "nl_query": "A 'pay order' event must be related to the order object via the 'order' qualifier",
+        "nearest_cosine": 0.7683711051940918
+      },
+      {
+        "nl_query": "A container must only be counted as belonging to a transport document via the 'CR for TD' relationship.",
+        "nearest_cosine": 0.6985692977905273
+      },
+      {
+        "nl_query": "An offer letter must be sent at least 3 days (259,200 s) after the background check completes.",
+        "nearest_cosine": 0.5508087873458862
+      },
+      {
+        "nl_query": "A co-signer request must be made at least 2 days (172,800 s) before the loan agreement is signed.",
+        "nearest_cosine": 0.6226034164428711
+      },
+      {
+        "nl_query": "A vehicle that is booked twice must involve two distinct booking events.",
+        "nearest_cosine": 0.6420852541923523
+      },
+      {
+        "nl_query": "An item must be both picked and sent in a package to be considered fulfilled",
+        "nearest_cosine": 0.6830531358718872
+      },
+      {
+        "nl_query": "A container load event and its departure event must share the same object relationships within a single session.",
+        "nearest_cosine": 0.5703608989715576
+      },
+      {
+        "nl_query": "Each handling unit must be linked to exactly one container.",
+        "nearest_cosine": 0.45580756664276123
+      },
+      {
+        "nl_query": "Containers marked 'empty' at departure time must be flagged.",
+        "nearest_cosine": 0.42557358741760254
+      },
+      {
+        "nl_query": "A vehicle that departs must have been previously booked, and the booking must reference the same transport document.",
+        "nearest_cosine": 0.4982801079750061
+      },
+      {
+        "nl_query": "A person may not apply for a viewing appointment more than 3 times in the same process.",
+        "nearest_cosine": 0.47800329327583313
+      },
+      {
+        "nl_query": "For any vehicle departure, at least one container must have been loaded onto the vehicle beforehand.",
+        "nearest_cosine": 0.47603559494018555
+      },
+      {
+        "nl_query": "Every purchase order must be approved before a payment is executed for it.",
+        "nearest_cosine": 0.7764701247215271
+      },
+      {
+        "nl_query": "Which invoice receipts were paid after a two-way match was performed?",
+        "nearest_cosine": 0.6863405704498291
+      },
+      {
+        "nl_query": "Which approval events occurred for purchase requisitions that were later linked to a request for quotation?",
+        "nearest_cosine": 0.6463530659675598
+      },
+      {
+        "nl_query": "Which patients had a diagnostic test performed on them, and by which lab technician?",
+        "nearest_cosine": 0.3866651952266693
+      },
+      {
+        "nl_query": "Which sales employees confirmed orders for which customers?",
+        "nearest_cosine": 0.6624634265899658
+      },
+      {
+        "nl_query": "Which hiring managers reviewed assessments for which candidates?",
+        "nearest_cosine": 0.5319076776504517
+      },
+      {
+        "nl_query": "Every patient must have at least one diagnostic test ordered.",
+        "nearest_cosine": 0.4764862656593323
+      },
+      {
+        "nl_query": "No bed may be assigned to a patient more than twice.",
+        "nearest_cosine": 0.3813071846961975
+      },
+      {
+        "nl_query": "A diagnostic test must be ordered within one hour of the patient's arrival.",
+        "nearest_cosine": 0.5255005359649658
+      },
+      {
+        "nl_query": "Every created purchase requisition must eventually be approved.",
+        "nearest_cosine": 0.7963874340057373
+      },
+      {
+        "nl_query": "A purchase requisition for which a request for quotation was created must eventually be approved.",
+        "nearest_cosine": 0.5892212986946106
+      },
+      {
+        "nl_query": "Every offer that was created must eventually be returned by the customer.",
+        "nearest_cosine": 0.5263248682022095
+      }
+    ]
+  },
+  "differences_from_notes": [
+    "finetune_rows: computed 60018, notes 60004 (N11 3 (the training log of job 3021705 loads 60,018))"
+  ]
+}

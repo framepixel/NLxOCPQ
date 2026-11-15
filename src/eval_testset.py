@@ -10,7 +10,7 @@ import re
 import signal
 import time
 import traceback
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Optional
 
@@ -18,9 +18,14 @@ import corpus_manifest
 import paths
 import result_store
 from LogEvents import extract_ocel_schema
-from ocpq_schema import BindingBoxTree
+from ocpq_schema import BindingBoxTree, blocking_defects, structural_defects
 from tag_testset_bb import detect_bb_labels
-from QueryExecutor import discard_result_file, run_ocpq_query
+from QueryExecutor import (
+    discard_result_file,
+    ocpq_binary_digest,
+    ocpq_provenance,
+    run_ocpq_query,
+)
 try:
     from expand_models import expand_models
 except Exception:
@@ -36,6 +41,8 @@ from LLM import (
     set_generation_temperature,
     set_generation_seed,
     set_constrained_decoding,
+    set_constrained_any_order,
+    set_constrained_bounded_shape,
     set_generation_token_budget,
     set_forced_root_arity,
     set_type_aware_filters,
@@ -45,12 +52,29 @@ from LLM import (
     set_schema_level,
     set_hf_client,
     set_local_gpu_client,
+    set_local_model_options,
+    set_reasoning_token_budget,
+    set_reasoning_history,
+    set_generation_seed_per_call,
+    preload_local_model,
     reset_llm_call_stats,
     get_llm_call_stats,
     reset_query_exec_stats,
     get_query_exec_stats,
     get_hf_backend_description,
+    AGENTIC_PROMPT_STRATEGIES,
+    AgentNoFinalAnswer,
+    set_agent_probe,
+    set_agent_max_turns,
+    set_agent_thought,
+    set_agent_turn_token_budget,
+    set_agent_protocol,
+    set_agent_example_search,
+    agent_prompt_sha256,
+    get_last_agent_trajectory,
+    reset_last_agent_trajectory,
 )
+import ocpq_probe
 
 
 UNSUPPORTED_FILTER_TYPES = {"ExactlyOnce"}
@@ -212,7 +236,8 @@ _STRATUM_MISS = (None, None, {}, {})
 
 def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_budget,
                      type_aware_filters=False, constant_root_arity=False,
-                     structural_validation=False):
+                     structural_validation=False, any_order=True, bounded=False,
+                     reasoning_budget=None, reasoning_history=None):
     """The suffix that distinguishes decoding rungs, used by BOTH `config_id` and the shard name.
 
     One definition because these had already drifted apart once. `config_id` carried the arity
@@ -222,11 +247,17 @@ def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_bu
     without saying anything.
 
     Empty when everything is at its default, so every condition recorded before 2026-09-02 keeps
-    the id and the directory name it was published with.
+    the id and the directory name it was published with. `_ordered` (notes 43.7) marks the ordered
+    grammar and `_bounded` (notes 43.8) the whitespace-free, list-bounded one; both follow
+    `_constrained` because they only mean anything under it.
     """
     suffix = ""
     if constrained_decoding:
         suffix += "_constrained"
+        if any_order is False:
+            suffix += "_ordered"
+        if bounded:
+            suffix += "_bounded"
     if type_aware_filters:
         suffix += "_typed"
     if structural_validation:
@@ -237,6 +268,102 @@ def _decoding_suffix(constrained_decoding, force_root_arity, generation_token_bu
         suffix += "_arityconst"
     if generation_token_budget is not None:
         suffix += f"_tok{int(generation_token_budget)}"
+    if reasoning_budget:
+        # Evaluation 2 (notes 44): every generation reasons first, for up to this many tokens.
+        suffix += f"_think{int(reasoning_budget)}"
+        if reasoning_history == "keep":
+            # ...and the agent's transcript keeps each earlier turn's reasoning (notes 44.6).
+            suffix += "keep"
+    return suffix
+
+
+DEFAULT_AGENT_MAX_TURNS = 8
+DEFAULT_AGENT_MAX_TOOL_CALLS = 12
+
+
+# The Stage 5 protocol levers (notes 43.12): config key -> (LLM lever name, suffix letter). Order is
+# the suffix order. Each defaults to off, so every earlier directory name and config_id is kept.
+AGENT_LEVERS = (
+    ("agent_structural_feedback", "structural_feedback", "F"),
+    ("agent_bounce_blocking_final", "bounce_blocking_final", "B"),
+    ("agent_finalise_evaluated", "finalise_evaluated", "E"),
+    ("agent_worked_example", "worked_example", "X"),
+    ("agent_reserve_last_turn", "reserve_last_turn", "L"),
+    # Added after the scored run (notes 43.15), last so the frozen rungs' "FBEXL" is unchanged.
+    ("agent_cap_feedback", "cap_feedback", "C"),
+    # Added after Muse Glimmer's model gate (notes 43.17), last, so every earlier suffix is unchanged.
+    ("agent_repeat_guard", "repeat_guard", "R"),
+    # The example-lookup tool (notes 45), last, so every earlier suffix is unchanged.
+    ("agent_example_search", "example_search", "S"),
+)
+
+
+def _agent_protocol(config):
+    """`{lever: bool}` for `LLM.set_agent_protocol`, read from the config."""
+    return {lever: bool(config.get(key, False)) for key, lever, _letter in AGENT_LEVERS}
+
+
+def _agent_levers(config):
+    """The enabled levers as suffix letters, in AGENT_LEVERS order ("" when none)."""
+    return "".join(letter for key, _lever, letter in AGENT_LEVERS if config.get(key, False))
+
+
+def _agent_budget(config):
+    """`(max_turns, max_tool_calls, thought, turn_token_budget, levers)` for an agentic run, read
+    once from the config.
+
+    One reader for the three places that name the condition -- the manifest's `agentic` block,
+    `config_id`, and the shard directory -- so they cannot disagree about what ran.
+    """
+    turn_tokens = config.get("agent_turn_token_budget")
+    return (int(config.get("agent_max_turns", DEFAULT_AGENT_MAX_TURNS)),
+            int(config.get("agent_max_tool_calls", DEFAULT_AGENT_MAX_TOOL_CALLS)),
+            bool(config.get("agent_thought", False)),
+            None if turn_tokens is None else int(turn_tokens),
+            _agent_levers(config))
+
+
+def _agent_shard_suffix(prompt_strategies, config):
+    """The agent part of a shard directory name. Empty when no strategy is agentic.
+
+    A1 and A2 share the model, strategy and schema indices AND the strategy name, so without this
+    they write to the same `shard_m*_s*_e*_...` directory, and `--resume` (which globs the prefix,
+    takes the newest) resumes one rung into the other -- the 2026-09-12 failure, silently. A shard
+    running one strategy gets exactly that strategy's `config_id` suffix; a shard running several
+    gets the tool rung's, the fullest signature of the budget.
+    """
+    agentic = [s for s in prompt_strategies if s in AGENTIC_PROMPT_STRATEGIES]
+    if not agentic:
+        return ""
+    strategy = prompt_strategies[0] if len(prompt_strategies) == 1 else "agentic-log-tools"
+    return _agent_suffix(strategy, *_agent_budget(config))
+
+
+def _agent_suffix(prompt_strategy, max_turns, max_tool_calls, thought=False, turn_tokens=None,
+                  levers=""):
+    """The budget of an agentic condition, for its `config_id`. Empty for every other strategy.
+
+    Per condition rather than in `_decoding_suffix`, which is run-wide: the one-shot rung A0 runs in
+    the same job and must keep its ordinary id. The budget IS the difference between A1 and A2
+    (same strategy, same prompt), so without it the two would share a `config_id`, and
+    `--merge-shards` would de-duplicate one rung away silently -- the 2026-08-27 failure.
+    """
+    if prompt_strategy not in AGENTIC_PROMPT_STRATEGIES:
+        return ""
+    suffix = f"_turns{int(max_turns)}"
+    if prompt_strategy == "agentic-log-tools":
+        suffix += f"_tools{int(max_tool_calls)}"
+    if turn_tokens is not None:
+        # What one turn may cost, and therefore how many runaway turns fit in the case cap (notes
+        # 43.8). Both loop rungs carry it; None keeps every earlier id.
+        suffix += f"_turntok{int(turn_tokens)}"
+    if levers:
+        # The Stage 5 protocol (notes 43.12). A different set of levers is a different condition,
+        # and the dev iterations must never resume into each other's directories.
+        suffix += f"_p{levers}"
+    if thought:
+        # A CONDITION like the budget: A1 with and without it share everything else.
+        suffix += "_thought"
     return suffix
 
 
@@ -457,6 +584,8 @@ _PIPELINE_SOURCE_FILES = (
     "eval_testset.py", "LLM.py", "QueryExecutor.py", "ocpq_schema.py",
     "LogEvents.py", "result_store.py", "expand_models.py", "tag_testset_bb.py",
     "paths.py", "corpus_manifest.py",
+    # What the probe shows the agent is part of what an agentic run produces (notes 43).
+    "ocpq_probe.py",
 )
 
 
@@ -1217,6 +1346,114 @@ def _truncation_counts(records) -> dict:
     }
 
 
+def _cap_hit_rate(agents):
+    return _counted_turn_rate(agents, "cap_hits")
+
+
+def _counted_turn_rate(agents, field):
+    """`field` summed over the records that count it, per turn those records took; None when no
+    record counts it (a run from before the field existed), never 0."""
+    counted = [a for _, a in agents if a.get(field) is not None]
+    turns = sum(int(a.get("turns") or 0) for a in counted)
+    return (sum(int(a[field]) for a in counted) / turns) if turns else None
+
+
+def _agent_compliance(records) -> dict:
+    """The agentic arm's compliance block -- PRE-REGISTERED to be reported before any F1 (notes 43).
+
+    A tool-using model that cannot hold the protocol, exhausts its budget, or runs against a
+    restarting probe is not being measured on what the arm is about, whatever its F1. Empty for a
+    condition with no agentic records, so no non-agentic summary changes shape.
+
+    Rates are over the agentic records; `agent_n` is the denominator.
+      * `agent_malformed_action_rate` -- malformed turns / turns taken.
+      * `agent_no_answer_rate` -- cases with no usable tree at all (status `agent_no_answer`).
+      * `agent_budget_exhausted_rate` -- used every turn and never DECLARED a final tree.
+      * `agent_final_source` -- declared / last_valid_probe / none, as counts.
+      * `probe_unavailable_n`, `probe_restarts`, `probe_evaluator_panics`, `probe_refused_trees`.
+      * `probe_cli_agreement_rate` over the cases where both counts exist; below 1.0 is a harness
+        defect (the two share `evaluate_box_tree`), unless `cli_bindings_skipped` explains it.
+    """
+    agents = [(r, r.get("agent")) for r in records if isinstance(r.get("agent"), dict)]
+    if not agents:
+        return {}
+    turns = sum(int(a.get("turns") or 0) for _, a in agents)
+    malformed = sum(int(a.get("malformed_actions") or 0) for _, a in agents)
+    sources = Counter(str(a.get("final_source")) for _, a in agents)
+    exhausted = [1 if (a.get("turns") and a.get("turns") == a.get("max_turns")
+                       and a.get("final_source") != "declared") else 0 for _, a in agents]
+    # Thought uptake, over the records whose condition enabled it: an "on" condition in which the
+    # model never writes one is not measuring reasoning, whatever its F1.
+    all_turns = [t for _, a in agents for t in (a.get("turn_summary") or [])]
+    thought_turns = [t for _, a in agents if a.get("thought_enabled")
+                     for t in (a.get("turn_summary") or [])]
+    agreement = [a["probe_vs_cli"]["agree"] for _, a in agents
+                 if isinstance(a.get("probe_vs_cli"), dict)
+                 and a["probe_vs_cli"].get("agree") is not None]
+    return {
+        "agent_n": len(agents),
+        "agent_mean_turns": _mean([a.get("turns") for _, a in agents]),
+        "agent_mean_tool_calls": _mean([a.get("tool_calls") for _, a in agents]),
+        "agent_malformed_action_rate": (malformed / turns) if turns else None,
+        "agent_no_answer_rate": _mean([1 if r.get("status") == "agent_no_answer" else 0
+                                       for r, _ in agents]),
+        "agent_budget_exhausted_rate": _mean(exhausted),
+        "agent_final_source": dict(sources),
+        "agent_post_execution_repair_rate": _mean(
+            [1 if a.get("post_execution_repair") else 0 for _, a in agents]),
+        "probe_unavailable_n": sum(1 for r, _ in agents if r.get("status") == "probe_unavailable"),
+        "probe_restarts": sum(int(a.get("probe_restarts") or 0) for _, a in agents),
+        "probe_evaluator_panics": sum(int(a.get("probe_evaluator_panics") or 0)
+                                      for _, a in agents),
+        "probe_refused_trees": sum(int(a.get("probe_refused_trees") or 0) for _, a in agents),
+        "probe_cli_agreement_rate": _mean([1 if x else 0 for x in agreement]),
+        "probe_cli_agreement_n": len(agreement),
+        # Turns whose tree needed the container repair every other arm also gets -- visible, not
+        # silent, because it is the harness doing work the model did not do.
+        "agent_repaired_turn_rate": (_mean([1 if t.get("repaired") else 0 for t in all_turns])
+                                     if all_turns else None),
+        "agent_thought_turn_rate": (_mean([1 if t.get("thought_chars") else 0
+                                            for t in thought_turns]) if thought_turns else None),
+        "agent_mean_thought_chars": _mean([t.get("thought_chars") for t in thought_turns
+                                           if t.get("thought_chars")]),
+        # Stage 5 (notes 43.12): is the model writing well-formed TREES? Read off every turn that
+        # carried a tree and off the scored tree, whatever the levers, so conditions compare.
+        "agent_final_blocking_rate": _mean(
+            [1 if a.get("final_blocking_defects") else 0 for _, a in agents
+             if a.get("final_blocking_defects") is not None]),
+        "agent_tree_turn_clean_rate": _mean(
+            [1 if t.get("tree_blocking") == 0 else 0 for t in all_turns
+             if t.get("tree_blocking") is not None]),
+        "agent_final_bounce_rate": _mean([1 if a.get("final_bounced") else 0 for _, a in agents]),
+        "agent_mean_check_tree_calls": _mean([a.get("check_tree_calls") for _, a in agents
+                                              if a.get("check_tree_calls") is not None]),
+        # Turns the per-turn cap cut off (notes 43.15), over the turns of the records that count
+        # them. Before 43.15 they were filed as malformed and not told apart: None there, not 0.
+        "agent_cap_hit_turn_rate": _cap_hit_rate(agents),
+        # Turns that repeated an earlier action of the case exactly (notes 43.17), whether or not
+        # R guarded them; None for runs before 43.17, which did not count them.
+        "agent_repeat_turn_rate": _counted_turn_rate(agents, "repeat_turns"),
+        # Evaluation 2 (notes 44): how often the budget, not the model, ended the reasoning, and how
+        # long it reasoned. None for runs without a reasoning step.
+        "agent_forced_close_rate": (_mean([1 if t.get("forced_close") else 0 for t in all_turns
+                                           if t.get("reasoning_tokens") is not None])
+                                    if any(t.get("reasoning_tokens") is not None for t in all_turns)
+                                    else None),
+        "agent_mean_reasoning_tokens": _mean([t.get("reasoning_tokens") for t in all_turns
+                                              if t.get("reasoning_tokens") is not None]),
+        # Notes 44.7: cases the verified-context limit ended (finalised with their best tree). None
+        # for runs before 44.7, which did not record it.
+        # S (notes 45): uptake of search_examples -- the share of records that called it, and the
+        # calls per record. None for runs before 45, which did not record it.
+        "agent_example_search_rate": _mean([1 if a.get("example_search_calls") else 0
+                                            for _, a in agents if "example_search_calls" in a]),
+        "agent_mean_example_searches": _mean([a.get("example_search_calls") for _, a in agents
+                                              if "example_search_calls" in a]),
+        "agent_context_limit_rate": _mean([1 if a.get("context_limit_hit") else 0
+                                           for _, a in agents if "context_limit_hit" in a]),
+    }
+
+
 def _timeout_counts(records) -> dict:
     """How many cases hit the per-case wall-clock cap, over every attempted record.
 
@@ -1338,6 +1575,25 @@ def _std(values):
     return math.sqrt(variance)
 
 
+_RECORDED_LIBRARIES = ("torch", "transformers", "tokenizers", "xgrammar", "bitsandbytes",
+                       "accelerate", "peft")
+
+
+def _library_versions():
+    """Installed versions of the generation stack, None for a package that is absent. Never raises:
+    provenance that can crash a run gets switched off, and then records nothing."""
+    from importlib.metadata import PackageNotFoundError, version
+    found = {}
+    for name in _RECORDED_LIBRARIES:
+        try:
+            found[name] = version(name)
+        except PackageNotFoundError:
+            found[name] = None
+        except Exception:  # noqa: BLE001 - informational only
+            found[name] = "unknown"
+    return found
+
+
 def _configure_backend(model_cfg, global_cfg):
     backend = model_cfg.get("backend") or global_cfg.get("backend")
     hf_provider = model_cfg.get("hf_provider") or global_cfg.get("hf_provider")
@@ -1346,6 +1602,20 @@ def _configure_backend(model_cfg, global_cfg):
     local_dtype = model_cfg.get("local_dtype") or global_cfg.get("local_dtype")
     local_quantization = model_cfg.get("local_quantization") or global_cfg.get("local_quantization") or "4bit"
 
+    # Per-model chat settings (notes 43.16), set -- or cleared -- for EVERY model before it is
+    # selected, so no model inherits another's. Absent from every model before Muse Glimmer.
+    set_local_model_options(
+        revision=model_cfg.get("revision"),
+        chat_template_kwargs=model_cfg.get("chat_template_kwargs"),
+        generation_prefix=model_cfg.get("generation_prefix"),
+        # Evaluation 2 (notes 44): the reasoning switch, channel, sampling and attention kernels.
+        system_prompt_prefix=model_cfg.get("system_prompt_prefix"),
+        reasoning=model_cfg.get("reasoning"),
+        sampling=model_cfg.get("sampling"),
+        sdpa_kernels=model_cfg.get("sdpa_kernels"),
+        # Notes 44.7: the context its memory check verified; absent for every earlier model.
+        max_context_tokens=model_cfg.get("max_context_tokens"),
+    )
     if backend == "local-gpu":
         set_local_gpu_client(
             model_name=model_cfg["name"],
@@ -1355,11 +1625,39 @@ def _configure_backend(model_cfg, global_cfg):
             quantization=local_quantization,
         )
     else:
+        # `base_url` selects an OpenAI-compatible endpoint (the frontier arm, notes 43). No config
+        # before 2026-09-22 sets it, so this passes None for every recorded run, exactly as before.
         set_hf_client(
             token=hf_token or None,
             provider=hf_provider or None,
             model_name=model_cfg["name"],
+            base_url=model_cfg.get("base_url") or global_cfg.get("base_url") or None,
         )
+
+
+def _check_backends_consistent(models, global_cfg):
+    """Refuse a config whose models would silently share one model's endpoint.
+
+    `set_hf_client` keeps the PREVIOUS `base_url` when it is given none
+    (`selected_base_url = base_url or hf_base_url`), so an endpoint model followed by a provider
+    model would send the second model's requests to the first model's endpoint -- a wrong-model
+    run with nothing in the record saying so. Local-GPU models reset the endpoint and are safe.
+
+    Raises:
+        ValueError: When one model sets a `base_url` and another non-local model sets a different
+            one, or none.
+    """
+    endpoints = set()
+    for model_cfg in models:
+        resolved = _resolve_model_config(model_cfg, global_cfg)
+        if (resolved.get("backend") or global_cfg.get("backend")) == "local-gpu":
+            continue
+        endpoints.add(resolved.get("base_url") or None)
+    if len(endpoints) > 1 and any(endpoints):
+        raise ValueError(
+            f"models use different endpoints {sorted(map(str, endpoints))}: set_hf_client keeps "
+            f"the previous base_url, so a later model would be sent to an earlier model's "
+            f"endpoint. Run endpoint models in their own config.")
 
 
 def _resolve_model_config(model_cfg, global_cfg):
@@ -1489,6 +1787,101 @@ def _reclassify_unevaluated(records: list) -> int:
     return changed
 
 
+def _compact_agent_turns(trajectory, cap):
+    """The trajectory as it goes ON THE RECORD: what each turn did and what it saw, clipped.
+
+    The full turns (raw content up to `LLM._AGENT_RAW_CHAR_CAP`, every tool result) go to
+    `agent_trajectories.jsonl`; inline they would put ~10 KB per turn into predictions.json. What
+    stays here is what the pre-registered mechanism analysis reads: the action, a malformed reason,
+    and for `try_query` the per-node counts -- whether a revision moved the POPULATION or only the
+    syntax is read off those counts, turn by turn.
+    """
+    compact = []
+    for entry in trajectory or []:
+        turn = {"turn": entry.get("turn"), "action": entry.get("action")}
+        if entry.get("malformed"):
+            turn["malformed"] = str(entry["malformed"])[:cap]
+        if entry.get("hit_cap"):
+            # Cut off at the per-turn cap, not malformed by the model (notes 43.15).
+            turn["hit_cap"] = True
+        if entry.get("reasoning_tokens") is not None:
+            # Evaluation 2 (notes 44): the length only; the text is in agent_trajectories.jsonl.
+            turn["reasoning_tokens"] = entry["reasoning_tokens"]
+            if entry.get("forced_close"):
+                turn["forced_close"] = True
+        if entry.get("repeat_of") is not None:
+            # The same action as that earlier turn (notes 43.17); `guarded` when R did not re-run it.
+            turn["repeat_of"] = entry["repeat_of"]
+            if entry.get("guarded"):
+                turn["guarded"] = True
+        if entry.get("error"):
+            turn["error"] = str(entry["error"])[:cap]
+        if entry.get("thought"):
+            # Length only; the text is in agent_trajectories.jsonl. Uptake and cost read this.
+            turn["thought_chars"] = len(str(entry["thought"]))
+        if entry.get("normalized"):
+            # Containers the harness filled in the turn's tree (LLM._repair_agent_tree).
+            turn["repaired"] = len(entry["normalized"])
+        if entry.get("tree_blocking") is not None:
+            # Blocking structural defects in the tree this turn carried (notes 43.12).
+            turn["tree_blocking"] = int(entry["tree_blocking"])
+        if entry.get("bounced"):
+            turn["bounced"] = True
+        if entry.get("examples"):
+            # S (notes 45): the pool rows shown, with their similarity to the search text.
+            turn["examples"] = entry["examples"]
+        result = entry.get("result")
+        if isinstance(result, dict):
+            if result.get("error"):
+                turn["result_error"] = str(result["error"])[:cap]
+            elif entry.get("action") == "try_query":
+                turn["nodes"] = result.get("nodes")
+        compact.append(turn)
+    return compact
+
+
+def _probe_cli_agreement(probe, tree, pred_ids, pred_bindings_skipped):
+    """Does the probe count the final tree's root situations the way ocpq_cli did?
+
+    The agent revised against the probe's counts and is scored by the CLI's, so the two must agree
+    or A1's revisions were steered by a different evaluator than the one grading them. They share
+    `evaluate_box_tree`, so disagreement means a harness defect, not a model one. The probe call is
+    NOT charged to the agent's budget and not added to its trajectory.
+
+    Returns:
+        None when there is nothing to compare (no probe, no tree, nothing executed), else a dict
+        with `agree` (None when the probe could not answer) and both counts.
+    """
+    if probe is None or not isinstance(tree, dict) or pred_ids is None:
+        return None
+    cli_count = len(pred_ids[2])
+    try:
+        result = probe.try_query({"tree": tree})
+    except ocpq_probe.ProbeError as exc:
+        return {"agree": None, "reason": f"probe: {exc}"[:300], "cli_root_situations": cli_count}
+    if result.get("error"):
+        return {"agree": None, "reason": str(result["error"])[:300],
+                "cli_root_situations": cli_count}
+    root = root_node_index(tree)
+    probe_count = next((n.get("situations") for n in result.get("nodes") or []
+                        if n.get("node") == root), None)
+    return {"agree": probe_count == cli_count, "probe_root_situations": probe_count,
+            "cli_root_situations": cli_count,
+            # A truncated CLI result can legitimately count fewer; read `agree` with this.
+            "cli_bindings_skipped": bool(pred_bindings_skipped)}
+
+
+def _append_agent_trajectory(path, record_key, config_id, case_id, nl_query, state):
+    """Append one case's full trajectory to the run's JSONL. Never fails the record."""
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"record_key": record_key, "config_id": config_id,
+                                     "case_id": case_id, "nl_query": nl_query,
+                                     "agent": state}, default=str) + "\n")
+    except (OSError, TypeError, ValueError) as exc:
+        _log_phase("error", f"case {case_id:03d} | agent trajectory not written: {exc}")
+
+
 def _classify_run_status(status, error, schema_valid, exec_stats, query_result_file,
                          query_stdout, result_too_large=False, cli_error=None):
     if status != "ok":
@@ -1499,6 +1892,11 @@ def _classify_run_status(status, error, schema_valid, exec_stats, query_result_f
         # the cap -- "ran out of budget" and "produced a broken query" are different failures.
         if status == "timeout":
             return "timeout"
+        # The agentic arm's two outcomes that never reached execution (notes 43). Returned before
+        # the substring matches for the timeout's reason: their messages mention "query", and a
+        # future wording mentioning "execute" would silently turn them into `execution_failed`.
+        if status in ("agent_no_answer", "probe_unavailable"):
+            return status
         if "validated against the schema" in lowered or "strict pydantic" in lowered:
             return "schema_invalid"
         if "parsed" in lowered or "json" in lowered and "parse" in lowered:
@@ -1624,7 +2022,18 @@ def run_evaluation(config_path_or_config):
             config.get("type_aware_filters"),
             config.get("constant_root_arity"),
             config.get("structural_validation"),
+            config.get("constrained_any_order", True),
+            config.get("constrained_bounded_shape", False),
+            config.get("reasoning_token_budget"),
+            config.get("reasoning_history"),
         )
+        # After the decoding suffix, matching `config_id`'s order. See `_agent_shard_suffix`.
+        # The strategies are resolved (and the index validated) further down; this reads the same
+        # config and filter, so an out-of-range index falls through here and raises there.
+        _shard_strategies = config.get("prompt_strategies") or DEFAULT_PROMPT_STRATEGIES
+        if strategy_idx_filter is not None and 0 <= strategy_idx_filter < len(_shard_strategies):
+            _shard_strategies = [_shard_strategies[strategy_idx_filter]]
+        shard_tag += _agent_shard_suffix(_shard_strategies, config)
         run_id = f"{shard_tag}_{time.strftime('%Y%m%d_%H%M%S')}"
     else:
         run_id = time.strftime("eval_run_%Y%m%d_%H%M%S")
@@ -1663,6 +2072,12 @@ def run_evaluation(config_path_or_config):
         "result_store_max_situations": int(
             config.get("result_store_max_situations", result_store.DEFAULT_MAX_SITUATIONS)
         ),
+        # Both were READ from global_cfg but never put into it, so both were silently ignored:
+        # the preload never ran in the 2026-09-28 gate (notes 43.17), and a top-level base_url
+        # would have sent the frontier arm nowhere. tests/test_model_chat_options.py now checks
+        # that every key read from global_cfg is set here.
+        "preload_model": bool(config.get("preload_model", False)),
+        "base_url": config.get("base_url"),
     }
 
     models = config.get("models") or []
@@ -1720,6 +2135,12 @@ def run_evaluation(config_path_or_config):
     # NON-ORACLE: pin the root arity to a fixed (0,1) rather than gold's. Justified from the
     # synthetic training corpus, whose majority class is also (0,1) -- see notes 33.4.
     constant_root_arity = bool(config.get("constant_root_arity", False))
+    # Grammar setting, not a new mechanism: False compiles the ORDERED grammar, which forbids a
+    # repeated key (`any_order=True` admits one, and base models loop on it). Notes 43.7.
+    constrained_any_order = bool(config.get("constrained_any_order", True))
+    # Grammar setting too: no free whitespace, and tree lists bounded at twice gold's largest.
+    # Notes 43.8. False keeps every recorded run unchanged.
+    constrained_bounded_shape = bool(config.get("constrained_bounded_shape", False))
     # Stops a run whose logs differ from data/corpus_manifest.json (notes 35). "warn" and "off"
     # exist for exploratory runs; every thesis run keeps the default.
     corpus_check = str(config.get("corpus_check", "error")).lower()
@@ -1728,6 +2149,65 @@ def run_evaluation(config_path_or_config):
             f"corpus_check must be one of {CORPUS_CHECK_POLICIES}, got {corpus_check!r}")
     _budget = config.get("generation_token_budget")
     generation_token_budget = None if _budget is None else int(_budget)
+    # Evaluation 2 (notes 44): tokens each generation may reason first, in the model's own channel.
+    # Absent from every earlier config, so nothing before it reasons.
+    _reasoning = config.get("reasoning_token_budget")
+    reasoning_token_budget = int(_reasoning) if _reasoning else None
+    # Notes 44.6: whether the agent's transcript keeps earlier reasoning. Absent (drop) everywhere
+    # before it; "keep" only means something when there is a reasoning step to keep.
+    reasoning_history = config.get("reasoning_history") or "drop"
+    if reasoning_history not in ("drop", "keep"):
+        raise ValueError(f"reasoning_history must be 'drop' or 'keep', got {reasoning_history!r}")
+    if reasoning_history == "keep" and not reasoning_token_budget:
+        raise ValueError("reasoning_history 'keep' needs a reasoning_token_budget (notes 44.6)")
+    # Notes 44.7: one derived seed per generation of a record; off (the record's seed re-applied to
+    # every generation) for every run before it.
+    generation_seed_per_call = bool(config.get("generation_seed_per_call", False))
+    # THE AGENTIC ARM (notes 43). Read only when a condition uses it; every value is recorded in the
+    # manifest's `agentic` block. `agent_max_turns` and `agent_max_tool_calls` are the rung: A1 and
+    # A2 differ in them and in nothing else, which is why they also enter `config_id`.
+    agentic_strategies = [s for s in prompt_strategies if s in AGENTIC_PROMPT_STRATEGIES]
+    agent_uses_probe = "agentic-log-tools" in prompt_strategies
+    agent_settings = None
+    if agentic_strategies:
+        _turns, _tools, _thought, _turn_tokens, _levers = _agent_budget(config)
+        _protocol = _agent_protocol(config)
+        # Set here as well as below, because the prompt hash depends on both.
+        set_agent_thought(_thought)
+        set_agent_protocol(**_protocol)
+        agent_settings = {
+            "strategies": agentic_strategies,
+            "max_turns": _turns,
+            "max_tool_calls": _tools,
+            # The reasoning condition (notes 43): the action schema gains `thought`.
+            "thought": _thought,
+            # Per-turn generation cap for the loop rungs, or None for the run budget (notes 43.8).
+            "turn_token_budget": _turn_tokens,
+            # The Stage 5 levers (notes 43.12), and the prompt they produce. The hash is what makes
+            # "the prompt was frozen before the scored runs" checkable across manifests.
+            "protocol": _protocol,
+            "levers": _levers,
+            "prompt_sha256": {
+                strategy: agent_prompt_sha256(with_tools=(strategy == "agentic-log-tools"))
+                for strategy in agentic_strategies},
+            "tool_result_char_cap": int(config.get("agent_tool_result_char_cap",
+                                                   ocpq_probe.DEFAULT_RESULT_CHAR_CAP)),
+            "probe_request_timeout_sec": float(config.get(
+                "agent_probe_request_timeout_sec", ocpq_probe.DEFAULT_REQUEST_TIMEOUT_SEC)),
+            "probe_load_timeout_sec": float(config.get(
+                "agent_probe_load_timeout_sec", ocpq_probe.DEFAULT_LOAD_TIMEOUT_SEC)),
+            "probe_max_restarts_per_case": int(config.get(
+                "agent_probe_max_restarts_per_case", ocpq_probe.DEFAULT_MAX_RESTARTS_PER_CASE)),
+            "probe_max_restarts_per_run": int(config.get(
+                "agent_probe_max_restarts_per_run", ocpq_probe.DEFAULT_MAX_RESTARTS_PER_RUN)),
+            # Per-turn raw content and per-call results kept ON THE RECORD; the full trajectory
+            # goes to <run_dir>/agent_trajectories.jsonl, so predictions.json stays loadable.
+            "record_turn_char_cap": int(config.get("agent_record_turn_char_cap", 600)),
+            "uses_probe": agent_uses_probe,
+            # S (notes 45): examples per search_examples call; inert unless the lever is on.
+            "examples_per_search": int(config.get("agent_examples_per_search", 3)),
+        }
+    _check_backends_consistent(models, global_cfg)
     repeats = int(config.get("repeats", 1))
     limit = int(config.get("limit", 0))
     seed = int(config.get("seed", 3407))
@@ -1787,11 +2267,17 @@ def run_evaluation(config_path_or_config):
             f"x {len(schema_enforced_values)} schema settings x {repeats} repeats "
             f"= {total_runs} planned runs."
         )
+        # The directory `--resume` globs for; the submit scripts' RUNG_SUFFIX must match it.
+        print(f"Dry run: run directory = {run_dir.name}")
         print(f"Dry run: schema enforcement values = {schema_enforced_values}")
         print(f"Dry run: schema_validation_when_no_schema = {schema_validation_when_no_schema}")
         print(f"Dry run: constrained_decoding = {constrained_decoding}"
               f"  (grammar-masked generation; NOT the same as schema_enforced, which only "
               f"validates and repairs afterwards)")
+        print(f"Dry run: constrained_any_order = {constrained_any_order}"
+              f"   (False = ordered grammar: no repeated keys; notes 43.7)")
+        print(f"Dry run: constrained_bounded_shape = {constrained_bounded_shape}"
+              f"   (True = no free whitespace, bounded tree lists; notes 43.8)")
         print(f"Dry run: type_aware_filters = {type_aware_filters}   (non-oracle; from the log)")
         print(f"Dry run: structural_validation = {structural_validation}   (non-oracle; reads the generated tree)")
         print(f"Dry run: constant_root_arity = {constant_root_arity}   (non-oracle; training-corpus majority)")
@@ -1801,6 +2287,21 @@ def run_evaluation(config_path_or_config):
               f"{'   *** ORACLE CONDITION -- ceiling, never system performance ***' if force_root_arity else ''}")
         print(f"Dry run: generation_token_budget = "
               f"{generation_token_budget if generation_token_budget is not None else 'per-pipeline default (1000/2000)'}")
+        print(f"Dry run: reasoning_token_budget = {reasoning_token_budget or 'none (no reasoning step)'}"
+              f"{'   (evaluation 2: each generation reasons first; notes 44)' if reasoning_token_budget else ''}")
+        print(f"Dry run: generation_seed_per_call = {generation_seed_per_call}"
+              f"{'   (one derived seed per generation of a record; notes 44.7)' if generation_seed_per_call else ''}")
+        print(f"Dry run: reasoning_history = {reasoning_history}"
+              f"{'   (earlier reasoning stays in the transcript; notes 44.6)' if reasoning_history == 'keep' else ''}")
+        if agent_settings:
+            print(f"Dry run: agentic = {agent_settings['strategies']} | "
+                  f"max_turns={agent_settings['max_turns']} "
+                  f"max_tool_calls={agent_settings['max_tool_calls']} "
+                  f"thought={agent_settings['thought']} | probe server: "
+                  f"{'yes (started at run start)' if agent_uses_probe else 'no'}")
+            for strategy in prompt_strategies:
+                print(f"Dry run:   config_id suffix for {strategy}: "
+                      f"{_agent_suffix(strategy, agent_settings['max_turns'], agent_settings['max_tool_calls'], agent_settings['thought'], agent_settings['turn_token_budget'], agent_settings['levers']) or '(none)'}")
         return None
 
     # Before any directory is created or model loaded: a run on the wrong corpus is worthless,
@@ -1837,6 +2338,23 @@ def run_evaluation(config_path_or_config):
         checkpoint_state = {}
         existing_records = []
 
+    # Which OCPQ computes this run's result sets. Builds first if the source is newer than the
+    # binary, so the digest is of what will run. Recorded, never a gate: the checkout's state is a
+    # fact to report, and the merge compares it across shards (`ocpq_consistent`).
+    ocpq = ocpq_provenance(build=True)
+    cli_binary = (ocpq.get("binaries") or {}).get("ocpq_cli") or {}
+    _log_phase("generation", f"ocpq: rev {str(ocpq.get('rev'))[:12]} ({ocpq.get('branch')}), "
+                             f"ocpq_cli sha256 {str(cli_binary.get('sha256'))[:16]}")
+    for problem, present in (("the OCPQ checkout has uncommitted changes to tracked files "
+                              f"{ocpq.get('dirty_files')}", ocpq.get("dirty")),
+                             ("ocpq_cli is older than its source: the next cargo run rebuilds it",
+                              ocpq.get("cli_older_than_source")),
+                             (f"building ocpq_cli failed: {ocpq.get('build_error')}",
+                              ocpq.get("build_error")),
+                             ("no ocpq_cli binary found to fingerprint", not cli_binary)):
+        if present:
+            print(f"*** OCPQ PROVENANCE: {problem} ***")
+
     manifest = {
         "run_id": run_id,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -1859,16 +2377,33 @@ def run_evaluation(config_path_or_config):
         # run is NOT comparable to a free one: the model could not have emitted the same tokens.
         # Two shards that disagree on these must not merge silently.
         "constrained_decoding": constrained_decoding,
+        "constrained_any_order": constrained_any_order,
+        "constrained_bounded_shape": constrained_bounded_shape,
         "generation_token_budget": generation_token_budget,
+        # Evaluation 2 (notes 44); None for every run that does not reason first.
+        "reasoning_token_budget": reasoning_token_budget,
+        # Notes 44.6; "drop" for every run before it.
+        "reasoning_history": reasoning_history,
+        # Notes 44.7; False for every run before it.
+        "generation_seed_per_call": generation_seed_per_call,
         "force_root_arity": force_root_arity,
         "type_aware_filters": type_aware_filters,
         "constant_root_arity": constant_root_arity,
         "structural_validation": structural_validation,
+        # The agentic arm's budgets and probe settings, or None for a run without it (notes 43).
+        "agentic": agent_settings,
         # The logs this run read, by size and sha256 (notes 35). `pipeline_fingerprint` covers
         # only code; merges compare these per log.
         "corpus_check": corpus_check,
         "corpus": corpus_digests,
         "corpus_problems": corpus_problems or None,
+        # The evaluator itself: OCPQ source revision, dirty flag, and the sha256 of the ocpq_cli
+        # (and web-server) binaries. Added 2026-09-22; earlier runs record none of it.
+        "ocpq": ocpq,
+        # The generation stack (notes 43.16): the Glimmer arm runs on a newer transformers than
+        # the Ministral arm, so which stack produced a run is a fact of the run, not of the repo.
+        # Outside `config_fingerprint`, so it cannot block a resume.
+        "libraries": _library_versions(),
         "repeats": repeats,
         # Stated per run, not only in the config, because a timeout rate is meaningless without
         # the budget it was measured against. Also enters `config_fingerprint`, so two shards
@@ -1907,6 +2442,46 @@ def run_evaluation(config_path_or_config):
     result_store_dir = run_dir / "result_store"
     if result_store_enabled:
         _log_phase("generation", f"result store enabled at {result_store_dir}")
+
+    # THE AGENT'S TOOL SURFACE: one OCPQ web server per run, owned by this process on its own port,
+    # stopped after the case loop and by `atexit` on any other exit. Started only when a condition
+    # uses tools. A server that cannot start fails the run HERE, before any GPU time is spent --
+    # an agentic arm without its tools is not a measurement of that arm.
+    probe_server = None
+    agent_probe_obj = None
+    agent_trajectory_log = run_dir / "agent_trajectories.jsonl"
+    if agent_settings:
+        set_agent_max_turns(agent_settings["max_turns"])
+        set_agent_thought(agent_settings["thought"])
+        set_agent_turn_token_budget(agent_settings["turn_token_budget"])
+        set_agent_protocol(**agent_settings["protocol"])
+        set_agent_example_search(agent_settings["examples_per_search"],
+                                 agent_settings["tool_result_char_cap"])
+        if agent_settings["protocol"].get("example_search"):
+            # S (notes 45): refuse to start rather than let `retrieve_examples`' fallback show every
+            # case the pool's first rows. The pool and its embeddings are what the tool reads.
+            import LLM as _llm
+            if (_llm.dataset is None or _llm.embeddings is None or _llm.model is None
+                    or _llm.embedding_load_error):
+                raise RuntimeError("agent_example_search is on but the retrieval pool or its "
+                                   f"embedding model is unavailable: {_llm.embedding_load_error}")
+    if agent_uses_probe:
+        probe_server = ocpq_probe.ProbeServer().start()
+        agent_probe_obj = ocpq_probe.OcpqProbe(
+            probe_server.base_url,
+            max_tool_calls=agent_settings["max_tool_calls"],
+            server=probe_server,
+            result_char_cap=agent_settings["tool_result_char_cap"],
+            request_timeout_sec=agent_settings["probe_request_timeout_sec"],
+            load_timeout_sec=agent_settings["probe_load_timeout_sec"],
+            max_restarts_per_case=agent_settings["probe_max_restarts_per_case"],
+            max_restarts_per_run=agent_settings["probe_max_restarts_per_run"],
+        )
+        _log_phase("generation", f"agent probe server up at {probe_server.base_url} "
+                                 f"(log: {probe_server.log_path})")
+    # Handed over once; `nl_to_ocpq_pipeline` withholds it from every strategy but
+    # `agentic-log-tools`, so the compute-matched control cannot acquire tools.
+    set_agent_probe(agent_probe_obj)
 
     ground_truth_cache = {}
     records = list(existing_records)
@@ -2016,7 +2591,20 @@ def run_evaluation(config_path_or_config):
             # Both default to today's behaviour, so a config that does not mention them produces
             # byte-identical generation to every run recorded before 2026-09-02.
             set_constrained_decoding(constrained_decoding)
+            set_constrained_any_order(constrained_any_order)
+            set_constrained_bounded_shape(constrained_bounded_shape)
             set_generation_token_budget(generation_token_budget)
+            set_reasoning_token_budget(reasoning_token_budget)
+            set_reasoning_history(reasoning_history)
+            set_generation_seed_per_call(generation_seed_per_call)
+            if global_cfg.get("preload_model"):
+                # Load the model here, OUTSIDE the case time limit (notes 43.17): lazily it loads on
+                # the first generation, inside the first case's cap, and a 60 GB checkpoint can
+                # time that case out. Returns at once when the model is already loaded.
+                preload_sec = preload_local_model()
+                if preload_sec:
+                    _log_phase("generation", f"model {resolved_model.get('label')} loaded in "
+                                             f"{preload_sec:.0f}s, outside the case time limit")
 
             for strategy_idx, prompt_strategy in enumerate(prompt_strategies, start=1):
                 for schema_idx, schema_enforced in enumerate(schema_enforced_values, start=1):
@@ -2036,10 +2624,19 @@ def run_evaluation(config_path_or_config):
                     # 2026-09-02 keeps its published `config_id` and nothing downstream re-slices.
                     decoding_suffix = _decoding_suffix(
                         constrained_decoding, force_root_arity, generation_token_budget,
-                        type_aware_filters, constant_root_arity, structural_validation)
+                        type_aware_filters, constant_root_arity, structural_validation,
+                        constrained_any_order, constrained_bounded_shape, reasoning_token_budget,
+                        reasoning_history)
+                    agent_suffix = (_agent_suffix(prompt_strategy, agent_settings["max_turns"],
+                                                  agent_settings["max_tool_calls"],
+                                                  agent_settings["thought"],
+                                                  agent_settings["turn_token_budget"],
+                                                  agent_settings["levers"])
+                                    if agent_settings else "")
                     config_id = _slug(
                         f"{resolved_model['label']}_{prompt_strategy}"
                         f"_schema-{'on' if schema_enforced else 'off'}{decoding_suffix}"
+                        f"{agent_suffix}"
                     )
 
                     for repeat_idx in range(1, repeats + 1):
@@ -2109,7 +2706,29 @@ def run_evaluation(config_path_or_config):
                         structural_report = None
                         normalized_fields = []
 
+                        # AGENTIC PREAMBLE (notes 43). Both resets are per record: without them a
+                        # case that dies early would report the previous case's turns and tool
+                        # calls as its own. The log is loaded OUTSIDE the case time limit -- a
+                        # ~30 s import is not the case's work, and the case loop is outermost, so
+                        # consecutive conditions of one case never reload it.
+                        is_agentic = prompt_strategy in AGENTIC_PROMPT_STRATEGIES
+                        uses_tools = prompt_strategy == "agentic-log-tools"
+                        probe_failure = None
+                        probe_load_sec = None
+                        if is_agentic:
+                            reset_last_agent_trajectory()
+                        if uses_tools:
+                            agent_probe_obj.reset()
+                            _load_started = time.time()
+                            try:
+                                agent_probe_obj.ensure_log(ocel_path)
+                            except ocpq_probe.ProbeError as exc:
+                                probe_failure = exc
+                            probe_load_sec = round(time.time() - _load_started, 3)
+
                         try:
+                            if probe_failure is not None:
+                                raise probe_failure     # classified by its handler below
                             with _case_time_limit(case_timeout_sec):
                                 _, _, ocpq_json, query_stdout, query_result_file = nl_to_ocpq_pipeline(
                                     query=nl_query,
@@ -2136,6 +2755,19 @@ def run_evaluation(config_path_or_config):
                             error = str(exc)
                             trace = None  # A deadline is not a defect; a traceback says nothing.
                             _log_phase("timeout", f"case {case_idx:03d} | {exc}")
+                        # Both before the general handler, for the reason the timeout is: each is
+                        # its own outcome, and "error" would hide which. Neither reached execution,
+                        # so neither may count against `execution_success_rate` as a failed query.
+                        except AgentNoFinalAnswer as exc:
+                            pipeline_status = "agent_no_answer"
+                            error = str(exc)
+                            trace = None  # the trajectory on the record is the explanation
+                            _log_phase("error", f"case {case_idx:03d} | agent: {exc}")
+                        except ocpq_probe.ProbeError as exc:
+                            pipeline_status = "probe_unavailable"
+                            error = f"{type(exc).__name__}: {exc}"
+                            trace = traceback.format_exc()
+                            _log_phase("error", f"case {case_idx:03d} | probe: {exc}")
                         except Exception as exc:
                             pipeline_status = "error"
                             error = str(exc)
@@ -2277,6 +2909,54 @@ def run_evaluation(config_path_or_config):
                         skill_value = _skill_score(
                             0.0 if _strict_f1 is None else _strict_f1, _trivial_floor)
 
+                        # THE AGENT'S RECORD (notes 43). Health is read BEFORE the agreement
+                        # probe, so a restart that check might trigger is never charged to the
+                        # agent. The full trajectory goes to agent_trajectories.jsonl.
+                        agent_block = None
+                        if is_agentic:
+                            agent_state = get_last_agent_trajectory() or {}
+                            agent_block = {
+                                "turns": agent_state.get("turns"),
+                                "max_turns": agent_state.get("max_turns"),
+                                "malformed_actions": agent_state.get("malformed_actions"),
+                                "tool_calls": (agent_probe_obj.tool_calls if uses_tools
+                                               else agent_state.get("tool_calls")),
+                                "final_source": agent_state.get("final_source"),
+                                # False when the case ended mid-loop (timeout, probe failure).
+                                "loop_complete": bool(agent_state.get("complete")),
+                                "post_execution_repair": bool(
+                                    agent_state.get("post_execution_repair")),
+                                "probe_load_sec": probe_load_sec,
+                                "thought_enabled": bool(agent_state.get("thought_enabled")),
+                                # Stage 5 (notes 43.12). The blocking count is read off the scored
+                                # tree whatever the levers, so it compares across conditions.
+                                "final_bounced": bool(agent_state.get("final_bounced")),
+                                "check_tree_calls": int(agent_state.get("check_tree_calls") or 0),
+                                # Turns cut off at the per-turn cap (notes 43.15).
+                                "cap_hits": agent_state.get("cap_hits"),
+                                # Turns repeating an earlier action of the case (notes 43.17).
+                                "repeat_turns": agent_state.get("repeat_turns"),
+                                # The next call could outgrow the verified context (notes 44.7).
+                                "context_limit_hit": bool(agent_state.get("context_limit_hit")),
+                                # S (notes 45): search_examples calls, and pool rows shown.
+                                "example_search_calls": int(
+                                    agent_state.get("example_search_calls") or 0),
+                                "examples_shown": int(agent_state.get("examples_shown") or 0),
+                                "final_blocking_defects": (
+                                    len(blocking_defects(structural_defects(ocpq_json)))
+                                    if isinstance(ocpq_json, dict) else None),
+                                "turn_summary": _compact_agent_turns(
+                                    agent_state.get("trajectory"),
+                                    agent_settings["record_turn_char_cap"]),
+                            }
+                            if uses_tools:
+                                agent_block.update(agent_probe_obj.health())
+                                agent_block["probe_vs_cli"] = _probe_cli_agreement(
+                                    agent_probe_obj, ocpq_json, pred_ids, pred_bindings_skipped)
+                            _append_agent_trajectory(
+                                agent_trajectory_log, current_key, config_id, case_idx,
+                                nl_query, agent_state)
+
                         record = {
                             "case_id": case_idx,
                             "nl_query": nl_query,
@@ -2317,6 +2997,8 @@ def run_evaluation(config_path_or_config):
                             # manifest is gone and a reader still has to be able to tell a
                             # constrained prediction from a free one.
                             "constrained_decoding": constrained_decoding,
+                            "constrained_any_order": constrained_any_order,
+                            "constrained_bounded_shape": constrained_bounded_shape,
                             "generation_token_budget": generation_token_budget,
                             # The arity actually handed to the decoder, or None where the flag was
                             # off or gold was unreadable. Recorded per record so a reader can audit
@@ -2327,6 +3009,8 @@ def run_evaluation(config_path_or_config):
                             # NON-ORACLE repair switch, and what its check found and did here.
                             "structural_validation": structural_validation,
                             "structural_report": structural_report,
+                            # None for every non-agentic condition.
+                            "agent": agent_block,
                             # What the harness filled in that the model did not produce. A
                             # normalisation flatters the model; the count has to be visible.
                             "normalized_fields": normalized_fields,
@@ -2439,9 +3123,30 @@ def run_evaluation(config_path_or_config):
         },
     )
 
+    # The probe outlives every case but not the run. `atexit` covers any exit that skips this.
+    probe_run = None
+    if probe_server is not None:
+        probe_run = {"restarts_run": agent_probe_obj.restarts_run,
+                     "server_log": str(probe_server.log_path)}
+        probe_server.stop()
+        set_agent_probe(None)
+
     summary = _build_summary(records, repeats)
     summary["evaluation_phases"] = EVALUATION_PHASES
     summary["evaluation_phase_trace"] = EVALUATION_PHASES
+    if probe_run is not None:
+        summary["agent_probe"] = probe_run
+    # The binary recorded at the start must still be the one on disk. Array tasks share one OCPQ
+    # checkout, so a rebuild by any other job mid-run would otherwise split this run's records
+    # between two evaluators with nothing saying so.
+    cli_sha_end = (ocpq_binary_digest("ocpq_cli") or {}).get("sha256")
+    summary["ocpq_cli_sha256"] = cli_binary.get("sha256")
+    summary["ocpq_cli_changed_during_run"] = (
+        None if not cli_binary else cli_sha_end != cli_binary.get("sha256"))
+    if summary["ocpq_cli_changed_during_run"]:
+        print(f"\n*** WARNING: ocpq_cli CHANGED DURING THIS RUN "
+              f"({str(cli_binary.get('sha256'))[:16]} -> {str(cli_sha_end)[:16]}). "
+              f"Records may come from two different evaluators. ***\n")
     if result_store_enabled:
         store_stats = result_store.stats(result_store_dir)
         summary["result_store"] = dict(store_stats, dir=str(result_store_dir))
@@ -2458,24 +3163,25 @@ def run_evaluation(config_path_or_config):
     return run_dir
 
 
-def _merge_failure_logs(shard_dirs, output_dir: Path) -> None:
+def _merge_failure_logs(shard_dirs, output_dir: Path, name: str = "failure_log.jsonl") -> None:
     """Concatenate the shards' raw-output failure logs into the merged run.
 
     Each shard writes its own `failure_log.jsonl` (one writer per file), so merging is a
     plain concatenation. Keeps the merged directory as self-contained as its predictions.
+    `name` selects the log; `agent_trajectories.jsonl` (notes 43) is merged the same way.
     """
     lines = []
     for shard_dir in shard_dirs:
-        log_path = Path(shard_dir) / "failure_log.jsonl"
+        log_path = Path(shard_dir) / name
         if not log_path.exists():
             continue
         with open(log_path, encoding="utf-8") as f:
             lines.extend(line for line in f if line.strip())
     if not lines:
         return
-    with open(output_dir / "failure_log.jsonl", "w", encoding="utf-8") as f:
+    with open(output_dir / name, "w", encoding="utf-8") as f:
         f.writelines(line if line.endswith("\n") else line + "\n" for line in lines)
-    print(f"Merged {len(lines)} failure-log entries from {len(shard_dirs)} shard(s).")
+    print(f"Merged {len(lines)} {name} entries from {len(shard_dirs)} shard(s).")
 
 
 def _run_divergence_analysis(run_dir: Path) -> None:
@@ -2683,6 +3389,7 @@ def _build_summary(records, repeats):
             # `_timeout_counts`. Must be added to the by_config block below as well.
             **_timeout_counts(recs),
             **_oversized_counts(recs),
+            **_agent_compliance(recs),
         }
 
     # Leakage split: seen vs unseen domains, overall and per model. If the fine-tuning gain
@@ -2907,6 +3614,7 @@ def _build_summary(records, repeats):
                 **_truncation_counts(recs),
                 **_timeout_counts(recs),
                 **_oversized_counts(recs),
+                **_agent_compliance(recs),
             },
         }
 
@@ -3091,8 +3799,45 @@ def _report_variants(run_dir):
     print("                 one at ~0.49. Read against that, the model is well below trivial.")
 
 
+def _regold_records(records, testset_path):
+    """Point records at the CURRENT gold of their testset entry. For `--recompute --gold-from`.
+
+    Records carry their own copy of the gold query, so a gold corrected after a run (testset #25,
+    2026-09-22) would otherwise still be scored against the old one. Matched by `nl_query`, the
+    record identity used everywhere else, and checked against the log's basename so an entry cannot
+    be re-pointed at another log's query. The superseded query is kept on the record.
+
+    Returns:
+        `(replaced, oracle_input_stale)`: records re-pointed, and among them those whose PREDICTION
+        was generated from the old gold (a structure hint or a forced root arity) -- their input
+        described a different query, so they are flagged, counted, and never silently rescored.
+    """
+    testset = _read_json(testset_path)
+    current = {row.get("nl_query"): row for row in testset if row.get("nl_query")}
+    replaced = oracle_input_stale = 0
+    for rec in records:
+        row = current.get(rec.get("nl_query"))
+        if row is None or row.get("ocpq_query") == rec.get("gold_query"):
+            continue
+        if (Path(str(row.get("ocel_path")).replace("\\", "/")).name
+                != Path(str(rec.get("ocel_path")).replace("\\", "/")).name):
+            raise ValueError(f"--gold-from: {rec.get('nl_query')!r} names a different log in "
+                             f"{testset_path} than in the run; refusing to re-point it")
+        rec["gold_query_superseded"] = rec.get("gold_query")
+        rec["gold_query"] = row.get("ocpq_query")
+        replaced += 1
+        # `forced_root_arity` is also filled by the NON-oracle constant rung ([0, 0, 1], with
+        # `constant_root_arity` true); only an arity taken from gold is oracle input.
+        gold_arity = rec.get("forced_root_arity") and not rec.get("constant_root_arity")
+        if rec.get("structure_hint_level") or gold_arity:
+            rec["oracle_input_from_superseded_gold"] = True
+            oracle_input_stale += 1
+    return replaced, oracle_input_stale
+
+
 def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
-                       truncation_policy: str = "as-measured"):
+                       truncation_policy: str = "as-measured", gold_from=None,
+                       gold_store_dir=None):
     """Rebuild every metric of a finished run from its stored result sets. No GPU, no ocpq_cli.
 
     The point of the result store: a matrix costs 40-100 GPU-hours, so a metric that turns out
@@ -3114,6 +3859,11 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
         store_dir: Result store to read. Defaults to `<run_dir>/result_store`.
         truncation_policy: How to treat results the backend truncated. Defaults to
             `as-measured`, which changes nothing; see `_apply_truncation_policy`.
+        gold_from: A testset whose CURRENT gold replaces each record's stored gold where they
+            differ (`_regold_records`). None (default) scores against the records' own gold.
+        gold_store_dir: Second store searched for gold result sets the run never executed --
+            a corrected gold's set lives in the discriminability audit's store. Defaults to
+            `eval_runs/_discriminability_store` when `gold_from` is given.
     """
     run_dir = Path(run_dir)
     predictions_path = run_dir / "predictions.json"
@@ -3133,6 +3883,17 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
     records = _read_json(predictions_path)
     stratum_index = _load_stratum_index()
 
+    regold = None
+    if gold_from:
+        gold_store_dir = Path(gold_store_dir) if gold_store_dir else (
+            paths.EVAL_RUNS / "_discriminability_store")
+        replaced, oracle_stale = _regold_records(records, gold_from)
+        testset_ocel = {row.get("nl_query"): row.get("ocel_path")
+                        for row in _read_json(gold_from)}
+        regold = {"gold_from": str(gold_from), "testset_hash": _sha256_file(Path(gold_from)),
+                  "gold_store": str(gold_store_dir), "records_regolded": replaced,
+                  "oracle_input_from_superseded_gold": oracle_stale}
+
     unavailable = {"gold_missing": 0, "prediction_missing": 0}
     changed = 0
     for rec in records:
@@ -3147,6 +3908,13 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
             result_store.load_with_meta(store_dir, ocel_path, gold_query)
             if gold_query else (None, None)
         )
+        if gold_ids is None and gold_query and regold:
+            # The store key uses the testset's own ocel_path spelling; the audit stored it so.
+            for key in (ocel_path, testset_ocel.get(rec.get("nl_query"))):
+                gold_ids, gold_skipped = result_store.load_with_meta(gold_store_dir, key,
+                                                                     gold_query)
+                if gold_ids is not None:
+                    break
         # A prediction that never parsed has nothing to look up; that is a genuine null, not a
         # missing blob, so it must not be counted as unavailable.
         pred_ids, pred_skipped = (
@@ -3209,6 +3977,9 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
     summary["evaluation_phases"] = EVALUATION_PHASES
     summary["recomputed_from"] = str(run_dir)
     summary["recompute_unavailable"] = unavailable
+    # Present only for --gold-from: which testset the gold came from, and how many records moved.
+    if regold:
+        summary["regold"] = regold
     summary["truncation"] = truncation
     summary["status_reclassified_unevaluated"] = reclassified
     summary["result_store"] = dict(result_store.stats(store_dir), dir=str(store_dir))
@@ -3227,6 +3998,10 @@ def _recompute_metrics(run_dir, output_dir=None, store_dir=None,
         f"  unavailable: {total_unavailable} "
         f"(gold {unavailable['gold_missing']}, prediction {unavailable['prediction_missing']})"
     )
+    if regold:
+        print(f"  gold from {regold['gold_from']}: {regold['records_regolded']} record(s) "
+              f"re-pointed at a corrected gold; {regold['oracle_input_from_superseded_gold']} of "
+              f"them were generated from the OLD gold (oracle input) and are flagged")
     return output_dir
 
 
@@ -3239,6 +4014,8 @@ def _merge_shards(shard_dirs, output_dir):
     fingerprints = defaultdict(list)
     corpus_seen = defaultdict(set)
     shards_without_corpus = []
+    cli_seen = defaultdict(list)          # ocpq_cli sha256 -> shards; None = not recorded
+    cli_changed_shards = []
     for shard_dir in shard_dirs:
         shard_path = Path(shard_dir)
         predictions_path = shard_path / "predictions.json"
@@ -3256,8 +4033,14 @@ def _merge_shards(shard_dirs, output_dir):
                 corpus_seen[log_name].add(json.dumps(digest, sort_keys=True))
             if not manifest.get("corpus"):
                 shards_without_corpus.append(shard_path.name)
+            cli = ((manifest.get("ocpq") or {}).get("binaries") or {}).get("ocpq_cli") or {}
+            cli_seen[cli.get("sha256")].append(shard_path.name)
         else:
             shards_without_corpus.append(shard_path.name)
+            cli_seen[None].append(shard_path.name)
+        shard_summary = _load_json_if_exists(shard_path / "summary.json") or {}
+        if shard_summary.get("ocpq_cli_changed_during_run"):
+            cli_changed_shards.append(shard_path.name)
 
     if not all_records:
         print("No records found across shards. Nothing to merge.")
@@ -3342,6 +4125,24 @@ def _merge_shards(shard_dirs, output_dir):
     summary["corpus_conflicts"] = corpus_conflicts
     summary["corpus_unrecorded_shards"] = len(shards_without_corpus)
 
+    # And for the EVALUATOR: every shard must have run the same ocpq_cli binary, and none may have
+    # seen it change under it. None = cannot be established (a shard from before 2026-09-22).
+    recorded_cli = sorted(sha for sha in cli_seen if sha)
+    if len(recorded_cli) > 1 or cli_changed_shards:
+        print("\n*** WARNING: shards were not all evaluated by ONE ocpq_cli binary ***")
+        for sha in recorded_cli:
+            print(f"  {sha[:16]}: {len(cli_seen[sha])} shard(s) e.g. {cli_seen[sha][:3]}")
+        if cli_changed_shards:
+            print(f"  changed mid-run in: {cli_changed_shards[:5]}")
+        print("  These results are not strictly comparable.\n")
+        summary["ocpq_consistent"] = False
+    elif cli_seen.get(None) or not recorded_cli:
+        summary["ocpq_consistent"] = None
+    else:
+        summary["ocpq_consistent"] = True
+    summary["ocpq_cli_sha256s"] = {sha: sorted(shards) for sha, shards in cli_seen.items() if sha}
+    summary["ocpq_unrecorded_shards"] = len(cli_seen.get(None, []))
+
     # Union every shard's result store into the merged directory, so the merged run can be
     # rescored with `--recompute` on its own. Safe without conflict resolution: the filename is
     # a content address, so an id present in two shards names the same (log, query) pair.
@@ -3360,6 +4161,7 @@ def _merge_shards(shard_dirs, output_dir):
     _run_bb_analysis(output_dir)
     _run_divergence_analysis(output_dir)
     _merge_failure_logs(shard_dirs, output_dir)
+    _merge_failure_logs(shard_dirs, output_dir, "agent_trajectories.jsonl")
     print(f"Merged {len(all_records)} records from {len(shard_dirs)} shard(s) into {output_dir}")
 
 
@@ -3411,6 +4213,16 @@ def main():
         help="Override every pipeline's max_tokens (they hard-code 1000/2000). Truncation is a "
              "failure mode distinct from schema violation, so the budget has to be movable to "
              "tell them apart.")
+    # The agentic rungs (notes 43) differ in these and nothing else, so the submit script selects a
+    # rung by flag, exactly as the decoding rungs are selected -- never by editing the config.
+    parser.add_argument("--agent-max-turns", type=int, default=None,
+        help="Model turns per agentic case. With --agent-max-tool-calls, THIS is the A1/A2 rung.")
+    parser.add_argument("--agent-max-tool-calls", type=int, default=None,
+        help="Probe calls per case for agentic-log-tools.")
+    parser.add_argument("--agent-thought", dest="agent_thought", action="store_true",
+        default=None, help="Allow a short `thought` in each agentic turn (reasoning condition).")
+    parser.add_argument("--no-agent-thought", dest="agent_thought", action="store_false",
+        help="Plain action protocol (the default).")
     parser.add_argument("--schema-idx", type=int, default=None,
         help="0-based index into schema_enforced. Restricts this job to that schema setting only (finer Slurm sharding).")
     parser.add_argument("--case-shard", default=None, metavar="I/N",
@@ -3437,6 +4249,14 @@ def main():
              "over-selecting queries. 'strict-zero' scores a truncated prediction 0 and excludes "
              "entries whose GOLD was truncated, for every model. Run both and report the "
              "difference; it is a sensitivity analysis, not a correction.")
+    parser.add_argument("--gold-from", metavar="TESTSET", default=None,
+        help="With --recompute: score each record against the CURRENT gold of its entry in this "
+             "testset where it differs from the gold the run recorded (a corrected gold). The "
+             "old query is kept on the record; oracle-condition records whose input came from "
+             "the old gold are flagged and counted. Default: the records' own gold.")
+    parser.add_argument("--gold-store", metavar="DIR", default=None,
+        help="With --gold-from: store holding the corrected gold's result set "
+             "(default: eval_runs/_discriminability_store, filled by the audit).")
     args = parser.parse_args()
 
     if args.merge_shards:
@@ -3445,7 +4265,8 @@ def main():
 
     if args.recompute:
         _recompute_metrics(args.recompute, args.recompute_output, args.result_store,
-                           truncation_policy=args.truncation_policy)
+                           truncation_policy=args.truncation_policy,
+                           gold_from=args.gold_from, gold_store_dir=args.gold_store)
         return
 
     if args.variants:
@@ -3478,6 +4299,14 @@ def main():
             cfg["structural_validation"] = args.structural_validation
         if args.constant_root_arity is not None:
             cfg["constant_root_arity"] = args.constant_root_arity
+        # Into the config, like the decoding flags, so they reach the manifest's `agentic` block
+        # and `config_fingerprint`: two agentic shards with different budgets must not merge.
+        if args.agent_max_turns is not None:
+            cfg["agent_max_turns"] = args.agent_max_turns
+        if args.agent_max_tool_calls is not None:
+            cfg["agent_max_tool_calls"] = args.agent_max_tool_calls
+        if args.agent_thought is not None:
+            cfg["agent_thought"] = args.agent_thought
         if args.case_shard:
             try:
                 index_str, total_str = str(args.case_shard).split("/")

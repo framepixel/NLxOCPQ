@@ -1,0 +1,107 @@
+{
+  "_comment": [
+    "The pre-registered model gates of the agentic evaluations, read by src/agent_gate_report.py",
+    "(Thesis/script/FLAGS.md NS-05). Thresholds are transcribed from Thesis/notes/11-evaluation-readiness.md",
+    "at the section named per gate; `expected` is the verdict and figures as the notes report them, so a",
+    "difference is printed, never silently adopted. Paths are relative to the NLxOCPQ repo root."
+  ],
+  "gates": [
+    {
+      "id": "eval1",
+      "title": "Evaluation 1 model gate (A1, 38 dev cases, thought off and on)",
+      "rule_section": "43.18",
+      "verdict_section": "43.19",
+      "criteria": {
+        "malformed_max": 0.05,
+        "repeat_max": 0.10,
+        "repeat_applies_to": "thought_off",
+        "loop_timeout_min_repeats": 2,
+        "p90_seconds_per_turn_max": {"thought_off": 30, "thought_on": 60},
+        "declared_min": 0.90,
+        "probe_cli_agreement": 1.0
+      },
+      "models": [
+        {"name": "Ministral 3 14B (reference)",
+         "runs": {"thought_off": "eval_runs/agentic_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260926_201716",
+                  "thought_on": "eval_runs/agentic_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260926_201716"},
+         "expected": {"verdict": "pass", "repeat_rate": 0.040, "p90_seconds_per_turn": 8.7}},
+        {"name": "Muse Glimmer 30B",
+         "runs": {"thought_off": "eval_runs/agentic_gate/shard_m8_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_193501",
+                  "thought_on": "eval_runs/agentic_gate/shard_m8_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260927_193501"},
+         "expected": {"verdict": "fail", "repeat_rate": 0.570, "p90_seconds_per_turn": 19.7}},
+        {"name": "Qwen3.8 27B",
+         "runs": {"thought_off": "eval_runs/agentic_gate/shard_m9_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260928_150922",
+                  "thought_on": "eval_runs/agentic_gate/shard_m9_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260928_150922"},
+         "expected": {"verdict": "fail", "repeat_rate": 0.214, "p90_seconds_per_turn": 27.2}},
+        {"name": "Gemma 4 31B",
+         "runs": {"thought_off": "eval_runs/agentic_gate/shard_m10_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260928_150930",
+                  "thought_on": "eval_runs/agentic_gate/shard_m10_s0_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260928_150930"},
+         "expected": {"verdict": "fail", "repeat_rate": 0.143, "p90_seconds_per_turn": 32.9}}
+      ]
+    },
+    {
+      "id": "eval2",
+      "title": "Evaluation 2 model gate (A1*, 38 dev cases, one draw)",
+      "rule_section": "44.4",
+      "verdict_section": "44.8",
+      "criteria": {
+        "malformed_max": 0.05,
+        "repeat_max": 0.10,
+        "forced_close_max": 0.25,
+        "timeout_max": 0.05,
+        "loop_timeout_min_repeats": 2,
+        "p90_case_seconds_max": 1500,
+        "declared_min": 0.90,
+        "probe_cli_agreement": 1.0,
+        "no_pipeline_errors": true
+      },
+      "models": [
+        {"name": "Ministral 3 14B Reasoning",
+         "runs": {"gate": "eval_runs/unleashed_gate/shard_m0_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160854"},
+         "expected": {"verdict": "fail", "repeat_rate": 0.092, "forced_close_rate": 0.731, "p90_case_seconds": 466, "probe_cli": "29/29"}},
+        {"name": "Qwen3.8 27B",
+         "runs": {"gate": "eval_runs/unleashed_gate/shard_m1_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160912"},
+         "expected": {"verdict": "pass", "repeat_rate": 0.080, "forced_close_rate": 0.038, "p90_case_seconds": 710, "probe_cli": "33/33"}},
+        {"name": "Muse Glimmer 30B",
+         "runs": {"gate": "eval_runs/unleashed_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160911"},
+         "expected": {"verdict": "fail", "repeat_rate": 0.124, "forced_close_rate": 0.036, "p90_case_seconds": 403, "probe_cli": "37/37"}},
+        {"name": "Gemma 4 31B",
+         "runs": {"gate": "eval_runs/unleashed_gate/shard_m3_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXL_20261001_160854"},
+         "expected": {"verdict": "fail", "repeat_rate": 0.228, "forced_close_rate": 0.093, "p90_case_seconds": 1166, "probe_cli": "27/27"}}
+      ],
+      "expected_repeats_identical": {"total": 122, "section": "44.8"}
+    },
+    {
+      "id": "examples",
+      "title": "Example-lookup gate (A1*+S, 38 dev cases, one draw)",
+      "rule_section": "45.4",
+      "verdict_section": "45.7",
+      "criteria": {
+        "malformed_max": 0.05,
+        "repeat_max": 0.10,
+        "forced_close_max": 0.25,
+        "timeout_max": 0.05,
+        "loop_timeout_min_repeats": 2,
+        "p90_case_seconds_max": 1500,
+        "declared_min": 0.90,
+        "probe_cli_agreement": 1.0,
+        "no_pipeline_errors": true,
+        "uptake_min": 0.25
+      },
+      "models": [
+        {"name": "Ministral 3 14B Reasoning",
+         "runs": {"gate": "eval_runs/unleashed_examples_gate/shard_m0_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222316"},
+         "expected": {"verdict": "fail", "repeat_rate": 0.062, "forced_close_rate": 0.758, "p90_case_seconds": 510, "uptake": 0.13}},
+        {"name": "Qwen3.8 27B",
+         "runs": {"gate": "eval_runs/unleashed_examples_gate/shard_m1_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222345"},
+         "expected": {"verdict": "pass", "repeat_rate": 0.076, "forced_close_rate": 0.058, "p90_case_seconds": 764, "uptake": 0.74}},
+        {"name": "Muse Glimmer 30B",
+         "runs": {"gate": "eval_runs/unleashed_examples_gate/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222345"},
+         "expected": {"verdict": "pass", "repeat_rate": 0.025, "forced_close_rate": 0.004, "p90_case_seconds": 362, "uptake": 0.79}},
+        {"name": "Gemma 4 31B",
+         "runs": {"gate": "eval_runs/unleashed_examples_gate/shard_m3_s0_e0_constrained_ordered_bounded_tok4000_think2048keep_turns8_tools12_turntok2000_pFBEXLS_20261004_222316"},
+         "expected": {"verdict": "fail", "repeat_rate": 0.234, "forced_close_rate": 0.099, "p90_case_seconds": 1085, "uptake": 0.37}}
+      ]
+    }
+  ]
+}

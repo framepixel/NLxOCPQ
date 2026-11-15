@@ -1,0 +1,286 @@
+{
+  "generated": {
+    "command": "python src/agent_mechanism_stats.py",
+    "utc": "2026-11-14T11:08:53+00:00",
+    "nlxocpq_commit": "644d44673a5065ccb5fd1223baae669986c59e19-dirty",
+    "inputs": [
+      {
+        "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726",
+        "predictions_sha256": "7d4a249f45409d7e387ef2b05344ca0aa309b563845e9c14960e7a39918bc0b8",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260927_090739",
+        "predictions_sha256": "342ab1fa22790adb96e41bc39e1cbcde935e621d7ec9825739ca0a8d6a66a849",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns16_tools24_turntok2000_pFBEXL_20260927_090739",
+        "predictions_sha256": "996a8a5b289945a62c5a69ee5a8e95f27be07b082afbb955d3056d54a234bf55",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed/merged_m1_s1",
+        "predictions_sha256": "35b5b8d8f47a138cf540800987f673f88b1661e3a1d32792f7c5bfaf169710f0",
+        "pipeline_fingerprints": [
+          "f5cd068d2b39cf225f4f84e94677454ac54c00836dd888ac242d9e7721108bee"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed_examples/merged_m1_s0",
+        "predictions_sha256": "dc91557eccb2d27648dae75f1728addc8fd4e72414e6e5706fa4777f184f5a67",
+        "pipeline_fingerprints": [
+          "1e3a8e864b2412be1624a527954e3c3e13a04a9c4396e097393375188f436d7c"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed_examples/merged_m2_s0",
+        "predictions_sha256": "42c42b28a14b9b6eb0bcd2565a42a240a986d406780f059ef6d12b711fd72181",
+        "pipeline_fingerprints": [
+          "1e3a8e864b2412be1624a527954e3c3e13a04a9c4396e097393375188f436d7c"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      }
+    ]
+  },
+  "population": "discriminating",
+  "empty_mention_pattern": "\\b0 situations\\b|\\bzero\\b|\\bno situations\\b|\\bempty\\b|\\bnothing\\b|\\bno results?\\b",
+  "rungs": [
+    {
+      "id": "e1_A1",
+      "label": "Eval. 1, A1 (Ministral 3 14B)",
+      "column": [
+        "Evaluation~1",
+        "Ministral 3 14B"
+      ],
+      "in_table": true,
+      "stats": {
+        "records": 135,
+        "records_without_trajectory": 0,
+        "tool_calls": {
+          "None": 32,
+          "activity_stats": 26,
+          "attribute_values": 174,
+          "check_tree": 103,
+          "final_tree": 138,
+          "inspect_situations": 41,
+          "sample": 349,
+          "try_query": 142
+        },
+        "try_query": 142,
+        "try_query_per_record": 1.0518518518518518,
+        "distinct_try_query_per_record": 0.9777777777777777,
+        "records_with_try_query": 87,
+        "records_with_empty": 20,
+        "empty_results": 25,
+        "next_action_differs": 23,
+        "mentions_empty_after_empty": null,
+        "mentions_empty_after_nonempty": null,
+        "nonempty_results_followed": 80,
+        "ended_empty": 19,
+        "two_or_more_tries": 17,
+        "root_count_changed": 4
+      },
+      "differences_from_notes": []
+    },
+    {
+      "id": "e1_A1t",
+      "label": "Eval. 1, A1+thought (Ministral 3 14B)",
+      "column": [
+        "Eval.~1",
+        "A1+thought"
+      ],
+      "in_table": false,
+      "stats": {
+        "records": 135,
+        "records_without_trajectory": 0,
+        "tool_calls": {
+          "activity_stats": 28,
+          "attribute_values": 177,
+          "check_tree": 125,
+          "final_tree": 146,
+          "inspect_situations": 7,
+          "sample": 311,
+          "try_query": 124
+        },
+        "try_query": 124,
+        "try_query_per_record": 0.9185185185185185,
+        "distinct_try_query_per_record": 0.9185185185185185,
+        "records_with_try_query": 59,
+        "records_with_empty": 8,
+        "empty_results": 13,
+        "next_action_differs": 13,
+        "mentions_empty_after_empty": null,
+        "mentions_empty_after_nonempty": null,
+        "nonempty_results_followed": 77,
+        "ended_empty": 8,
+        "two_or_more_tries": 23,
+        "root_count_changed": 0
+      },
+      "differences_from_notes": []
+    },
+    {
+      "id": "e1_A2",
+      "label": "Eval. 1, A2 (Ministral 3 14B)",
+      "column": [
+        "Eval.~1",
+        "A2"
+      ],
+      "in_table": false,
+      "stats": {
+        "records": 135,
+        "records_without_trajectory": 0,
+        "tool_calls": {
+          "None": 39,
+          "activity_stats": 26,
+          "attribute_values": 198,
+          "check_tree": 162,
+          "final_tree": 171,
+          "inspect_situations": 148,
+          "sample": 370,
+          "try_query": 265
+        },
+        "try_query": 265,
+        "try_query_per_record": 1.962962962962963,
+        "distinct_try_query_per_record": 1.762962962962963,
+        "records_with_try_query": 118,
+        "records_with_empty": 30,
+        "empty_results": 60,
+        "next_action_differs": 58,
+        "mentions_empty_after_empty": null,
+        "mentions_empty_after_nonempty": null,
+        "nonempty_results_followed": 139,
+        "ended_empty": 26,
+        "two_or_more_tries": 45,
+        "root_count_changed": 10
+      },
+      "differences_from_notes": []
+    },
+    {
+      "id": "e2_A1",
+      "label": "Eval. 2, A1* (Qwen3.8)",
+      "column": [
+        "Evaluation~2",
+        "Qwen3.8 27B"
+      ],
+      "in_table": true,
+      "stats": {
+        "records": 270,
+        "records_without_trajectory": 0,
+        "tool_calls": {
+          "None": 1,
+          "activity_stats": 64,
+          "attribute_values": 99,
+          "check_tree": 124,
+          "final_tree": 271,
+          "inspect_situations": 124,
+          "sample": 469,
+          "try_query": 892
+        },
+        "try_query": 892,
+        "try_query_per_record": 3.303703703703704,
+        "distinct_try_query_per_record": 2.814814814814815,
+        "records_with_try_query": 250,
+        "records_with_empty": 141,
+        "empty_results": 484,
+        "next_action_differs": 434,
+        "mentions_empty_after_empty": 356,
+        "mentions_empty_after_nonempty": 78,
+        "nonempty_results_followed": 322,
+        "ended_empty": 99,
+        "two_or_more_tries": 202,
+        "root_count_changed": 66
+      },
+      "differences_from_notes": [
+        "empty_results: computed 484, notes 485 (known: the notes read node 0 as the root; one A1* tree lists its root elsewhere)",
+        "next_action_differs: computed 434, notes 435 (known: the same tree as empty_results)",
+        "root_count_changed: computed 66, notes 65 (known: the same tree as empty_results)"
+      ]
+    },
+    {
+      "id": "ex_q_A1S",
+      "label": "Eval. 2, A1*+S (Qwen3.8)",
+      "column": [
+        "+ example lookup",
+        "Qwen3.8 27B"
+      ],
+      "in_table": true,
+      "stats": {
+        "records": 270,
+        "records_without_trajectory": 0,
+        "tool_calls": {
+          "activity_stats": 10,
+          "attribute_values": 68,
+          "check_tree": 47,
+          "final_tree": 270,
+          "inspect_situations": 171,
+          "sample": 305,
+          "search_examples": 515,
+          "try_query": 613
+        },
+        "try_query": 613,
+        "try_query_per_record": 2.27037037037037,
+        "distinct_try_query_per_record": 1.9296296296296296,
+        "records_with_try_query": 226,
+        "records_with_empty": 91,
+        "empty_results": 288,
+        "next_action_differs": 244,
+        "mentions_empty_after_empty": 189,
+        "mentions_empty_after_nonempty": 56,
+        "nonempty_results_followed": 276,
+        "ended_empty": 69,
+        "two_or_more_tries": 145,
+        "root_count_changed": 42
+      },
+      "differences_from_notes": []
+    },
+    {
+      "id": "ex_g_A1S",
+      "label": "Eval. 2, A1*+S (Glimmer)",
+      "column": [
+        "+ example lookup",
+        "Muse Glimmer 30B"
+      ],
+      "in_table": true,
+      "stats": {
+        "records": 270,
+        "records_without_trajectory": 0,
+        "tool_calls": {
+          "activity_stats": 34,
+          "attribute_values": 116,
+          "check_tree": 80,
+          "final_tree": 273,
+          "inspect_situations": 158,
+          "sample": 187,
+          "search_examples": 505,
+          "try_query": 429
+        },
+        "try_query": 429,
+        "try_query_per_record": 1.5888888888888888,
+        "distinct_try_query_per_record": 1.4296296296296296,
+        "records_with_try_query": 234,
+        "records_with_empty": 1,
+        "empty_results": 3,
+        "next_action_differs": 3,
+        "mentions_empty_after_empty": 0,
+        "mentions_empty_after_nonempty": 128,
+        "nonempty_results_followed": 400,
+        "ended_empty": 1,
+        "two_or_more_tries": 110,
+        "root_count_changed": 29
+      },
+      "differences_from_notes": []
+    }
+  ]
+}

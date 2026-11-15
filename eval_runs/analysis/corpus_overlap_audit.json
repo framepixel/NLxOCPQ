@@ -1,0 +1,500 @@
+{
+  "generated": {
+    "command": "python src/corpus_overlap_audit.py",
+    "utc": "2026-10-26T09:05:29+00:00",
+    "nlxocpq_commit": "1710a3cd959dafdddb2000edaa761f6eda2ddf8e-dirty",
+    "inputs": []
+  },
+  "results": {
+    "pool_rows": 20000,
+    "finetune_rows": 60018,
+    "pool_event_types": 78,
+    "pool_object_types": 46,
+    "finetune_type_names": 124,
+    "contamination": {
+      "pool": {
+        "nl_exact": 0,
+        "nl_folded": 0,
+        "gold_exact": 0
+      },
+      "finetune": {
+        "nl_exact": 0,
+        "nl_folded": 0,
+        "gold_exact": 0
+      }
+    },
+    "contamination_nl": 0,
+    "contamination_gold": 0,
+    "type_overlap": [
+      {
+        "log": "angular_github_commits_ocel.xml",
+        "types": 69,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 1,
+        "folded_share": 0.014492753623188406,
+        "exact_names": [],
+        "folded_names": [
+          "table"
+        ]
+      },
+      {
+        "log": "reasoning_benchmark.json",
+        "types": 32,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "03_hiring.xml",
+        "types": 17,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "container_logistics.json",
+        "types": 17,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "04_hospital.xml",
+        "types": 15,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "bpic2017-ocel2.json",
+        "types": 14,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "order-management.json",
+        "types": 14,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "renting_log_high.json",
+        "types": 13,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "ocel2-p2p.json",
+        "types": 12,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 1,
+        "folded_share": 0.08333333333333333,
+        "exact_names": [],
+        "folded_names": [
+          "goods receipt"
+        ]
+      },
+      {
+        "log": "hospital_log_high.json",
+        "types": 11,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      },
+      {
+        "log": "lending_log_high.json",
+        "types": 11,
+        "exact": 0,
+        "exact_share": 0.0,
+        "folded": 0,
+        "folded_share": 0.0,
+        "exact_names": [],
+        "folded_names": []
+      }
+    ],
+    "logs_with_any_exact_type_overlap": 0,
+    "logs_with_any_folded_type_overlap": 2,
+    "block_coverage": {
+      "testset_entries": 169,
+      "training_rows": 20000,
+      "blocks": [
+        {
+          "block": "C1",
+          "testset": 42,
+          "testset_share": 0.2485207100591716,
+          "training": 4447,
+          "training_share": 0.22235,
+          "under_trained": false
+        },
+        {
+          "block": "C2",
+          "testset": 104,
+          "testset_share": 0.6153846153846154,
+          "training": 8894,
+          "training_share": 0.4447,
+          "under_trained": false
+        },
+        {
+          "block": "C3",
+          "testset": 99,
+          "testset_share": 0.5857988165680473,
+          "training": 4421,
+          "training_share": 0.22105,
+          "under_trained": false
+        },
+        {
+          "block": "C4",
+          "testset": 6,
+          "testset_share": 0.03550295857988166,
+          "training": 438,
+          "training_share": 0.0219,
+          "under_trained": false
+        },
+        {
+          "block": "C5",
+          "testset": 26,
+          "testset_share": 0.15384615384615385,
+          "training": 416,
+          "training_share": 0.0208,
+          "under_trained": false
+        },
+        {
+          "block": "C6",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 665,
+          "training_share": 0.03325,
+          "under_trained": false
+        },
+        {
+          "block": "C7",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 707,
+          "training_share": 0.03535,
+          "under_trained": false
+        },
+        {
+          "block": "F1",
+          "testset": 151,
+          "testset_share": 0.893491124260355,
+          "training": 14272,
+          "training_share": 0.7136,
+          "under_trained": false
+        },
+        {
+          "block": "F2",
+          "testset": 15,
+          "testset_share": 0.08875739644970414,
+          "training": 4426,
+          "training_share": 0.2213,
+          "under_trained": false
+        },
+        {
+          "block": "F3",
+          "testset": 11,
+          "testset_share": 0.0650887573964497,
+          "training": 542,
+          "training_share": 0.0271,
+          "under_trained": false
+        },
+        {
+          "block": "F4",
+          "testset": 64,
+          "testset_share": 0.378698224852071,
+          "training": 6243,
+          "training_share": 0.31215,
+          "under_trained": false
+        },
+        {
+          "block": "F5",
+          "testset": 13,
+          "testset_share": 0.07692307692307693,
+          "training": 3858,
+          "training_share": 0.1929,
+          "under_trained": false
+        },
+        {
+          "block": "F6",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 810,
+          "training_share": 0.0405,
+          "under_trained": false
+        },
+        {
+          "block": "F7",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 355,
+          "training_share": 0.01775,
+          "under_trained": false
+        },
+        {
+          "block": "F8",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 453,
+          "training_share": 0.02265,
+          "under_trained": false
+        },
+        {
+          "block": "F9",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 796,
+          "training_share": 0.0398,
+          "under_trained": false
+        },
+        {
+          "block": "F10",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 480,
+          "training_share": 0.024,
+          "under_trained": false
+        },
+        {
+          "block": "F11",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 442,
+          "training_share": 0.0221,
+          "under_trained": false
+        },
+        {
+          "block": "F12",
+          "testset": 6,
+          "testset_share": 0.03550295857988166,
+          "training": 136,
+          "training_share": 0.0068,
+          "under_trained": false
+        },
+        {
+          "block": "F13",
+          "testset": 8,
+          "testset_share": 0.047337278106508875,
+          "training": 201,
+          "training_share": 0.01005,
+          "under_trained": false
+        },
+        {
+          "block": "F14",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 166,
+          "training_share": 0.0083,
+          "under_trained": false
+        },
+        {
+          "block": "F15",
+          "testset": 19,
+          "testset_share": 0.11242603550295859,
+          "training": 458,
+          "training_share": 0.0229,
+          "under_trained": false
+        },
+        {
+          "block": "F16",
+          "testset": 6,
+          "testset_share": 0.03550295857988166,
+          "training": 475,
+          "training_share": 0.02375,
+          "under_trained": false
+        },
+        {
+          "block": "F17",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 492,
+          "training_share": 0.0246,
+          "under_trained": false
+        },
+        {
+          "block": "F18",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 640,
+          "training_share": 0.032,
+          "under_trained": false
+        },
+        {
+          "block": "L1",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 2037,
+          "training_share": 0.10185,
+          "under_trained": false
+        },
+        {
+          "block": "L2",
+          "testset": 7,
+          "testset_share": 0.04142011834319527,
+          "training": 434,
+          "training_share": 0.0217,
+          "under_trained": false
+        },
+        {
+          "block": "L3",
+          "testset": 23,
+          "testset_share": 0.13609467455621302,
+          "training": 454,
+          "training_share": 0.0227,
+          "under_trained": false
+        },
+        {
+          "block": "S1",
+          "testset": 95,
+          "testset_share": 0.5621301775147929,
+          "training": 9750,
+          "training_share": 0.4875,
+          "under_trained": false
+        },
+        {
+          "block": "S2",
+          "testset": 10,
+          "testset_share": 0.05917159763313609,
+          "training": 2724,
+          "training_share": 0.1362,
+          "under_trained": false
+        },
+        {
+          "block": "S3",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 2037,
+          "training_share": 0.10185,
+          "under_trained": false
+        },
+        {
+          "block": "T1",
+          "testset": 15,
+          "testset_share": 0.08875739644970414,
+          "training": 6921,
+          "training_share": 0.34605,
+          "under_trained": false
+        },
+        {
+          "block": "T2",
+          "testset": 82,
+          "testset_share": 0.48520710059171596,
+          "training": 6378,
+          "training_share": 0.3189,
+          "under_trained": false
+        },
+        {
+          "block": "T3",
+          "testset": 53,
+          "testset_share": 0.3136094674556213,
+          "training": 3242,
+          "training_share": 0.1621,
+          "under_trained": false
+        },
+        {
+          "block": "T4",
+          "testset": 16,
+          "testset_share": 0.09467455621301775,
+          "training": 2730,
+          "training_share": 0.1365,
+          "under_trained": false
+        },
+        {
+          "block": "T5",
+          "testset": 5,
+          "testset_share": 0.029585798816568046,
+          "training": 729,
+          "training_share": 0.03645,
+          "under_trained": false
+        },
+        {
+          "block": "V1",
+          "testset": 144,
+          "testset_share": 0.8520710059171598,
+          "training": 19629,
+          "training_share": 0.98145,
+          "under_trained": false
+        },
+        {
+          "block": "V2",
+          "testset": 158,
+          "testset_share": 0.9349112426035503,
+          "training": 14765,
+          "training_share": 0.73825,
+          "under_trained": false
+        },
+        {
+          "block": "V3",
+          "testset": 24,
+          "testset_share": 0.14201183431952663,
+          "training": 620,
+          "training_share": 0.031,
+          "under_trained": false
+        },
+        {
+          "block": "V4",
+          "testset": 11,
+          "testset_share": 0.0650887573964497,
+          "training": 224,
+          "training_share": 0.0112,
+          "under_trained": false
+        },
+        {
+          "block": "V5",
+          "testset": 19,
+          "testset_share": 0.11242603550295859,
+          "training": 7209,
+          "training_share": 0.36045,
+          "under_trained": false
+        },
+        {
+          "block": "V6",
+          "testset": 10,
+          "testset_share": 0.05917159763313609,
+          "training": 175,
+          "training_share": 0.00875,
+          "under_trained": false
+        }
+      ],
+      "testset_uses_training_never_shows": [],
+      "under_trained": []
+    },
+    "blocks_testset_uses_training_never_shows": [],
+    "gold_shapes_in_pool": 5,
+    "gold_one_box_share": 0.08875739644970414,
+    "pool_one_box_share": 0.34605,
+    "gold_mean_boxes": 2.502958579881657,
+    "pool_mean_boxes": 2.0608
+  },
+  "differences_from_notes": [
+    "finetune_rows: computed 60018, notes 60004 (N11 3 (the training log of job 3021705 loads 60,018))"
+  ]
+}

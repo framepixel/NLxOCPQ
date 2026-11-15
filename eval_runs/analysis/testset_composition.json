@@ -1,0 +1,175 @@
+{
+  "generated": {
+    "command": "python src/testset_composition.py",
+    "utc": "2026-11-11T15:43:43+00:00",
+    "nlxocpq_commit": "644d44673a5065ccb5fd1223baae669986c59e19-dirty",
+    "inputs": []
+  },
+  "results": {
+    "entries": 169,
+    "discriminating": 135,
+    "non_discriminating": 34,
+    "per_log": {
+      "container_logistics.json": {
+        "entries": 28,
+        "discriminating": 20
+      },
+      "order-management.json": {
+        "entries": 26,
+        "discriminating": 18
+      },
+      "hospital_log_high.json": {
+        "entries": 23,
+        "discriminating": 23
+      },
+      "renting_log_high.json": {
+        "entries": 18,
+        "discriminating": 17
+      },
+      "03_hiring.xml": {
+        "entries": 12,
+        "discriminating": 9
+      },
+      "lending_log_high.json": {
+        "entries": 11,
+        "discriminating": 3
+      },
+      "reasoning_benchmark.json": {
+        "entries": 11,
+        "discriminating": 11
+      },
+      "04_hospital.xml": {
+        "entries": 10,
+        "discriminating": 7
+      },
+      "angular_github_commits_ocel.xml": {
+        "entries": 10,
+        "discriminating": 10
+      },
+      "bpic2017-ocel2.json": {
+        "entries": 10,
+        "discriminating": 10
+      },
+      "ocel2-p2p.json": {
+        "entries": 10,
+        "discriminating": 7
+      }
+    },
+    "min_entries_per_log": 10,
+    "excluded_by_reason": {
+      "defective_gold_vacuous_sat": 22,
+      "surplus_addition": 15,
+      "defective_gold_empty": 6,
+      "duplicate_gold": 1
+    },
+    "provenance": {
+      "carried_over": 129,
+      "restored": 34,
+      "later_additions": 6,
+      "unaccounted": 0
+    },
+    "union_of_versions": 213,
+    "boxes_per_tree": {
+      "1": 15,
+      "2": 82,
+      "3": 57,
+      "4": 7,
+      "5": 6,
+      "7": 1,
+      "8": 1
+    },
+    "multi_root_trees": 0,
+    "root_not_node_0": 3,
+    "blocks_present": 42,
+    "min_entries_per_block": 5,
+    "max_entries_per_block": 158,
+    "thinnest_blocks": [
+      "C7",
+      "F14",
+      "F7",
+      "F9",
+      "L1",
+      "S3",
+      "T5"
+    ],
+    "entries_per_block": {
+      "C1": 42,
+      "C2": 104,
+      "C3": 99,
+      "C4": 6,
+      "C5": 26,
+      "C6": 7,
+      "C7": 5,
+      "F1": 151,
+      "F2": 15,
+      "F3": 11,
+      "F4": 64,
+      "F5": 13,
+      "F6": 7,
+      "F7": 5,
+      "F8": 7,
+      "F9": 5,
+      "F10": 7,
+      "F11": 7,
+      "F12": 6,
+      "F13": 8,
+      "F14": 5,
+      "F15": 19,
+      "F16": 6,
+      "F17": 7,
+      "F18": 7,
+      "L1": 5,
+      "L2": 7,
+      "L3": 23,
+      "S1": 95,
+      "S2": 10,
+      "S3": 5,
+      "T1": 15,
+      "T2": 82,
+      "T3": 53,
+      "T4": 16,
+      "T5": 5,
+      "V1": 144,
+      "V2": 158,
+      "V3": 24,
+      "V4": 11,
+      "V5": 19,
+      "V6": 10
+    },
+    "kind_counts": {
+      "compliance": 154,
+      "retrieval": 15
+    },
+    "kind_counts_root_only": {
+      "compliance": 140,
+      "retrieval": 29
+    },
+    "mean_noop_floor_by_kind": {
+      "compliance": 0.6173690714285714,
+      "retrieval": 0.5617302666666667
+    },
+    "compliance_fit_median_error": 9.000000000010736e-06,
+    "compliance_fit_within_005": 0.8766233766233766,
+    "discriminating_floor_above_090": 32,
+    "discriminating_trivial_floor_above_090": 46,
+    "mean_noop_f1_discriminating": 0.5148206740740741,
+    "mean_trivial_floor_discriminating": 0.7250293481481481,
+    "skill_grid_noop_floor": {
+      "horrible": -0.9925925925925926,
+      "good_085": 0.4831664641586842,
+      "excellent_097": 0.7837043778881547,
+      "always_trivial": 0.0,
+      "fails_80_percent": -0.5940740740740742
+    },
+    "skill_grid_trivial_floor": {
+      "horrible": -1.0,
+      "good_085": 0.2929271326115573,
+      "excellent_097": 0.6855098574913318,
+      "always_trivial": -0.26466170507021636,
+      "fails_80_percent": -0.6000000000000001
+    }
+  },
+  "differences_from_notes": [
+    "skill_grid_noop_floor: computed {'horrible': -0.9925925925925926, 'good_085': 0.4831664641586842, 'excellent_097': 0.7837043778881547, 'always_trivial': 0.0, 'fails_80_percent': -0.5940740740740742}, notes {'horrible': -0.9926, 'fails_80_percent': -0.5926, 'always_trivial': 0.0, 'good_085': 0.4832, 'excellent_097': 0.7837} (N11 12.2 (floor = the no-op F1, before 27); the fails-80% row depends on which 20% succeed, unrecorded; computed here in expectation)"
+  ]
+}

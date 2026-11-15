@@ -1,0 +1,4059 @@
+[
+  {
+    "nl_query": "Every piece of diagnostic equipment must be used for more than one diagnostic test.",
+    "ocel_path": "..\\Logs\\04_hospital.xml",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "DiagnosticEquipment"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 2,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Perform Diagnostic Test"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "A diagnostic test must be performed within one hour of the patient being registered.",
+    "ocel_path": "..\\Logs\\04_hospital.xml",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Perform Diagnostic Test"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "Registration"
+                ]
+              },
+              "newObjectVars": {
+                "0": [
+                  "Patient"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "TimeBetweenEvents",
+                  "from_event": 1,
+                  "to_event": 0,
+                  "min_seconds": 0,
+                  "max_seconds": 3600
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Which lab technicians performed more than one diagnostic test?",
+    "ocel_path": "..\\Logs\\04_hospital.xml",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "LabTechnician"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [
+                {
+                  "type": "NumChilds",
+                  "child_name": "A",
+                  "min": 2,
+                  "max": null
+                }
+              ],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {
+                "0": "INCLUDED"
+              }
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Perform Diagnostic Test"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Every person who handed in a credit application must eventually sign a loan agreement.",
+    "ocel_path": "..\\Logs\\lending_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Hand In Credit Appliaction"
+                ]
+              },
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "Sign Loan Agreement"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "A person asked to provide a co-signer must eventually sign a loan agreement.",
+    "ocel_path": "..\\Logs\\lending_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Request Co-Signer On Loan"
+                ]
+              },
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "Sign Loan Agreement"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Every non-citizen applicant must have had their application rejected.",
+    "ocel_path": "..\\Logs\\lending_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 0,
+                  "attribute_name": "isCitizen",
+                  "value_filter": {
+                    "type": "String",
+                    "is_in": [
+                      "0"
+                    ]
+                  },
+                  "at_time": {
+                    "type": "Always"
+                  }
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Application Rejected"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Which applicants have a credit score above 74?",
+    "ocel_path": "..\\Logs\\lending_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "BasicFilterCEL",
+                  "cel": "int(o1.attr(\"Creditscore\")) > 74"
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {
+                "0": "INCLUDED"
+              }
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": []
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Which applicants older than 58 have a credit score below 62?",
+    "ocel_path": "..\\Logs\\lending_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "BasicFilterCEL",
+                  "cel": "int(o1.attr(\"Age\")) > 58 && int(o1.attr(\"Creditscore\")) < 62"
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {
+                "0": "INCLUDED"
+              }
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": []
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Applicants flagged as belonging to a protected group must have had their borrower information verified.",
+    "ocel_path": "..\\Logs\\lending_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 0,
+                  "attribute_name": "overallProtected",
+                  "value_filter": {
+                    "type": "String",
+                    "is_in": [
+                      "1"
+                    ]
+                  },
+                  "at_time": {
+                    "type": "Sometime"
+                  }
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Verify Borrowers Information"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "An applicant carrying all three discrimination factors must not have their loan denied.",
+    "ocel_path": "..\\Logs\\lending_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 0,
+                  "attribute_name": "sumBoolDiscrFactors",
+                  "value_filter": {
+                    "type": "String",
+                    "is_in": [
+                      "3"
+                    ]
+                  },
+                  "at_time": {
+                    "type": "Always"
+                  }
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "NOT",
+                  "child_names": [
+                    "A"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Loan Denied"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "A request for quotation may only be created for a purchase requisition that was itself created first.",
+    "ocel_path": "..\\Logs\\ocel2-p2p.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Create Request for Quotation"
+                ]
+              },
+              "newObjectVars": {
+                "0": [
+                  "quotation"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "Create Purchase Requisition"
+                ]
+              },
+              "newObjectVars": {
+                "1": [
+                  "purchase_requisition"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "TimeBetweenEvents",
+                  "from_event": 1,
+                  "to_event": 0,
+                  "min_seconds": 0,
+                  "max_seconds": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Which materials were ordered in a quantity greater than 75?",
+    "ocel_path": "..\\Logs\\ocel2-p2p.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "material"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "BasicFilterCEL",
+                  "cel": "o1.attr(\"Quantity (EKPO-MENGE)\") > 75"
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {
+                "0": "INCLUDED"
+              }
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": []
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Materials with a net price above 750 must have an approved purchase requisition.",
+    "ocel_path": "..\\Logs\\ocel2-p2p.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "material"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "BasicFilterCEL",
+                  "cel": "o1.attr(\"Net Price (EKPO-NETPR)\") > 750"
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Approve Purchase Requisition"
+                ]
+              },
+              "newObjectVars": {
+                "1": [
+                  "purchase_requisition"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2O",
+                  "object": 1,
+                  "other_object": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Every candidate who attended a panel interview must have completed a background check.",
+    "ocel_path": "..\\Logs\\03_hiring.xml",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Conduct Panel Interview"
+                ]
+              },
+              "newObjectVars": {
+                "0": [
+                  "Candidate"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "Complete Background Check"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Every non-citizen who was rejected as a prospective tenant must have had their paperwork checked first.",
+    "ocel_path": "..\\Logs\\renting_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Reject Prospective Tenant"
+                ]
+              },
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 0,
+                  "attribute_name": "isCitizen",
+                  "value_filter": {
+                    "type": "String",
+                    "is_in": [
+                      "0"
+                    ]
+                  },
+                  "at_time": {
+                    "type": "Always"
+                  }
+                },
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "Check Paperwork"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "TimeBetweenEvents",
+                  "from_event": 1,
+                  "to_event": 0,
+                  "min_seconds": 0,
+                  "max_seconds": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "testset_excluded.json:surplus_addition",
+    "note": "Sound and discriminating, but not needed for any coverage floor once the 34 sound entries were restored. Restore as-is if a floor later slips -- no rebuild required."
+  },
+  {
+    "nl_query": "Which orders containing at least three items were confirmed within two days of being placed?",
+    "ocel_path": "..\\Logs\\order-management.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "place order"
+                ]
+              },
+              "newObjectVars": {
+                "0": [
+                  "orders"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 3,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {
+                "0": "INCLUDED"
+              }
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "1": [
+                  "items"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2O",
+                  "object": 0,
+                  "other_object": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "B",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "B"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              2
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "confirm order"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "TimeBetweenEvents",
+                  "from_event": 0,
+                  "to_event": 1,
+                  "min_seconds": 0,
+                  "max_seconds": 172800
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ],
+        [
+          [
+            1,
+            2
+          ],
+          "B"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-20 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 2000 root situations, 821 violated, so 1179 orders answer the question. Covers 3 boxes, TimeBetweenEvents as a box filter, a NumChilds scoping constraint, O2O + O2E, and obVarLabels (building block L3, which no other dev entry exercises). Equivalent on the answer set to a sibling-child model with the time as a constraint -- checked order by order, zero disagreement. Building blocks: C2, C3, F1, F2, F5, L3, S1, T3, V1, V2."
+  },
+  {
+    "nl_query": "Which items were either out of stock or reordered?",
+    "ocel_path": "..\\Logs\\order-management.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "items"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "OR",
+                  "child_names": [
+                    "A",
+                    "B"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1,
+              2
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {},
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "C"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "C",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              3
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {},
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "D"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "D",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              4
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "item out of stock"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "reorder item"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ],
+        [
+          [
+            0,
+            2
+          ],
+          "B"
+        ],
+        [
+          [
+            1,
+            3
+          ],
+          "C"
+        ],
+        [
+          [
+            2,
+            4
+          ],
+          "D"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-20 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 7659 root situations, 6115 violated, so 1544 items answer the question (20.2%) -- non-trivial, since an 'all items' query returns 7659. Each OR branch sits behind an intermediate box carrying NumChilds >= 1 beside SAT, which is what stops OR being VACUOUSLY TRUE on an empty child: a flat OR over child boxes reports 0 violations even for branches that can never bind (measured 2026-09-20). CAVEAT: the two branches select the SAME 1544 items -- every out-of-stock item was reordered and vice versa -- so a prediction that drops one branch scores identically here. Swap a branch to 'failed delivery' (union 2616, 1250 only-stock, 1072 only-failed) if the OR should be load-bearing. Building blocks: C2, C3, C6, F1, S1, T4, V1, V2."
+  },
+  {
+    "nl_query": "Every order that was placed must be paid within four weeks.",
+    "ocel_path": "..\\Logs\\order-management.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "place order"
+                ]
+              },
+              "newObjectVars": {
+                "0": [
+                  "orders"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "pay order"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "TimeBetweenEvents",
+                  "from_event": 0,
+                  "to_event": 1,
+                  "min_seconds": 0,
+                  "max_seconds": 2419200
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-20 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 2000 root situations, 209 violated (10.45%) -- the orders paid more than four weeks after placement. The four-week window is a box-level FILTER on the payment event, and the root pairs SAT with NumChilds >= 1. That guard is load-bearing twice over: with the timing as a filter and no guard, a late payment simply fails to bind, the child is empty, SAT is vacuously true and the query reports 0 violations on this very log; and an order never paid at all -- which is what 'must be paid' is really about -- is only caught by a guarded form. Measured 2026-09-20 against a child event that can never bind: guarded forms report 100% violations, unguarded forms report 0%. Building blocks: C2, C3, F1, F5, S1, T2, V1, V2."
+  },
+  {
+    "nl_query": "Which pick item events handled an item weighing more than 1.2 kilograms?",
+    "ocel_path": "..\\Logs\\order-management.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "pick item"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "items"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 0,
+                  "attribute_name": "weight",
+                  "value_filter": {
+                    "type": "Float",
+                    "min": 1.2,
+                    "max": null
+                  },
+                  "at_time": {
+                    "type": "Always"
+                  }
+                },
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-20 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 7659 root situations, 6135 violated, so 1524 pick item events answer the question -- matching the 1524 items that weigh >= 1.2 read straight from the log. ROOT ARITY (1,0): the answer is a set of EVENTS, the minority class the arity predictor has 0% recall on (notes 42.1), which no other dev entry covers. The threshold is 1.2 kg because the heaviest item in this log is 1.48 kg. at_time Always and Sometime agree here, since item weight never changes. The root pairs SAT with NumChilds >= 1: unguarded, this query answers 'all 7659 events' for ANY threshold, including 5 kg, which no item reaches. Building blocks: C2, C3, F1, F10, F15, S1, T2, V1, V2."
+  },
+  {
+    "nl_query": "Which containers belonging to a transport document were loaded to a vehicle within one day of being weighed?",
+    "ocel_path": "..\\Logs\\container_logistics.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "1": [
+                  "Transport Document"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2O",
+                  "object": 0,
+                  "other_object": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Load to Vehicle"
+                ]
+              },
+              "newObjectVars": {
+                "2": [
+                  "Vehicle"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 2,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "B",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "B"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              2
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "Weigh"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "TimeBetweenEvents",
+                  "from_event": 1,
+                  "to_event": 0,
+                  "min_seconds": 0,
+                  "max_seconds": 86400
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Container"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "C",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "C"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              0
+            ]
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ],
+        [
+          [
+            1,
+            2
+          ],
+          "B"
+        ],
+        [
+          [
+            3,
+            0
+          ],
+          "C"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-20 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 1999 root situations, 1820 violated (91.05%), so 179 containers answer the question; child A 1777/1956 violated (90.85%). FOUR BOXES in a chain -- Container -> Transport Document -> Load to Vehicle -> Weigh -- the deepest entry in the dev set, and the only one whose STRUCTURAL ROOT IS NOT NODE 0 (it is node 3, as it is for 3 of the 169 testset entries). Root arity (0,1), which matches the question's noun; an earlier revision also bound the Transport Document in the root, giving arity (0,2) and the identical 179 containers, because each container here belongs to exactly one document. Every SAT is paired with NumChilds >= 1: unguarded, the same question answers 204 containers, 25 of which were never loaded to a vehicle at all. KNOWN LABELLER GAP: tag_testset_bb._longest_path measures depth from node 0, so this tree gets NO T-label; measured from its real root the longest path is 4 and it should carry T5. See TODO. Building blocks as labelled today: C2, C3, F1, F2, F5, S1, V1, V2."
+  },
+  {
+    "nl_query": "Which customer orders led to a transport document whose containers were rescheduled?",
+    "ocel_path": "..\\Logs\\container_logistics.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Customer Order"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "1": [
+                  "Transport Document"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2O",
+                  "object": 0,
+                  "other_object": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "B",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "B"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              2
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Reschedule Container"
+                ]
+              },
+              "newObjectVars": {
+                "2": [
+                  "Container"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 2,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2O",
+                  "object": 2,
+                  "other_object": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ],
+        [
+          [
+            1,
+            2
+          ],
+          "B"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 600 root situations, 567 violated (94.50%), so 33 customer orders answer the question; child A 561/594 violated (94.44%), child B 0/36. CONFIRMED INDEPENDENTLY OF OCPQ by scanning the log: 36 Reschedule Container events touch 36 distinct containers, which belong to 33 transport documents, which belong to 33 customer orders. THREE LEVELS -- Customer Order -> Transport Document -> Reschedule Container + Container -- root arity (0,1), matching the question's noun. Both SATs are paired with NumChilds >= 1, and here the guards carry the whole query: unguarded it answers ALL 600 customer orders at 0% violations, the starkest vacuous-SAT case in the dev set, since it returns the entire population while looking healthy. TWO EQUALLY VALID ENCODINGS: node 2's O2E(doc -> event) and O2O(container -> doc) are mutually redundant -- either one alone pins the container to the document and yields the same 33 orders; dropping BOTH collapses to 594 (any container rescheduled anywhere). An agent that emits only one of the two is correct, which the structural metric cannot see. Building blocks: C2, C3, F1, F2, S1, T3, V1, V2."
+  },
+  {
+    "nl_query": "Which transport documents cover more than three containers?",
+    "ocel_path": "..\\Logs\\container_logistics.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Transport Document"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 4,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "1": [
+                  "Container"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2O",
+                  "object": 1,
+                  "other_object": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 594 root situations, 320 violated (53.87%), so 274 transport documents answer the question. CONFIRMED INDEPENDENTLY OF OCPQ by counting containers per document in the log: 274 documents carry >= 4 containers (the distribution is 0:3, 1:27, 2:136, 3:154, 4:132, 5:142). THE OFF-BY-ONE IS THE POINT: 'more than three' is NumChilds min 4, not min 3; min 3 answers 428 documents, a 154-document error that still looks like a plausible non-trivial result set and is invisible in the output. This is the first dev entry where the SizeFilter IS the question rather than a guard against a vacuous SAT (counting form, min > 1: 3 of 21 dev entries, 9 of 169 testset entries). THE O2O DIRECTION IS LOAD-BEARING: container -> document binds; flipped to document -> container the child binds nothing (0/0) and the query answers 0 documents at 100% violations. The SAT is redundant here -- node 1 carries no constraints, so results are identical with and without it -- but it is kept because it matches the gold convention and costs nothing. Root arity (0,1). Building blocks: C2, C3, F2, S1, T2, V2."
+  },
+  {
+    "nl_query": "Which customer orders were shipped on a high-priority vehicle?",
+    "ocel_path": "..\\Logs\\container_logistics.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Customer Order"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "1": [
+                  "Transport Document"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2O",
+                  "object": 0,
+                  "other_object": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "B",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "B"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              2
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "2": [
+                  "Vehicle"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2O",
+                  "object": 1,
+                  "other_object": 2,
+                  "qualifier": "High-Prio VH for TD"
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "C",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "C"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              3
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Load to Vehicle"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 2,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ],
+        [
+          [
+            1,
+            2
+          ],
+          "B"
+        ],
+        [
+          [
+            2,
+            3
+          ],
+          "C"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 600 root situations, 421 violated (70.17%), so 179 customer orders answer the question; per node 421/600, 415/594 (69.87%), 0/179, 0/3013. CONFIRMED INDEPENDENTLY OF OCPQ: the set OCPQ returns is IDENTICAL, not merely equal in size, to the 179 customer orders reachable from the 179 transport documents that carry a 'High-Prio VH for TD' link. 'HIGH-PRIORITY' IS A RELATIONSHIP QUALIFIER, NOT AN ATTRIBUTE. Vehicle has exactly one attribute in this log (DepartureDate), and nothing anywhere records a priority; the notion lives only in the O2O qualifier between Transport Document and Vehicle: 'High-Prio VH for TD' (179 links), 'Regular VH for TD' (565), 'Ersatz VH for TD' (33). MEASURED with the qualifier left null the same tree answers 574 orders, i.e. every order with any vehicle at all. The qualifier field is free text with no validation, so a typo binds nothing and the query answers 0 orders without erroring -- the same silent-wrong-answer shape as an unguarded SAT. FOUR BOXES rooted at node 0, so this is the only dev entry the labeller scores as T5: entry 20 is also depth 4 but rooted at node 3, where _longest_path measures from node 0 and awards it no T-label (see TODO). The fourth box eliminates nobody -- every high-priority vehicle has a Load to Vehicle event -- but the NL asserts the shipping happened, not merely that a vehicle was assigned, and the three-box form returns the same 179 while labelling as T3. Building blocks: C2, C3, F1, F2, F3, S1, T5, V1, V2."
+  },
+  {
+    "nl_query": "Which containers already had their status recorded as empty at the moment empty containers were ordered?",
+    "ocel_path": "..\\Logs\\container_logistics.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Container"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Order Empty Containers"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 0,
+                  "attribute_name": "Status",
+                  "value_filter": {
+                    "type": "String",
+                    "is_in": [
+                      "empty"
+                    ]
+                  },
+                  "at_time": {
+                    "type": "AtEvent",
+                    "event": 0
+                  }
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 1999 root situations, 1848 violated (92.45%), so 151 containers answer the question. CONFIRMED INDEPENDENTLY OF OCPQ: the set returned is IDENTICAL to the 151 containers whose Status attribute already reads 'empty' at the timestamp of an Order Empty Containers event; for the other 1848 the attribute is not yet recorded at that moment. THE POINT OF THIS ENTRY IS at_time. Container Status moves empty -> full (1994 of 1999 containers carry both values), so the SAME filter under the three at_time modes gives three different answers, all defensible readings of the English: AtEvent 151, Always 5 (only the containers never filled), Sometime 1999 (every container). No other dev entry separates these. MEASURED CONTRAST: the same filter at 'Weigh' instead answers all 1989 weighed containers, because Status is 'full' at every single Weigh event -- so the activity chosen decides whether the question discriminates at all. EDITOR ARTEFACT REMOVED: the OCPQ frontend seeds every new String filter with is_in: [\"\"] (registry.tsx:38,54 and FilterChooserDialog.tsx:441,448) and only strips the placeholder when values are added through its own control, so a filter with one typed value can carry a stray empty string. It is inert here (is_in [\"\"] alone answers 0, and removing it leaves 151 unchanged) and was removed before adding. src/convert_json.py does NOT introduce it: it copies data.box verbatim and only rebuilds children and edgeNames. Building blocks: C2, C3, F1, F13, F17, S1, T2, V1, V2."
+  },
+  {
+    "nl_query": "Which containers were loaded onto a truck or a vehicle fewer than five times?",
+    "ocel_path": "..\\Logs\\container_logistics.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Container"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": null,
+                    "max": 4
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Load to Vehicle",
+                  "Load Truck"
+                ]
+              },
+              "newObjectVars": {
+                "1": [
+                  "Truck",
+                  "Vehicle"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 1999 root situations, 1708 violated (85.44%), so 291 containers answer the question; 12509 child bindings. 'FEWER THAN FIVE' IS NumChilds max 4, not max 5: max 5 answers 381, max 3 answers 195, max 6 answers 501. This is the mirror of the 'more than three containers' entry, where the boundary word maps to min 4. THE UNION MUST LIVE IN ONE BOX. NumChilds counts the bindings of ONE child, so 'a truck or a vehicle' is expressed as a multi-activity event variable plus a multi-type object variable (V3 + V4), NOT as OR over two branches: OCPQ cannot sum counts across siblings without AdvancedCEL. MEASURED on an earlier OR-branch version whose counter was separated from the load events by three EMPTY boxes -- it validated cleanly with no structural and no blocking defects, reported a plausible 0.25% violation rate, and was meaningless: an empty box yields exactly one binding, so NumChilds counted 1 forever and max 5, max 4 and max 1 all returned the identical 1994 containers (only max 0 differed). A threshold that does not move the answer across its range is the tell. COUNTS BINDINGS, NOT EVENTS, and here they differ: 10 'Load to Vehicle' events carry NO Vehicle object, so the O2E on the carrier drops them. 291 containers have at most four (event, carrier) bindings while 290 have at most four load events; they differ on exactly one container, cr1957, which has 5 load events but only 4 with a carrier. Both readings are defensible and the NL decides it: 'loaded onto a truck or a vehicle' requires a carrier, so 291 is the literal reading. Building blocks: C2, C3, F1, S2, T2, V2, V3, V4."
+  },
+  {
+    "nl_query": "Which containers were handled by a forklift at the same moment as a different container?",
+    "ocel_path": "..\\Logs\\container_logistics.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Container"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Bring to Loading Bay",
+                  "Weigh",
+                  "Load to Vehicle",
+                  "Place in Stock"
+                ],
+                "1": [
+                  "Load to Vehicle",
+                  "Bring to Loading Bay",
+                  "Weigh",
+                  "Place in Stock"
+                ]
+              },
+              "newObjectVars": {
+                "1": [
+                  "Forklift"
+                ],
+                "2": [
+                  "Container"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "NotEqual",
+                  "var_1": {
+                    "Object": 0
+                  },
+                  "var_2": {
+                    "Object": 2
+                  }
+                },
+                {
+                  "type": "NotEqual",
+                  "var_1": {
+                    "Event": 0
+                  },
+                  "var_2": {
+                    "Event": 1
+                  }
+                },
+                {
+                  "type": "TimeBetweenEvents",
+                  "from_event": 0,
+                  "to_event": 1,
+                  "min_seconds": 0,
+                  "max_seconds": 0
+                },
+                {
+                  "type": "O2E",
+                  "object": 2,
+                  "event": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 1999 root situations, 1626 violated (81.34%), so 373 containers answer the question; 438 child bindings. CONFIRMED INDEPENDENTLY OF OCPQ: the set returned is IDENTICAL to the containers that share a forklift-timestamp with another container (3 forklifts, 219 such timestamps). THE DENSEST BOX IN THE DEV SET, and the only one needing two event variables AND two object variables at once (V5 + V6), because of a structural fact about this log: NO EVENT EVER CARRIES MORE THAN ONE CONTAINER. Two containers therefore cannot meet on an event; they meet through a SHARED FORKLIFT across two simultaneous events. The six filters read: this container on event 0; the SAME forklift on event 0 AND on event 1; the other container on event 1; the containers differ; the events differ; TimeBetweenEvents(0 -> 1, min 0, max 0). NotEqual(Object 0, Object 2) IS REDUNDANT IN THIS LOG AND IS KEPT DELIBERATELY: dropping it still answers 373, because NotEqual(Event 0, Event 1) plus the zero-width window already forces two distinct simultaneous events on one forklift, and MEASURED, there are 0 timestamps at which one forklift touches the SAME container on two distinct events. It would stop being redundant in a log where that occurs, and it states the question's 'a different container' explicitly rather than leaving it to a data coincidence. EACH PIECE MEASURED: asking for the second container on event 0 instead of event 1 makes the child impossible and the query answers 0 at 100% violations -- the failure that ended two earlier attempts; omitting the forklift's link to event 1 answers 386, thirteen too many, because it then counts two simultaneous events on DIFFERENT forklifts; omitting the time window binds 263594 rows. ACTIVITY LIST MATTERS: only Weigh, Place in Stock, Bring to Loading Bay and Load to Vehicle involve a Forklift at all. Load Truck and Pick Up Empty Container have none, and including them inflates the root population without adding answers. Building blocks: C2, C3, F1, F7, F8, S1, T2, V2, V3, V5, V6."
+  },
+  {
+    "nl_query": "Retrieve the weighing events of containers that were also rescheduled.",
+    "ocel_path": "..\\Logs\\container_logistics.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Weigh"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {
+                "0": "INCLUDED"
+              },
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "Reschedule Container"
+                ]
+              },
+              "newObjectVars": {
+                "0": [
+                  "Container"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 1989 root situations, 1953 violated (98.19%), so 36 weighing events answer the question. CONFIRMED INDEPENDENTLY OF OCPQ: the 36 containers that were rescheduled have exactly 36 weighing events between them, and the event ids returned are IDENTICAL to that set. THE ANSWER IS EVENTS, AND THAT IS WHY THE ROOT BINDS THE EVENT. Root arity (1,0). _extract_result_ids scores ONLY the root binding box (eval_testset.py:786), keyed by event ids, object ids and the violation flag, so evVarLabels and obVarLabels DOCUMENT the intended output but do not change what is scored. MEASURED: the container-rooted form -- root binds Container, child binds Weigh with evVarLabels INCLUDED, which is the gold idiom for 'retrieve the X events of ...' -- returns the same count but as 36 OBJECT ids, i.e. the containers, not the events. For a 'retrieve the X' question the root must bind X. evVarLabels {'0': 'INCLUDED'} is set on the ROOT, on the Weigh variable it already binds: it carries the L2 label and states the output explicitly, and MEASURED it changes no count -- identical 36 events with and without it. NOTE FOR GOLD (not acted on): three testset entries have the shape this entry avoids -- an event marked INCLUDED on a non-root node while the root binds no event -- including the L2 exemplar 'Retrieve the payment events for all orders that received at least one reminder', whose scored answer is orders. See TODO. Building blocks: C2, C3, F1, L2, S1, T2, V1, V2."
+  },
+  {
+    "nl_query": "Which unmarried applicants under fifty ever missed a rent payment?",
+    "ocel_path": "..\\Logs\\renting_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 0,
+                  "attribute_name": "isMarried",
+                  "value_filter": {
+                    "type": "Boolean",
+                    "is_true": false
+                  },
+                  "at_time": {
+                    "type": "Always"
+                  }
+                },
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 0,
+                  "attribute_name": "Age",
+                  "value_filter": {
+                    "type": "Integer",
+                    "min": null,
+                    "max": 49
+                  },
+                  "at_time": {
+                    "type": "Always"
+                  }
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Miss Rent Payment"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 2464 root situations, 2307 violated (93.63%), so 157 applicants answer the question. CONFIRMED INDEPENDENTLY OF OCPQ: 2464 of the 10000 people are unmarried and aged 49 or under, and 157 of those have a Miss Rent Payment event. TWO ATTRIBUTE FILTERS ON ONE OBJECT VARIABLE, one Integer (F11) and one Boolean (F12); both narrow the ROOT population rather than marking violations, which is why the root has 2464 situations and not 10000. 'UNDER FIFTY' IS max 49: at max 50 the population becomes 2666 and the answer 171. At max 39 the answer is 34. THE ONLY LOG WHERE THESE TYPES WORK. renting_log_high declares Age:integer and isMarried:boolean. In hospital_log_high every Person attribute is a STRING including Age, so the identical query there matches nothing -- that trap is what the DEV_HL_01 / DEV_HL_03 drafts are built around, and this entry is its working counterpart. at_time DOES NOT MATTER HERE, and that is worth having: MEASURED, no attribute in this log ever changes value, so Always and Sometime both answer 157. Contrast the container Status entry, where AtEvent / Always / Sometime answer 151 / 5 / 1999 on the same filter. An agent cannot learn a blanket at_time rule from this dev set; it has to check whether the attribute moves. Building blocks: C2, C3, F1, F11, F12, F15, S1, T2, V1, V2."
+  },
+  {
+    "nl_query": "Which orders contain items with a combined weight of more than five kilograms?",
+    "ocel_path": "..\\Logs\\order-management.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "orders"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [
+                {
+                  "type": "AdvancedCEL",
+                  "cel": "total_weight > 5.0"
+                }
+              ],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {},
+              "labels": [
+                {
+                  "label": "total_weight",
+                  "cel": "A.map(b,b['o2'].attr('weight')).sum()"
+                }
+              ]
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "1": [
+                  "items"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2O",
+                  "object": 0,
+                  "other_object": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {},
+              "labels": []
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 114 root situations, 0 violated (0.00%), so 114 orders answer the question; 916 child bindings. CONFIRMED INDEPENDENTLY OF OCPQ: 114 of the 2000 orders carry more than 5 kg of items (totals run 0.17 to 9.52 kg, median 2.06), and the id sets are IDENTICAL. THE ONLY DEV ENTRY THAT REQUIRES AGGREGATION. The heaviest single item in this log is 1.48 kg, so no item filter can reach 5 kg -- the threshold is meetable only by summing. A node label computes the sum and an AdvancedCEL size filter tests it: labels [{label: total_weight, cel: \"A.map(b,b['o2'].attr('weight')).sum()\"}] with AdvancedCEL 'total_weight > 5.0'. 0% VIOLATIONS IS CORRECT HERE AND IS THE SIGNATURE OF THE PLACEMENT. The CEL sits in sizeFilters, which narrows the ROOT'S OWN BINDINGS, so only the 114 qualifying orders bind and none of them violates anything. MEASURED in the constraint position instead -- constraints [{type: SizeFilter, filter: {type: AdvancedCEL, ...}}], which is where the gold AdvancedCEL exemplar puts it -- the same 114 orders come back but as 2000 root situations with 1886 flagged violated. _extract_result_ids keys each situation as (events, objects, violated), so THE TWO FORMS DO NOT SCORE AS IDENTICAL even though they answer the same question with the same orders. TWO TRAPS, BOTH MEASURED AND BOTH SILENT: appending .int() to the sum truncates each order's total and answers 47; writing b['o1'] instead of b['o2'] answers 0 with the root binding 0/0 and no error at all. CEL variable names are ONE-BASED (b['o2'] is object variable 1) while the JSON keys are zero-based. The SAT and NumChilds >= 1 guard on the root are inert here -- an order with over 5 kg of items necessarily has items -- and are kept as convention. Building blocks: C2, C3, F2, L1, S1, S3, T2, V2."
+  },
+  {
+    "nl_query": "Which transport documents covering at most two containers were assigned a vehicle departing before March 2024?",
+    "ocel_path": "..\\Logs\\container_logistics.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Transport Document"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": null,
+                    "max": 2
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "B",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "B"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1,
+              2
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "1": [
+                  "Container"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2O",
+                  "object": 1,
+                  "other_object": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "2": [
+                  "Vehicle"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2O",
+                  "object": 0,
+                  "other_object": 2,
+                  "qualifier": null
+                },
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 2,
+                  "attribute_name": "DepartureDate",
+                  "value_filter": {
+                    "type": "Time",
+                    "from": null,
+                    "to": "2024-03-01T00:00:00.000Z"
+                  },
+                  "at_time": {
+                    "type": "Always"
+                  }
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ],
+        [
+          [
+            0,
+            2
+          ],
+          "B"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 594 root situations, 503 violated (84.68%), so 91 transport documents answer the question. CONFIRMED INDEPENDENTLY OF OCPQ: 166 of 594 documents carry at most two containers and 353 have a vehicle departing before 2024-03-01; the intersection is 91 and the id sets are IDENTICAL. TWO SIBLING BRANCHES, NOT A CHAIN, AND THAT IS THE POINT. An earlier version nested the Vehicle UNDER the Container and answered 94. The three extras -- td588, td593, td594 -- each have ZERO containers and ZERO vehicles: with no container binding, NumChilds A max 2 is satisfied (0 <= 2), SAT A is vacuously true, and the vehicle condition living below the container is NEVER EVALUATED. A max size filter cannot protect against an empty child because 0 satisfies it; only a MIN guard on the ROOT closes it, which is why child B carries NumChilds >= 1 + SAT at node 0. THE SIZE FILTER IS IN constraints, NOT sizeFilters: the population stays all 594 documents with 503 flagged violated. In the sizeFilters position the same question returns the same 91 documents but as a 166-document population with 75 violations, and since _extract_result_ids keys situations by (events, objects, violated) the two forms do not score as identical. The constraint position is the gold convention (88 uses against 2 for the field). DATE SWEEP MEASURED: before 2023-10 -> 33, before 2024-01 -> 66, before 2024-03 -> 91, before 2025-01 -> 152, NOT the full 166: fourteen of the small documents have no vehicle departing before 2025 at all, so the date is not the only thing binding them. Vehicle departure dates run 2023-05 to 2024-08. Building blocks: C2, C3, F14, F15, F2, S1, S2, T4, V2."
+  },
+  {
+    "nl_query": "Which orders had at least one item picked ten or more days after the order was placed?",
+    "ocel_path": "..\\Logs\\order-management.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "orders"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "ANY",
+                  "child_names": [
+                    "A"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "pick item"
+                ],
+                "1": [
+                  "place order"
+                ]
+              },
+              "newObjectVars": {
+                "1": [
+                  "items"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2O",
+                  "object": 0,
+                  "other_object": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                },
+                {
+                  "type": "TimeBetweenEvents",
+                  "from_event": 1,
+                  "to_event": 0,
+                  "min_seconds": 864000,
+                  "max_seconds": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 2000 root situations, 1272 violated (63.60%), so 728 orders answer the question; 916 child bindings. CONFIRMED INDEPENDENTLY OF OCPQ by computing each order's placement time against its items' pick times: 728 orders have an item picked at least ten days later, and the id sets are IDENTICAL. 'AT LEAST ONE' IS ANY, AND ANY TAKES NO GUARD. Unlike SAT, OR and AND, ANY is FALSE on an empty child, so it needs no NumChilds >= 1 beside it. MEASURED on this very tree with the gap raised to ten YEARS so the child can never bind: ANY answers 0 and flags all 2000 orders as violations, where SAT in the same position answers all 2000. Adding NumChilds >= 1 to the ANY form changes nothing, which is why it is deliberately absent: it would read as load-bearing when it is not. THREE IDIOMS, ONE ANSWER, MEASURED: this ANY form; NumChilds >= 1 + SAT over the same pre-filtered child; and ANY with the time moved into a Filter constraint so the child binds all 7659 triples with 6743 violating. All three return the identical 728 orders and differ only in the labels they carry (C4 here; S1+C2+C3 for the guard form; C4+C1 for the third). TWO EVENT VARIABLES IN ONE BOX (V5): place order and pick item are bound together so TimeBetweenEvents can relate them, min_seconds 864000 with no maximum (F6). GAP SWEEP MEASURED on the guard form: 3 days -> 1549, 10 days -> 728, 20 days -> 295. Building blocks: C4, F1, F2, F6, T2, V1, V2, V5."
+  },
+  {
+    "nl_query": "Which privately insured patients were treated unsuccessfully?",
+    "ocel_path": "..\\Logs\\hospital_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 0,
+                  "attribute_name": "isPrivate_insurance",
+                  "value_filter": {
+                    "type": "String",
+                    "is_in": [
+                      "1"
+                    ]
+                  },
+                  "at_time": {
+                    "type": "Always"
+                  }
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Treatment unsuccessful"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 4974 root situations, 4267 violated (85.79%), so 707 patients answer the question. CONFIRMED INDEPENDENTLY OF OCPQ: 4974 of the 10000 people carry isPrivate_insurance == '1' and 707 of those have a Treatment unsuccessful event; the id sets are IDENTICAL. THE FLAG IS A STRING, AND THAT IS THE POINT OF THIS ENTRY. Every Person attribute in hospital_log_high is stored as a STRING, including this boolean-looking flag ('1' / '0') and Age and the numOcc_* counters. An Integer or Boolean value_filter matches NOTHING here -- MEASURED: the identical query with value_filter Integer 1..1 answers 0. The declared type in the schema block is what an agent will read, and it is not what the data holds; attribute_values on the probe is how the difference is discoverable. Same trap as notes 36.3's throughputTime. ITS WORKING COUNTERPART IS IN THE DEV SET: 'Which unmarried applicants under fifty ever missed a rent payment?' uses Integer and Boolean filters on renting_log_high, the one log whose Age really is integer and isMarried really is boolean. The two entries are the same idea in a log where the types work and a log where they do not. THE GUARD IS LOAD-BEARING: without NumChilds >= 1 the SAT is vacuously true for every patient with no Treatment unsuccessful event and the query answers all 4974 at 0% violations. Building blocks: C2, C3, F1, F13, F15, S1, T2, V1, V2."
+  },
+  {
+    "nl_query": "Which patients in their seventies were treated unsuccessfully?",
+    "ocel_path": "..\\Logs\\hospital_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "ObjectAttributeValueFilter",
+                  "object": 0,
+                  "attribute_name": "Age",
+                  "value_filter": {
+                    "type": "String",
+                    "is_in": [
+                      "70",
+                      "71",
+                      "72",
+                      "73",
+                      "74",
+                      "75",
+                      "76",
+                      "77",
+                      "78",
+                      "79"
+                    ]
+                  },
+                  "at_time": {
+                    "type": "Always"
+                  }
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                },
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Treatment unsuccessful"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 1189 root situations, 1033 violated (86.88%), so 156 patients answer the question. CONFIRMED INDEPENDENTLY OF OCPQ: 1189 people have Age in 70..79 and 156 of those have a Treatment unsuccessful event; the id sets are IDENTICAL. A NUMERIC RANGE EXPRESSED AS TEN STRING LITERALS, because Age in this log is stored as a STRING. MEASURED: the same band written as Integer 70..79 answers 0. There is no range operator for strings, so 'in their seventies' has to be enumerated -- '70' through '79', all ten, and the entry asserts the list is complete. The enumeration is only safe because every Age value in this log is a plain integer literal with no decimals or padding; a value like '70.0' would be missed silently. SAME LOG, SAME TRAP AS 'Which privately insured patients were treated unsuccessfully?', but harder: a boolean flag needs one literal, a decade needs ten, and the cost of the declared-type mismatch grows with the width of the range. The working counterpart is the renting-log entry, where Age really is an integer and a single Integer filter with max 49 does the job. Building blocks: C2, C3, F1, F13, F15, S1, T2, V1, V2."
+  },
+  {
+    "nl_query": "Every person who registers at the emergency room must be discharged within four days.",
+    "ocel_path": "..\\Logs\\hospital_log_high.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Person"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [
+                {
+                  "type": "NumChilds",
+                  "child_name": "A",
+                  "min": 1,
+                  "max": null
+                }
+              ],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Register at ER"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "B"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "B",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              2
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "Discharge"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "Filter",
+                  "filter": {
+                    "type": "TimeBetweenEvents",
+                    "from_event": 0,
+                    "to_event": 1,
+                    "min_seconds": 0,
+                    "max_seconds": 345600
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ],
+        [
+          [
+            1,
+            2
+          ],
+          "B"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 5008 root situations, 750 violated (14.98%), and every node reports the same 750/5008. CONFIRMED INDEPENDENTLY OF OCPQ: 5008 of the 10000 people register at the ER, and 750 of them are not discharged within four days; the violating id set is IDENTICAL to those 750 and contains no one who never registered. A COMPLIANCE QUERY, SO THE INTERESTING ANSWER IS THE VIOLATIONS, not the satisfying set. The 4258 compliant people are the ones the rule holds for. THE REGISTRATION SCOPES THE POPULATION, IT IS NOT AN OBLIGATION, and that is the whole difficulty of this entry. NumChilds >= 1 sits in the root's sizeFilters FIELD, which narrows the root's bindings to the 5008 registrants. MEASURED with the same size filter in constraints instead: 5742 violations out of 10000, of which 4992 are people who NEVER WENT TO THE ER -- not breaking a rule about being discharged from it. In the field position a size filter says which population the rule is about; in the constraint position it says what the population must do. THE DEADLINE IS A Filter CONSTRAINT (C1), not a binding filter: node 2 binds the person's Discharge events and the wrapped TimeBetweenEvents marks the ones outside four days as violations, which SAT then propagates. As a plain filter it would still answer 750 here but would express 'discharges that happened in time' rather than 'discharges that must happen in time'. EXACTLY ONE DISCHARGE PER PERSON IN THIS LOG (measured: all 10000 have exactly 1), so SAT over the discharge box (every discharge in the window) and ANY (at least one) agree -- MEASURED, both readings give the same 750. They would diverge in a log with re-admissions. DEADLINE SWEEP MEASURED: 1 day -> 5008 violators (everyone), 3 days -> 4867, 4 days -> 750, 7 days -> 78. Almost every discharge falls between three and four days, so the threshold dominates the answer and a plausible-looking 'within three days' reading would report 97% non-compliance. Building blocks: C1, C2, C3, F1, F5, S1, T3, V1, V2."
+  },
+  {
+    "nl_query": "Which patients had both a diagnostic test performed and a bed assigned?",
+    "ocel_path": "..\\Logs\\04_hospital.xml",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Patient"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "AND",
+                  "child_names": [
+                    "A",
+                    "B"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1,
+              2
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {},
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "C"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "C",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              3
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {},
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "D"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "D",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              4
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Perform Diagnostic Test"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Assign Bed"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ],
+        [
+          [
+            0,
+            2
+          ],
+          "B"
+        ],
+        [
+          [
+            1,
+            3
+          ],
+          "C"
+        ],
+        [
+          [
+            2,
+            4
+          ],
+          "D"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 2000 root situations, 1679 violated (83.95%), so 321 patients answer the question. CONFIRMED INDEPENDENTLY OF OCPQ by scanning the XML: 321 of the 2000 patients have a Perform Diagnostic Test event and ALL 2000 have an Assign Bed event, so the intersection is 321 and the id sets are IDENTICAL. That asymmetry explains the per-node numbers: branch A (diagnostic test) violates for 1679 patients, branch B (bed) for none. AND OVER TWO BRANCHES, AND AND IS VACUOUS ON AN EMPTY CHILD exactly as SAT is. MEASURED with the NumChilds >= 1 guards removed: 0% violations and all 2000 patients returned. The guard idiom is required for SAT, OR and AND alike, and NOT for ANY -- see 'Which orders had at least one item picked ten or more days after the order was placed?', where ANY on a child that can never bind correctly flags every order. FIVE BOXES WITH TWO EMPTY RELAY BOXES between the root and the event boxes. This is harmless HERE, and it is worth understanding why: an empty box yields exactly one binding per parent binding, so the relay always binds, the AND is never vacuous, and the guards sit on the relays one level down where they still bite. MEASURED against the direct form -- AND over the two event boxes with both guards on the root -- which returns the identical 321. The same relay shape is FATAL when a SizeFilter has to count through it, because the count is then always 1; see the 'loaded fewer than five times' entry, where an OR over relays made max 5, max 4 and max 1 all return the same answer. Building blocks: C2, C3, C7, F1, S1, T4, V1, V2."
+  },
+  {
+    "nl_query": "Which patients arrived without ever having a diagnostic test performed?",
+    "ocel_path": "..\\Logs\\04_hospital.xml",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Patient"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Patient Arrival"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "NOT",
+                  "child_names": [
+                    "B"
+                  ]
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              2
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "1": [
+                  "Perform Diagnostic Test"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ],
+        [
+          [
+            1,
+            2
+          ],
+          "B"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 2000 root situations, 321 violated (16.05%), so 1679 patients answer the question. CONFIRMED INDEPENDENTLY OF OCPQ by scanning the XML: all 2000 patients have a Patient Arrival event and 321 have a Perform Diagnostic Test event, so 1679 arrived without one, and the id sets are IDENTICAL. THE ONLY ABSENCE QUESTION IN THE DEV SET. NOT is the one constraint whose answer cannot be checked by looking at what the query selected -- the evidence for 'without ever' is the absence of a binding, so a query that quietly binds nothing at all looks exactly like a correct one. That is why this entry's counterpart matters: the same log and the same two activities, read positively, is 'Which patients had both a diagnostic test performed and a bed assigned?' with 321 -- the exact complement of the 1679 here. NOT IS TRUE ON AN EMPTY CHILD, AND THAT IS CORRECT RATHER THAN A TRAP. MEASURED with an impossible child (a ten-year gap): NOT passes every patient, which is what absence means. Contrast SAT, which is vacuously true where it should be false, and ANY, which is false on an empty child. THIS ENTRY THEREFORE NEEDS NO GUARD ON ITS NOT, and the NumChilds >= 1 on the root guards the ARRIVAL, not the absence. MEASURED with SAT in place of NOT the query does NOT answer the complement -- it answers ALL 2000 patients at 0% violations, because SAT is vacuously true for the 1679 with no test and trivially true for the 321 whose test box carries no constraints. Swapping the constraint therefore does not flip the answer, it destroys it, and the output looks healthy either way. Building blocks: C2, C3, C5, F1, S1, T3, V1, V2."
+  },
+  {
+    "nl_query": "Which applications received an offer that was not accepted?",
+    "ocel_path": "..\\Logs\\bpic2017-ocel2.json",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Application"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "O_Refused"
+                ]
+              },
+              "newObjectVars": {
+                "1": [
+                  "Offer"
+                ]
+              },
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 1,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "O2O",
+                  "object": 0,
+                  "other_object": 1,
+                  "qualifier": null
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 31509 root situations, 27789 violated (88.19%), so 3720 applications answer the question; 4695 child bindings. CONFIRMED INDEPENDENTLY OF OCPQ: 3720 applications have an offer touched by an O_Refused event, and the id sets are IDENTICAL. TWO DEFENSIBLE READINGS OF 'NOT ACCEPTED', AND THEY DIVERGE BY A FACTOR OF NEARLY THREE. This entry reads it as the O_Refused ACTIVITY (3720 applications). The alternative keys on the Accepted attribute of O_Create Offer being 'False' (9727 applications, and it carries F9 where this does not). MEASURED overlap: 2427; refused-only 1293; not-accepted-only 7300 -- only about a quarter of either set lies in the other. The activity reading is the sounder one: the log holds 4695 O_Refused events but 12859 offer-creations marked Accepted 'False' against 17228 O_Accepted events, so 'Accepted: False' at creation time plainly does not mean the offer ended up refused. An NL question whose two natural readings differ this much is exactly what a dev entry should record. EVERY EVENT ATTRIBUTE IN THIS LOG IS A STRING, OfferedAmount included ('5000.0', '15000.0'), so a numeric threshold on an offer amount cannot be expressed at all -- an earlier draft of this entry asked for offers 'of more than 20000' and answered NOTHING. Same declared-type trap as the hospital_log_high entries, on event attributes rather than object attributes. THE LARGEST LOG IN THE CORPUS: 106162 objects and 1202267 events. Import alone is tens of seconds and queries are slow enough that a probe budget has to account for it. Building blocks: C2, C3, F1, F2, S1, T2, V1, V2."
+  },
+  {
+    "nl_query": "Which candidates had their résumé screened by recruiter R008?",
+    "ocel_path": "..\\Logs\\03_hiring.xml",
+    "ocpq_query": {
+      "nodes": [
+        {
+          "Box": [
+            {
+              "newEventVars": {},
+              "newObjectVars": {
+                "0": [
+                  "Candidate"
+                ]
+              },
+              "filters": [],
+              "sizeFilters": [],
+              "constraints": [
+                {
+                  "type": "SAT",
+                  "child_names": [
+                    "A"
+                  ]
+                },
+                {
+                  "type": "SizeFilter",
+                  "filter": {
+                    "type": "NumChilds",
+                    "child_name": "A",
+                    "min": 1,
+                    "max": null
+                  }
+                }
+              ],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "Box": [
+            {
+              "newEventVars": {
+                "0": [
+                  "Screen Resume"
+                ]
+              },
+              "newObjectVars": {},
+              "filters": [
+                {
+                  "type": "O2E",
+                  "object": 0,
+                  "event": 0,
+                  "qualifier": null
+                },
+                {
+                  "type": "EventAttributeValueFilter",
+                  "event": 0,
+                  "attribute_name": "ScreenedBy",
+                  "value_filter": {
+                    "type": "String",
+                    "is_in": [
+                      "R008"
+                    ]
+                  }
+                }
+              ],
+              "sizeFilters": [],
+              "constraints": [],
+              "evVarLabels": {},
+              "obVarLabels": {}
+            },
+            []
+          ]
+        }
+      ],
+      "edgeNames": [
+        [
+          [
+            0,
+            1
+          ],
+          "A"
+        ]
+      ]
+    },
+    "source": "authored by the user 2026-09-21 (dev set only, never scored)",
+    "note": "VERIFIED on the pinned corpus: 3000 root situations, 2546 violated (84.87%), so 454 candidates answer the question. CONFIRMED INDEPENDENTLY OF OCPQ by scanning the XML: 454 candidates have a Screen Resume event whose ScreenedBy attribute reads 'R008', and the id sets are IDENTICAL. THE FILTER VALUE IS AN OPAQUE IDENTIFIER, AND THAT IS WHY THIS ENTRY EXISTS. 'R008' appears nowhere in the schema block: an agent can read that Screen Resume carries ScreenedBy:string and still have no way to derive a valid value. It has to sample the data -- attribute_values on the probe is the tool that answers it. Every other attribute question in this dev set has a value recoverable from the question itself ('empty', 'full', '1', '70'..'79', 'False'); this one does not, which makes it the one place where log access is the difference between answering and guessing. A WRONG VALUE FAILS SILENTLY: MEASURED with 'R999', a recruiter id that does not exist, the query answers 0 candidates at 100% violations with no error at all -- the same silent-wrong-answer shape as a mistyped O2O qualifier. GOLD NEVER USES THIS ATTRIBUTE. The testset's four EventAttributeValueFilters are Outcome 'Pass', Decision 'Proceed', and Result 'Clear' / 'Flagged' on the background check; ScreenedBy is untouched, so this is not a paraphrase of a scored entry. THE GUARD IS LOAD-BEARING: without NumChilds >= 1 the query answers all 3000 candidates at 0% violations. Note that EVERY candidate is screened by someone -- the ten recruiters cover all 3000 between them (R008 454, R006 359, R003 341, R007 329, R010 314, R002 278, R001 252, R009 237, R004 235, R005 201) -- so here the guard is not filtering out candidates who were never screened; it is what stops SAT passing vacuously on the candidates whose Screen Resume events all failed the attribute filter. Building blocks: C2, C3, F1, F9, S1, T2, V1, V2."
+  }
+]

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, RootModel
 from typing import List, Dict, Optional, Union, Literal, Any, Tuple
 
 try:
@@ -202,6 +202,279 @@ class RootArity(BaseModel):
     n_event_vars: int = Field(ge=0, le=4)
     n_object_vars: int = Field(ge=0, le=4)
 
+class AgentAction(BaseModel):
+    """One turn of the agentic protocol: look something up in the log, or answer.
+
+    The agentic arm has no native tool-calling to lean on -- the local backend is raw
+    `transformers.generate` with a chat template, and the fine-tuned adapters were trained to emit
+    one JSON object -- so a turn is a JSON object either way, and this is its shape. Constraining
+    generation to it (`LLM.set_constrained_schema`) is what makes a well-formed turn a guarantee
+    rather than a hope, which is the same argument notes 33 made for `RootArity`.
+
+    Exactly one of `tool` or `final_tree` is expected; `LLM._parse_agent_action` enforces that,
+    because a grammar that permits both permits neither to be trusted. `args` is deliberately
+    free-form: each tool documents its own arguments in `ocpq_probe.TOOL_SPECS`, and a wrong
+    argument is a mistake the model should see and correct, not a parse failure.
+    """
+    tool: Optional[str] = None
+    args: Optional[Dict[str, Any]] = None
+    final_tree: Optional[BindingBoxTree] = None
+
+
+class AgentActionWithThought(AgentAction):
+    """`AgentAction` plus a short free-text `thought` -- the agentic arm's reasoning condition.
+
+    A SEPARATE model rather than a field on `AgentAction`, because the grammar is compiled with
+    `strict_mode=True`, which forbids unknown keys: under constrained decoding a model on the plain
+    schema CANNOT emit a thought. That makes the "off" rung clean and byte-identical to the one
+    Stage 3 verified, and makes this model the only difference between the two (notes 43).
+
+    Why a protocol field and not native reasoning: the per-turn grammar masks everything that is not
+    this JSON, so a reasoning model's own thinking tokens can never be emitted here. A field lets
+    EVERY evaluated model reason, inside the grammar, whether or not it has a native mode.
+
+    OPTIONAL, not required, deliberately: xgrammar's `any_order=True` can skip a required property
+    (see `LLM._fill_missing_box_containers`), so "required" would not actually be guaranteed. The
+    uptake -- how many turns carried a thought -- is recorded instead of assumed.
+    """
+    thought: Optional[str] = None
+
+
+# --- THE STRICT TURN GRAMMAR (2026-09-23) ------------------------------------------------------
+#
+# `AgentAction` / `AgentActionWithThought` above are what a PARSED turn becomes. The models below
+# are what the GRAMMAR is compiled from, and they are much tighter. The gate smoke of 2026-09-23
+# (eval_runs/agentic_gate_smoke, 10 cases) showed why a single all-optional object is not enough:
+#   * every field optional + `args: Dict[str, Any]` let the model write a `final_tree` AND an
+#     `args.tree` in ONE object, run on to the 4000-token limit, and be cut off mid-JSON -- about
+#     180 s a turn; three such turns spent the whole 600 s case cap (2 of 5 cases timed out);
+#   * the tree inside `try_query` was free-form JSON, so its shape went unconstrained
+#     (`edgeNames[0][0]: invalid type`, undeclared references) while `final_tree` was checked.
+# A union of one variant per tool plus one final-answer variant lets the grammar admit exactly one
+# well-formed action per turn, with typed arguments and a real BindingBoxTree wherever a tree goes.
+# The tool names here must match `ocpq_probe.TOOL_SPECS`; tests/test_agent_action_protocol.py
+# asserts they do.
+
+
+class TryQueryArgs(BaseModel):
+    tree: BindingBoxTree
+
+
+class InspectSituationsArgs(BaseModel):
+    node: int = 0
+    n: int = 5
+    violated: Optional[bool] = None
+
+
+class SampleArgs(BaseModel):
+    type: str
+    n: int = 5
+
+
+class AttributeValuesArgs(BaseModel):
+    type: str
+    attribute: str
+    n: int = 10
+
+
+class ActivityStatsArgs(BaseModel):
+    type: str
+
+
+class TryQueryCall(BaseModel):
+    tool: Literal["try_query"]
+    args: TryQueryArgs
+
+
+class InspectSituationsCall(BaseModel):
+    tool: Literal["inspect_situations"]
+    args: InspectSituationsArgs
+
+
+class SampleCall(BaseModel):
+    tool: Literal["sample"]
+    args: SampleArgs
+
+
+class AttributeValuesCall(BaseModel):
+    tool: Literal["attribute_values"]
+    args: AttributeValuesArgs
+
+
+class ActivityStatsCall(BaseModel):
+    tool: Literal["activity_stats"]
+    args: ActivityStatsArgs
+
+
+class FinalAnswer(BaseModel):
+    final_tree: BindingBoxTree
+
+
+# The thought variants spell their fields out, `thought` FIRST, rather than subclassing the plain
+# calls: a subclass appends its field, and under the ordered grammar (`constrained_any_order`
+# false, notes 43.7) property order is generation order -- the thought would come after the action
+# and the whole tree, which is reasoning written after the decision it was meant to inform.
+
+
+class TryQueryCallWithThought(BaseModel):
+    thought: Optional[str] = None
+    tool: Literal["try_query"]
+    args: TryQueryArgs
+
+
+class InspectSituationsCallWithThought(BaseModel):
+    thought: Optional[str] = None
+    tool: Literal["inspect_situations"]
+    args: InspectSituationsArgs
+
+
+class SampleCallWithThought(BaseModel):
+    thought: Optional[str] = None
+    tool: Literal["sample"]
+    args: SampleArgs
+
+
+class AttributeValuesCallWithThought(BaseModel):
+    thought: Optional[str] = None
+    tool: Literal["attribute_values"]
+    args: AttributeValuesArgs
+
+
+class ActivityStatsCallWithThought(BaseModel):
+    thought: Optional[str] = None
+    tool: Literal["activity_stats"]
+    args: ActivityStatsArgs
+
+
+class FinalAnswerWithThought(BaseModel):
+    thought: Optional[str] = None
+    final_tree: BindingBoxTree
+
+
+AGENT_TOOL_CALLS = (TryQueryCall, InspectSituationsCall, SampleCall, AttributeValuesCall,
+                    ActivityStatsCall)
+
+
+class AgentTurn(RootModel[Union[TryQueryCall, InspectSituationsCall, SampleCall,
+                                AttributeValuesCall, ActivityStatsCall, FinalAnswer]]):
+    """One agent turn, as the grammar admits it: exactly one tool call or one final answer."""
+
+
+class AgentTurnWithThought(RootModel[Union[
+        TryQueryCallWithThought, InspectSituationsCallWithThought, SampleCallWithThought,
+        AttributeValuesCallWithThought, ActivityStatsCallWithThought, FinalAnswerWithThought]]):
+    """`AgentTurn` for the reasoning condition: every variant may carry a `thought`. A separate
+    class NAME, because the grammar cache (LLM._ocpq_logits_processor) is keyed by it."""
+
+
+# --- STAGE 5 (notes 43.12): check_tree, and a turn grammar per condition -------------------------
+#
+# `check_tree` is the STATIC structure check: `structural_defects` on the model's tree, no log. Both
+# loop rungs get it under `agent_structural_feedback`, so the no-tools control A1' has the same
+# structural help as A1 and A1 - A1' isolates LOG ACCESS (decided 2026-09-26).
+
+
+class CheckTreeArgs(BaseModel):
+    tree: BindingBoxTree
+
+
+class CheckTreeCall(BaseModel):
+    tool: Literal["check_tree"]
+    args: CheckTreeArgs
+
+
+class CheckTreeCallWithThought(BaseModel):
+    thought: Optional[str] = None
+    tool: Literal["check_tree"]
+    args: CheckTreeArgs
+
+
+# --- S (notes 45): search_examples, a STATIC example lookup -----------------------------------------
+#
+# Reads only the retrieval pool (`data/ocpq_dataset.json`, the matrix's few-shot pool), never the log,
+# the testset or gold. Like `check_tree` it is static, so both loop rungs can have it and the 2x2 of
+# notes 45 keeps A1 - A1' a contrast of log access alone.
+
+
+class SearchExamplesArgs(BaseModel):
+    text: str
+
+
+class SearchExamplesCall(BaseModel):
+    tool: Literal["search_examples"]
+    args: SearchExamplesArgs
+
+
+class SearchExamplesCallWithThought(BaseModel):
+    thought: Optional[str] = None
+    tool: Literal["search_examples"]
+    args: SearchExamplesArgs
+
+
+_TURN_VARIANTS = {
+    # name: (plain variant, thought variant)
+    "try_query": (TryQueryCall, TryQueryCallWithThought),
+    "inspect_situations": (InspectSituationsCall, InspectSituationsCallWithThought),
+    "sample": (SampleCall, SampleCallWithThought),
+    "attribute_values": (AttributeValuesCall, AttributeValuesCallWithThought),
+    "activity_stats": (ActivityStatsCall, ActivityStatsCallWithThought),
+    "check_tree": (CheckTreeCall, CheckTreeCallWithThought),
+    "search_examples": (SearchExamplesCall, SearchExamplesCallWithThought),
+}
+PROBE_TOOL_NAMES = ("try_query", "inspect_situations", "sample", "attribute_values",
+                    "activity_stats")
+_TURN_MODEL_CACHE: Dict[Tuple, Any] = {}
+
+
+def agent_turn_model(tools: Tuple[str, ...], thought: bool = False, final_only: bool = False):
+    """The turn grammar for a condition: exactly one call to one of `tools`, or a final answer.
+
+    With the five probe tools, no `check_tree` and not `final_only` this returns `AgentTurn` /
+    `AgentTurnWithThought` THEMSELVES, so every condition without the Stage 5 levers compiles the
+    grammar it compiled before. Otherwise a union is built once per combination, with a class name
+    that spells the combination -- the grammar cache is keyed by the name.
+
+    `final_only` (the reserved last turn) admits the final answer alone.
+    """
+    tools = tuple(tools)
+    if not final_only and tools == PROBE_TOOL_NAMES:
+        return AgentTurnWithThought if thought else AgentTurn
+    key = (() if final_only else tools, bool(thought), bool(final_only))
+    if key not in _TURN_MODEL_CACHE:
+        final = FinalAnswerWithThought if thought else FinalAnswer
+        calls = [] if final_only else [_TURN_VARIANTS[name][1 if thought else 0]
+                                       for name in tools]
+        variants = tuple(calls + [final])
+        root = RootModel[Union[variants]] if len(variants) > 1 else RootModel[final]
+        name = ("AgentTurn_" + ("final_only" if final_only else "_".join(tools) or "no_tools")
+                + ("_thought" if thought else ""))
+        _TURN_MODEL_CACHE[key] = type(name, (root,), {"__doc__": agent_turn_model.__doc__})
+    return _TURN_MODEL_CACHE[key]
+
+
+# A one-line fix per defect kind, appended to each defect the agent is shown (notes 43.12). The
+# measured failures of the model gate, 298 try_query trees: children_mismatch 205, cycle 192,
+# root_count 168, unbound_variable 101, multiple_parents 90 -- the model writes plausible boxes and
+# does not know how a tree LINKS them. Static text about the representation, never about a case.
+DEFECT_HINTS = {
+    "cycle": "a Box's child list holds the indices of OTHER nodes, never the node's own index",
+    "children_mismatch": "node p's child list must hold exactly the c of every [[p, c], name] "
+                         "entry in edgeNames, and nothing else",
+    "root_count": "node 0 is the root: the ONE node that appears in no child list; every other "
+                  "node appears in exactly one",
+    "multiple_parents": "a node appears in exactly one child list -- it has one parent",
+    "child_out_of_range": "child indices must be node indices that exist (0 .. number of nodes-1)",
+    "edge_name_out_of_range": "edgeNames entries must link existing nodes, parent first",
+    "unbound_variable": "a filter may only read variables declared in its own box or an ancestor "
+                        "box; declare the variable there or move the filter",
+    "unbound_optional_reference": "an optional reference names a variable no box in scope "
+                                  "declares; declare it or drop the reference",
+    "unknown_child_name": "SAT/NOT/NumChilds name a child by its edgeNames name; use a name this "
+                          "node's own edgeNames entries give",
+    "malformed_tree": "each node is {\"Box\": [box data, [child indices]]}",
+}
+
+
 class QueryVerification(BaseModel):
     is_correct: bool
     issues: List[str]
@@ -236,6 +509,10 @@ class QueryTree(BaseModel):
 
 OCPQ_JSON_SCHEMA = BindingBoxTree.model_json_schema()
 ROOT_ARITY_SCHEMA = RootArity.model_json_schema()
+AGENT_ACTION_SCHEMA = AgentAction.model_json_schema()
+AGENT_ACTION_WITH_THOUGHT_SCHEMA = AgentActionWithThought.model_json_schema()
+AGENT_TURN_SCHEMA = AgentTurn.model_json_schema()
+AGENT_TURN_WITH_THOUGHT_SCHEMA = AgentTurnWithThought.model_json_schema()
 VERIFICATION_JSON_SCHEMA = QueryVerification.model_json_schema()
 EXTRACTED_STRUCTURE_SCHEMA = ExtractedStructure.model_json_schema()
 QUERY_TREE_SCHEMA = QueryTree.model_json_schema()
@@ -257,6 +534,13 @@ QUERY_TREE_SCHEMA = QueryTree.model_json_schema()
 #   advisory -- it tolerates them: an optional reference with no value is treated as absent
 #               (`if let Some(..)`), and an edge name nobody walks is never looked up. Reported,
 #               never repaired. On 2026-09-13, 26 trees that evaluated normally carried one.
+# CORRECTION (2026-09-22, measured on the pinned OCPQ, one tree per kind): `cycle` and
+# `multiple_parents` do NOT always block -- ocpq_cli evaluated both (exit 0, an `Ok` export; the
+# cycle tree to 0 situations). They stay in this set deliberately: across matrix_v2 only 8 of 5500
+# predictions carry them as their ONLY blocking kind (3 of which never executed anyway), the
+# non-oracle rung's structval shards carry them 0 times, and a tree whose boxes do not form one tree
+# is broken whatever the evaluator makes of it. `child_out_of_range` panics the evaluator.
+# See TODO (2026-09-22) and ocpq_probe.PROBE_REFUSED_DEFECT_KINDS.
 BLOCKING_DEFECT_KINDS = frozenset({
     "malformed_tree",
     "child_out_of_range",
@@ -281,6 +565,19 @@ def defect_kind(defect: str) -> str:
 def blocking_defects(defects: List[str]) -> List[str]:
     """The defects the evaluator errors on -- the only ones worth spending a repair on."""
     return [defect for defect in defects if defect_kind(defect) in BLOCKING_DEFECT_KINDS]
+
+
+def _unhashable(value: Any) -> bool:
+    """True for a value that cannot be a set member (a list or dict where a name belongs).
+
+    Only these become defects: they are exactly the inputs that used to raise TypeError in
+    `structural_defects`. A missing name (None) keeps its advisory `unknown_child_name` reading.
+    """
+    try:
+        hash(value)
+    except TypeError:
+        return True
+    return False
 
 
 def _is_index(value: Any) -> bool:
@@ -397,6 +694,12 @@ def structural_defects(tree: Any) -> List[str]:
             defects.append(f"[edge_name_out_of_range] edgeNames entry [[{parent!r}, {child!r}], "
                            f"{name!r}] points outside nodes 0..{count - 1}")
             continue
+        if _unhashable(name):
+            # A list or dict here cannot go in the name set below (it used to raise TypeError), and
+            # the evaluator refuses it at deserialisation anyway: edge names are strings.
+            defects.append(f"[malformed_tree] edgeNames entry [[{parent}, {child}], {name!r}]: "
+                           f"an edge name must be a string")
+            continue
         edge_children.setdefault(parent, set()).add(child)
         child_names.setdefault(parent, set()).add(name)
 
@@ -456,6 +759,10 @@ def structural_defects(tree: Any) -> List[str]:
             if size_filter.get("type") != "NumChilds":
                 return
             name = size_filter.get("child_name")
+            if _unhashable(name):
+                defects.append(f"[malformed_tree] node {index}: {where}NumChilds child_name "
+                               f"{name!r} is not a string")
+                return
             if name not in names:
                 defects.append(f"[unknown_child_name] node {index}: {where}NumChilds names child "
                                f"{name!r}, but node {index}'s children are named {shown_names}")
@@ -477,6 +784,10 @@ def structural_defects(tree: Any) -> List[str]:
                 check_child_name(inner, "constraint ")
             elif constraint_type in _CHILD_NAME_CONSTRAINTS:
                 for name in constraint.get("child_names") or []:
+                    if _unhashable(name):
+                        defects.append(f"[malformed_tree] node {index}: {constraint_type} "
+                                       f"child name {name!r} is not a string")
+                        continue
                     if name not in names:
                         defects.append(f"[unknown_child_name] node {index}: {constraint_type} "
                                        f"names child {name!r}, but node {index}'s children are "

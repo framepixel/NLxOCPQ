@@ -29,3 +29,10 @@ CORPUS_MANIFEST = DATA / "corpus_manifest.json"
 # Sibling checkouts, outside this repo.
 OCPQ_CHECKOUT = Path(os.getenv("OCPQ_REPO_DIR", REPO_ROOT.parent / "OCPQ"))
 OCEL_LOGS = Path(os.getenv("OCPQ_LOGS_DIR", REPO_ROOT.parent / "Logs"))
+
+# Outputs of the post-run analysis scripts (src/analysis_common.py and its users). JSON stays in
+# this repo; the LaTeX tables go straight into the thesis checkout, a sibling directory, so one
+# command regenerates a table the thesis \inputs.
+ANALYSIS_DIR = EVAL_RUNS / "analysis"
+THESIS_TABLES = Path(
+    os.getenv("THESIS_TABLES_DIR", REPO_ROOT.parent / "Thesis" / "script" / "tables"))

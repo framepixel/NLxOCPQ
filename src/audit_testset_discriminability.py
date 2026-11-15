@@ -52,10 +52,12 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+import paths
 import result_store
 from eval_testset import (
     SIMILARITY_VARIANTS,
     _extract_result_ids,
+    _resolve_ocel_path,
     _set_metrics,
     root_node_index,
 )
@@ -333,7 +335,12 @@ def _run_and_extract(ocel_path: str, query: dict, query_path: Path,
     """
     _write_json(query_path, query)
     try:
-        _stdout, _stderr, result_path = run_ocpq_query(ocel_path, str(query_path))
+        # Executed at the path the HARNESS would use; `ocel_path` itself stays the store key.
+        # The testset spells logs `..\Logs\x.json`: Windows accepts that, Linux reads the
+        # backslashes as part of a filename -- so before 2026-09-23 this audit only ever worked on
+        # the laptop, and on the cluster it failed every import and recorded execution_failed.
+        _stdout, _stderr, result_path = run_ocpq_query(
+            _resolve_ocel_path(ocel_path, paths.REPO_ROOT), str(query_path))
     except Exception:  # noqa: BLE001 - a crashing query is a reportable outcome, not a stop
         return None
     if not result_path:
@@ -654,6 +661,37 @@ def audit(
               "and will be re-executed")
         for i in _stale:
             del results_by_index[i]
+
+    # A cached row is keyed by index and nl_query, so a gold query CORRECTED under an unchanged
+    # question would keep its old verdict and floor (testset #25, 2026-09-22). The store is
+    # content-addressed by (log, gold query): a row is current only while the store holds a blob
+    # for the gold query the testset has NOW.
+    # Only rows this run will RE-EXECUTE may be dropped: with --log-filter, a row outside the filter
+    # is carried over, not recomputed, so invalidating it would delete it from the summary (found
+    # 2026-09-23 before it ran: a machine whose store lacked the blobs would have lost every other
+    # log's row). A stale row outside the filter stays, and the next unfiltered run replaces it.
+    _regolded = [i for i in results_by_index
+                 if (not log_filter or _log_selected(str(testset[i]["ocel_path"]), log_filter))
+                 and not result_store.blob_path(store, testset[i]["ocel_path"],
+                                                testset[i]["ocpq_query"]).exists()]
+    if _regolded:
+        print(f"resuming: {len(_regolded)} cached entries have a gold query the store has never "
+              f"executed and will be re-executed: {sorted(_regolded)}")
+        for i in _regolded:
+            del results_by_index[i]
+
+    # Refuse to start if a log this run would execute is not on disk. A missing log makes every
+    # execution fail, and the summary would then overwrite GOOD cached rows with execution_failed
+    # (the 2026-09-23 cluster run: 26 rows, discriminating 135 -> 117 in the tracked summary).
+    _to_run = [e for i, e in enumerate(testset)
+               if e.get("ocel_path") and e.get("ocpq_query") and i not in results_by_index
+               and (not log_filter or _log_selected(str(e["ocel_path"]), log_filter))]
+    _missing = sorted({e["ocel_path"] for e in _to_run
+                       if not Path(_resolve_ocel_path(e["ocel_path"], paths.REPO_ROOT)).is_file()})
+    if _missing:
+        raise FileNotFoundError(
+            f"{len(_missing)} log(s) this audit would execute are not on disk: {_missing}. "
+            f"Nothing was executed or written.")
 
     for index, entry in enumerate(testset):
         nl_query = entry.get("nl_query", "")

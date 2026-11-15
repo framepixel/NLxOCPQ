@@ -1111,3 +1111,955 @@
     8. submit B first (8 GPU-h), then:
        sbatch slurm/submit_eval_array.sh --config configs/eval_config.matrix_v2.json
     9. merge gate: 8112 records, dropped 0, pipeline_consistent AND corpus_consistent true
+
+- DONE (2026-09-22, notes 43.2: fixed before the agentic runs -- today's commits had already moved
+  pipeline_fingerprint, so the reason to wait was gone; old runs rescored with --recompute; the
+  TOLERANT variant was NOT adopted, a tree with broken edges keeps scoring structural 0)
+  (was OPEN, DECISION 2026-09-21) tag_testset_bb._longest_path measures depth from node 0, not from the
+  structural root, so a tree whose root is not node 0 loses its T5 label. Found while validating dev-set
+  entry 20 (a four-box container chain rooted at node 3), which should carry T5 and carries no T-label
+  at all. The bug can only ever produce FALSE NEGATIVES on T5: depth(0) walks a subpath of the real
+  root's path, so it can understate the depth but never overstate it. T5 is the only label affected --
+  T1/T2/T3 read the node count and T4 reads per-node children, both root-independent.
+  MEASURED BEFORE DECIDING (scratchpad, stubs; the minimal patch is depth(root_node_index(query)),
+  everything else in the function byte-identical):
+    * GOLD IS UNAFFECTED. 3 of 169 testset entries have a non-zero root (35, 36, 135), and all three
+      have exactly 3 nodes, so they cannot reach T5 under either version. data/testset_bb_labels.json,
+      the per-BB slices and the coverage floors do not move, and tag_testset_bb.py need not be re-run
+      over the testset.
+    * PREDICTIONS BARELY MOVE. matrix_v2/merged: 20 of 8112 predictions have a non-zero root, 1 record
+      changes, structural_f1 0.3245 -> 0.3245 (+0.0000). matrix_full: 23 off-root, 3 records change,
+      0.3216 -> 0.3217 (+0.0001). Both are two orders of magnitude below the +-0.03 resolution of
+      notes 37.7, so no published number changes.
+    * NO LLM RE-RUN IS NEEDED IF IT IS FIXED. _recompute_metrics re-derives metrics.structural from
+      each record's own gold_query and prediction via _structural_metrics -> detect_bb_labels, with no
+      GPU and no ocpq_cli; that is what the result store is for. matrix_v2/merged and matrix_full both
+      have a result_store. non_oracle does NOT (per-shard stores only), so it would be recomputed
+      shard by shard.
+    * COST OF FIXING: tag_testset_bb.py is in _PIPELINE_SOURCE_FILES, so pipeline_fingerprint moves and
+      no future shard matches the existing matrix. That is already true post-reorg (notes 38), but it
+      means the fix must not land between shards of one matrix.
+  RECOMMENDATION: fix it AFTER the agentic runs, not during them, and recompute rather than re-run.
+  CLAUDE.md forbids refactoring working code mid-experiment, and a +0.0001 correction does not justify
+  moving the fingerprint while the agentic arm is being measured against the existing arms.
+  SEPARATE AND LARGER, FOUND THE SAME WAY, NOT YET A DECISION: a tolerant _longest_path -- one that
+  skips edges to non-existent nodes and guards against cycles instead of raising -- moves structural_f1
+  by +0.0176 on matrix_v2 and changes 544 records. Today a malformed prediction whose edges cycle or
+  dangle raises inside detect_bb_labels, _structural_metrics catches it and the record scores F1 0 for
+  ALL 42 labels, not just T5. Whether that is a defect or the correct reading of "it expressed nothing"
+  is a genuine question: the tree really is invalid. Decide it separately, and note that at +0.0176 it
+  is half the resolution and therefore worth deciding deliberately rather than by accident.
+
+- DONE (2026-09-21) OCPQ PINNED at branch nlxocpq-pinned, commit 50f60c1 (2c5e0d6 + our two local
+  modifications as a real commit). Upstream had moved to v0.12.1 under us and a `git stash pop` of
+  our modifications conflicted; that conflict was the symptom, not the problem.
+  WHAT v0.12.1 WOULD HAVE COST:
+    * It REPLACES THE WHOLE /ocel/* HTTP API with an /api/call binding registry. Every route
+      src/ocpq_probe.py uses -- /ocel/load, /ocel/check-constraints-box, /ocel/eval-results/page,
+      /ocel/sample-ids, /ocel/get-object, /ocel/get-activity-statistics -- is gone. Stage 1 of the
+      agentic plan would have been dead code.
+    * It renames the crates (ocpq_shared -> ocpq_core / backend_shared), so ocpq_cli and the shared
+      evaluation core both move. ocpq_cli computes every gold and predicted result set in the thesis.
+    * Our local ocpq_cli.exe is from 3 April and had NOT been rebuilt, so every completed run is
+      safe -- but the next `cargo build` on a v0.12.1 tree would have silently replaced the
+      evaluation binary mid-experiment. Nothing would have reported it.
+  WHAT IT WOULD HAVE GIVEN: v0.12.1 implements both halves of our modification 2 independently
+  (OCPQ_PORT and OCPQ_BIND, and no startup OCEL import at all), so that patch becomes redundant on
+  upgrade. Modification 1 (measure_performance = false) is still ours.
+  VERIFIED after pinning: all five probe route families present, and a live ProbeServer answers
+  try_query (1999 Container situations on container_logistics) and activity_stats.
+  UPGRADE DELIBERATELY, AFTER THE AGENTIC RUNS. Re-point src/ocpq_probe.py at /api/call first, then
+  re-run the probe tests and check_probe.py, then rebuild and re-verify ocpq_cli against a known
+  run before any scored evaluation.
+
+- DONE (2026-09-22) OCPQ PROVENANCE IS RECORDED IN EVERY RUN. QueryExecutor.ocpq_provenance()
+  writes config_resolved.json["ocpq"] = {rev, branch, dirty, dirty_files, binaries: {ocpq_cli,
+  ocpq-web-server}: {path, sha256, bytes, mtime}, cli_older_than_source, cli_mode, build_error}.
+  summary.json gets ocpq_cli_sha256 and ocpq_cli_changed_during_run (re-hashed at the end: array
+  tasks share one checkout, so another job's rebuild would otherwise split a run between two
+  evaluators). --merge-shards reports ocpq_consistent (True / False / None = a shard predates
+  this) and ocpq_cli_sha256s. Recorded, never a gate -- it warns loudly on a dirty checkout, a
+  stale binary, a failed build or a missing binary. Never raises. tests/test_ocpq_provenance.py
+  (21 checks, a real throwaway git checkout); it caught a real bug on the way (stdout.strip() ate
+  the leading space of `git status --porcelain`, truncating the first dirty filename).
+  WHY build=True: ocpq_cli runs through `cargo run --release`, which REBUILDS the binary whenever
+  the OCPQ source is newer than it. Hashing first would record the binary cargo is about to
+  replace. So the run triggers the build (the existing _detect_cli_mode call, which every run
+  already made on its first query) and hashes afterwards. Only the timing of that build moves.
+  TWO CORRECTIONS TO MY OWN EARLIER STATEMENTS, found doing this:
+    * The live evaluator was NOT the "3 April binary". The workspace root is OCPQ/, so cargo
+      runs OCPQ/target/release/ocpq_cli.exe, built 2026-08-28 (sha256 192522ea...). The 3 April
+      file is OCPQ/backend/target/release/ocpq_cli.exe, a stale leftover nothing runs.
+    * Restoring the two modified files on 2026-09-21 made them newer than that binary, so the
+      next local `cargo run` would have rebuilt the evaluator silently. HEAD was 2c5e0d6 from
+      2026-08-18 to 2026-09-21, so the 08-28 binary and the pinned 50f60c1 share their ocpq_cli
+      source; a rebuild should be equivalent, but equivalent is a claim, so it was tested (below).
+  REBUILT 2026-09-22 from nlxocpq-pinned 50f60c1: ocpq_cli sha256 0f2ff455..., same size, new
+  hash (Rust builds are not bit-reproducible). EQUIVALENCE VERIFIED: every gold query of the
+  testset, run through QueryExecutor.run_ocpq_query on the rebuilt binary, reproduces the root
+  situation set the previous binary stored in eval_runs/_discriminability_store on 2026-09-02 --
+  159 of 159 IDENTICAL on 10 logs (bpic2017's 10 entries skipped for import time). A first attempt
+  to compare the two binaries directly got 5/5 identical on 3 logs before Windows Defender blocked
+  the backup copy of the old binary in the Temp scratchpad (WinError 225, a heuristic on an
+  unsigned exe in Temp; not circumvented). The stored sets are the stronger reference anyway.
+  Original entry:
+- (was OPEN, 2026-09-21) RECORD THE OCPQ REVISION IN THE RUN MANIFEST.
+  Nothing in any completed run records which OCPQ built the results. summary.json carries
+  pipeline_fingerprints (the Python source), corpus digests (the logs) and testset_hash (the data),
+  but the BINARY that computes every situation set is unrecorded -- checked matrix_v2/merged and
+  matrix_full. This is the same hole the corpus manifest was created to close for logs after notes
+  35, and the OCPQ upgrade above is exactly the event it would have caught.
+  Proposed, cheap: in _configure_backend or the manifest builder, shell `git -C <OCPQ> rev-parse HEAD`
+  plus `git status --porcelain` for a dirty flag, and record {ocpq_rev, ocpq_dirty, ocpq_cli_sha256,
+  ocpq_cli_mtime}. The binary hash matters more than the rev, because the rev says what the source
+  was and the hash says what actually ran. Anchor the OCPQ path through src/paths.py, never hardcoded.
+  The agentic plan already calls for the web-server patch sha256 and the OCPQ git rev in the run
+  manifest; this generalises it to every run, including ocpq_cli.
+
+- CORRECTION (2026-09-22) TO THE ENTRY BELOW: IT IS ONE ENTRY, NOT THREE. Re-checked from
+  data/testset.json: only 2 entries carry evVarLabels on a non-root node while the root binds no
+  event, and only ONE is wrong. #25 "Retrieve the payment events for all orders that received at
+  least one reminder." (order-management) -- root binds orders, node 1 marks `pay order` INCLUDED,
+  so the scored answer is orders. #158 "Which invoice receipts were paid after a two-way match
+  was performed?" is CORRECT: its root binds `invoice receipt` with obVarLabels INCLUDED and both
+  child events are marked IGNORED. The "three" counted #158's two nodes as two entries.
+
+- MEASURED (2026-09-22) FOR THE BLOCKING_DEFECT_KINDS DECISION (entry further below). Census over
+  every dict prediction (scratchpad blocking_census.py): matrix_v2/merged 5500 predictions -- 102
+  carry cycle/multiple_parents among their blocking kinds, but in 94 of them another blocking kind
+  is present too (mostly unbound_variable). ONLY 8 have cycle/multiple_parents as their ONLY
+  blocking kinds (7 multiple_parents, 1 cycle): 5 executed successfully, 2 were schema_invalid
+  (never sent), 1 execution_failed. non_oracle: 3 of 664 carry them, 0 as the only kind, and the
+  two structval shards have 0 -- the non-oracle rung's published numbers cannot have been moved by
+  this. SECOND FINDING: structural_defects RAISES TypeError on 2 matrix_v2 predictions (a child
+  name that is a list / a dict: `name not in names` on a set), despite its docstring's "never
+  raises". Both records were schema_invalid, so no scored number is affected, but ocpq_probe.
+  try_query now calls it, where a TypeError would surface as a misleading "bad arguments".
+
+- DONE (2026-09-22, notes 43.2, user-approved: #25's gold re-rooted on the payment event; floors
+  unchanged; old runs rescored with --recompute --gold-from, no LLM re-run. OPEN REMAINDER: the
+  oracle ablations were not rescored -- their #25 case was generated from the old gold)
+  (was OPEN, QUESTION FOR GOLD 2026-09-21) THREE TESTSET ENTRIES DECLARE AN OUTPUT THE METRIC DOES NOT
+  SCORE. _extract_result_ids reads ONLY the root binding box (src/eval_testset.py:786), keyed by
+  event ids, object ids and the violation flag. evVarLabels / obVarLabels document which variable is
+  the intended answer, but they do not change what is compared. So for a "retrieve the X" question
+  the ROOT must bind X, or the scored answer is a different kind of entity than the question asks for.
+  FOUND while validating the dev-set entry "Retrieve the weighing events of containers that were also
+  rescheduled". MEASURED both forms on the same log: root binds the Weigh event -> 36 EVENT ids,
+  matching the log exactly; root binds Container with the child's Weigh marked INCLUDED (the gold
+  idiom) -> the same count but 36 OBJECT ids, i.e. the containers.
+  THE THREE ENTRIES (8 nodes carry evVarLabels, 22 carry obVarLabels; these 3 mark an EVENT as
+  output on a NON-root node while the root binds no event):
+    * "Retrieve the payment events for all orders that received at least one reminder."  root=0
+      arity (0,1), evVarLabels on node 1 -- the L2 exemplar; its scored answer is orders.
+    * "Which invoice receipts were paid after a two-way match was performed?"  root=0 arity (0,1),
+      evVarLabels on node 1 -- and the same entry again with evVarLabels on node 2.
+  NOT ACTED ON: data/testset.json is read-only (CLAUDE.md 7) and this is a gold-authoring decision,
+  not a bug to fix silently. Note the second NL arguably DOES ask for invoice receipts (objects), in
+  which case only the first is wrong; the first is unambiguous.
+  IF IT IS CHANGED: the gold query changes, so gold result sets must be re-executed -- this is NOT
+  recoverable with --recompute the way the _longest_path fix is, because the stored blobs are keyed
+  by the query. Decide it with the same care as the testset expansion, and not during the agentic runs.
+
+- DONE (2026-09-22) THE PROBE SURVIVES MALFORMED TREES -- AND THE ORIGINAL DIAGNOSIS BELOW WAS
+  WRONG IN ITS MOST ALARMING PART. MEASURED on the pinned server, one tree per defect kind
+  (scratchpad crash_classes.py / crash_followup.py):
+    * child_out_of_range PANICS (structs.rs:784, index out of bounds) and the connection drops --
+      BUT THE SERVER SURVIVES. Three consecutive panics, and after each one a good tree still
+      answered 3000/3000 and /ocel/info still served. "The process is gone and every later tool
+      call fails" was my inference from a script that died on the first exception, never a
+      measurement. ocpq_cli on the same tree exits 101 with no export.
+    * unbound_variable -> 400 "Could not get oN"; malformed_tree -> 422 naming the bad field.
+      Error documents, no crash.
+    * cycle and multiple_parents are EVALUATED by the server AND by ocpq_cli (exit 0, an `Ok`
+      export) -- see the OPEN entry directly below; ocpq_schema calls them blocking.
+  So the real defect was OURS: the probe turned one dropped connection into ProbeUnavailable, which
+  the plan treats as "this case cannot be measured" -- the agent would have lost the case over its
+  own malformed tree instead of being told what was wrong.
+  WHAT src/ocpq_probe.py DOES NOW:
+    1. try_query REFUSES only PROBE_REFUSED_DEFECT_KINDS = {child_out_of_range}, the measured crash
+       class, and returns the structural_defects message. Everything else goes to the server, whose
+       own error is the feedback -- refusing more would withhold counts for trees the scorer
+       evaluates.
+    2. A failed try_query is told apart by process state, never guessed: TIMEOUT -> restart (the
+       server is still burning CPU/memory on a runaway evaluation), tell the agent to narrow it;
+       DEAD process -> restart, tell the agent, do NOT resend the tree; ALIVE + dropped connection
+       -> evaluator panic, no restart, tell the agent. Other tools on a dead server are retried ONCE
+       on the restarted one (they send no model-authored structure). Restarts move to a new port,
+       reload the log and re-assert its identity. Capped at 2 per case / 10 per run
+       (OCPQ_PROBE_MAX_RESTARTS_PER_CASE / _PER_RUN); past a cap, ProbeUnavailable.
+    3. RECORDED: every restart is on the trajectory entry of the call that caused it, and
+       OcpqProbe.health() returns {probe_restarts, probe_evaluator_panics, probe_refused_trees}
+       per case.
+  VERIFIED LIVE (scratchpad live_recovery.py, live_timeout.py): refusal; a real panic survived;
+  kill -> restart -> reload -> identity -> correct answer; a 3-way Candidate cross product under a
+  2 s timeout -> restart with a new pid, correct answers after. tests/test_ocpq_probe.py extended
+  (the SIGALRM sentinel still propagates: only ProbeUnavailable is caught).
+  LEFT FOR STAGE 3 (it does not exist yet): copy probe.health() into each run record beside
+  agent_tool_calls, and add probe_restarts / probe_evaluator_panics to the compliance block of
+  notes 43. Upstream report: the panic is a genuine robustness bug in v0.11.x; check v0.12.1
+  before writing it.
+
+- DONE (2026-09-22, notes 43.2: measured 8/5500 matrix_v2, 0 in structval; set LEFT AS IS, comment
+  corrected; the TypeError on unhashable names fixed)
+  (was OPEN, DECISION) ocpq_schema.BLOCKING_DEFECT_KINDS INCLUDES TWO KINDS THE EVALUATOR
+  DOES NOT BLOCK ON. Its comment says blocking = "it errors or panics", and `cycle` and
+  `multiple_parents` are in it -- but MEASURED on one tree each, both evaluate in ocpq_cli (exit 0,
+  an `Ok` export; the cycle tree yields 0 situations, the multiple-parents tree evaluates
+  normally in 16 s). WHAT IT AFFECTS: structural_validation (the non-oracle rung, notes 36/41)
+  spends its one repair call only on blocking defects, so a tree with only these kinds gets a
+  repair it may not need, and the repaired tree replaces one that would have executed. Also
+  blocking_defects is what check-only paths count. NOT CHANGED: moving the set changes the
+  non-oracle rung's behaviour and pipeline_fingerprint mid-experiment. BEFORE DECIDING: count how
+  many matrix_v2 / non_oracle predictions carry ONLY these kinds (cheap, from predictions.json),
+  and test more than one tree per kind -- a cycle not involving the root may behave differently.
+
+- (was OPEN, 2026-09-21) A MALFORMED TREE CRASHES THE OCPQ WEB SERVER, AND
+  THE PROBE DOES NOT SURVIVE IT. Found while testing dev-set variants: a BindingBoxTree whose child
+  index points past the end of `nodes` (here [1] rewritten to two nodes while a child still named
+  index 2) does not return an error document -- the server closes the connection and the process is
+  gone. src/ocpq_probe.py surfaces it as ProbeUnavailable("Remote end closed connection without
+  response") and every later tool call in that run fails, because ProbeServer starts the binary once
+  and never restarts it.
+  WHY THIS MATTERS MORE FOR THE AGENTIC ARM THAN FOR ME: the whole premise of rung A1 is that the
+  model emits a candidate tree and calls try_query on it. An agent WILL emit malformed trees -- that
+  is what the malformed-action rate in the pre-registration is there to measure -- and today the
+  first such tree ends the probe for the rest of the case, and for every case afterwards that shares
+  the server. A crash in the middle of a 169-case shard would silently degrade A1 and A2 into
+  no-tool arms, and the run would still complete, so nothing would flag it.
+  THREE THINGS TO DO, cheapest first:
+    1. VALIDATE BEFORE SENDING. ocpq_schema.structural_defects already detects an out-of-range child
+       (it reported `[unknown_child_name] node 1: size filter NumChilds names child 'B', but node
+       1's children are named []` on an earlier draft). OcpqProbe.try_query should run the existing
+       structural check and return the defect as a tool result instead of posting the tree. That is
+       strictly better feedback for the agent than a dead socket, and it costs nothing.
+    2. SURVIVE ANYWAY. ProbeServer needs a liveness check and a bounded restart: on
+       ProbeUnavailable, restart the binary, re-run ensure_log for the case's log (re-asserting the
+       /ocel/info identity), and retry the call ONCE. Cap restarts per case and per run, and record
+       the count in the run record next to agent_tool_calls -- a silent restart is how a degraded
+       arm would hide.
+    3. RECORD IT. New record field (probe_restarts) and a line in the compliance block of notes 43,
+       beside malformed-action and budget-exhaustion rates.
+  NOT A REASON TO PATCH OCPQ: the server is pinned at nlxocpq-pinned 50f60c1 and the fix belongs on
+  our side of the boundary, where it also produces better agent feedback. Worth reporting upstream
+  separately, since it is a genuine robustness bug in v0.11.x; check whether v0.12.1 still has it
+  before writing that report.
+
+- DONE (2026-09-22, notes 43.3) STAGE 3 WIRED. All six items below implemented; tests
+  test_agentic_failure_status.py + test_agentic_no_gold.py; --dry-run and a 2-case x {A0, tools,
+  self-refine} run through run_evaluation with a stub model (real gold, probe, CLI, store): all
+  records success, probe-vs-CLI 2/2 agree, compliance block on agentic conditions only. Two
+  additions beyond the plan: the trajectory is published live (a case killed mid-loop keeps its
+  turns, `loop_complete: false`), and full trajectories go to <run_dir>/agent_trajectories.jsonl
+  (merged by --merge-shards) with a compact turn_summary on the record. NEXT: Stage 4.
+  (was OPEN, NEXT) AGENTIC PLAN STAGE 3 -- WIRE THE AGENT INTO src/eval_testset.py. Full plan:
+  ~/.claude/plans/write-all-the-results-greedy-panda.md (Stage 3); refined here with what 2026-09-22
+  found. PRECONDITION: the three pre-agentic fixes (_longest_path root index, structural_defects
+  TypeError, testset #25 + targeted re-score) are committed and the comparison runs recomputed.
+    1. CONFIG + FINGERPRINT. Keys read from the config and recorded in the manifest:
+       agent_max_turns, agent_max_tool_calls, agent_tool_result_char_cap, probe request/load
+       timeouts, probe restart caps. Agentic conditions carry the turn budget in config_id
+       (e.g. `_turns15`) -- A1 and A2 share a strategy and differ only in budget, so without it
+       --merge-shards would collide them (the 2026-08-27 silent de-dup). ocpq_probe.py joins
+       _PIPELINE_SOURCE_FILES. Refuse a config that mixes backends (set_hf_client keeps the previous
+       base_url, so a second model would silently go to the first model's endpoint).
+    2. PROBE LIFECYCLE. One ProbeServer per run, only if an `agentic-log-tools` condition is
+       present; stopped in `finally`. probe.ensure_log(ocel_path) in the case preamble, OUTSIDE
+       _case_time_limit (a ~30 s import is not the case's work). A failed load marks that case's
+       agentic records `probe_unavailable` instead of crashing the run. Cases are NOT reordered.
+    3. PER RECORD. Before the pipeline: probe.reset() and clear LLM._last_agent_trajectory --
+       nothing does either today, so a case that times out mid-loop would hand its trajectory and
+       tool count to the next case. After it (also on exception): read the trajectory and
+       probe.health().
+    4. STATUSES. AgentNoFinalAnswer -> pipeline_status `agent_no_answer`; ProbeUnavailable /
+       LogIdentityError -> `probe_unavailable`. Returned early in _classify_run_status, before the
+       substring matches, like `timeout` (today both fall through to `pipeline_error`). Scoring
+       convention = timeout: strict 0, not executed.
+    5. RECORD FIELDS + SUMMARY. agent_trajectory (capped), agent_turns, agent_tool_calls,
+       agent_malformed_actions, agent_final_source, post_execution_repair, probe_restarts,
+       probe_evaluator_panics, probe_refused_trees, probe_vs_cli_agreement (one UNCHARGED try_query
+       on the final tree after scoring: does the probe's root count equal the CLI's?). Summary: a
+       per-condition compliance block (malformed-action rate, budget exhaustion, final_source mix,
+       restarts), reported before F1.
+    6. TESTS. tests/test_agentic_failure_status.py (statuses classified before the substring
+       matches; timeouts unchanged), tests/test_agentic_no_gold.py (the probe only ever receives
+       ocel_path; per-case reset enforced), plus a harness-level test with a fake pipeline: a
+       timeout mid-loop leaves no stale trajectory.
+    VERIFY: full test suite; --dry-run on the agentic config; a 2-case local run with a stub model.
+    THEN Stage 4 (configs/eval_config.agentic.json, slurm/submit_agentic_rungs.sh, model gate on
+    data/agent_devset.json reading malformed-action rates before any F1).
+
+- OPEN (2026-09-22) RESCORE THE ORACLE ABLATIONS AGAINST THE CORRECTED #25 GOLD. matrix_v2 and the
+  four non_oracle shards were rescored with `--recompute --gold-from data/testset.json` (notes 43.2);
+  the oracle runs were not: eval_runs/arity_ablation, arity_probe, structure_ablation,
+  structural_ablation, decoding_ablation (and their _smoke dirs are not needed). Their #25 case was
+  GENERATED from the old gold (structure hint / gold-derived forced arity), so a rescore will flag it
+  `oracle_input_from_superseded_gold` rather than fix it. Either rescore each with --gold-from (CPU
+  only, minutes) and report the flagged count, or state the one-case caveat wherever those ceilings
+  are quoted. Also: the arity figures of notes 32-33 / 42 other than the constant's (now 62.7%) were
+  measured against #25's old gold and can each shift by at most one case -- re-derive with the arity
+  probe's --rescore if any is quoted to three digits.
+  CORRECTION (2026-09-23): the arity probe's --rescore CANNOT do that -- it re-prices the stored
+  rows, and each row stores gold's arity from the testset of the day it ran, so #25 keeps its old
+  (0,1). Needs a small option that refreshes row["gold"] from --testset before re-pricing. Also:
+  on the cluster, run `audit_testset_discriminability.py --log-filter order-management --resume`
+  BEFORE any --gold-from rescore -- the corrected #25 gold's result set exists only in the
+  laptop's (untracked) eval_runs/_discriminability_store.
+
+- OPEN, DESIGN (2026-09-22, user-approved: A3 as a SEPARATE rung) A3 = A1 + A FROZEN LESSON MEMORY
+  BUILT ON THE DEV SET. Origin: over a long session of hand-modelling queries the assistant got
+  steadily better, and the transferable part of that was accumulated LESSONS (SAT/AND pass
+  vacuously on an empty child; only the root box is scored; declared-type traps; O2O qualifiers),
+  not an accumulated transcript. The models reset per case today -- _run_pipeline_agentic builds a
+  fresh message list every case -- and that is correct for A0-A2.
+  WHY NOT CHAIN THE TESTSET CASES: (1) case 80 would learn from cases 1-79, which is a different,
+  online protocol and no longer comparable to the one-shot arms; (2) the score would depend on case
+  ORDER and on where --case-shard splits, and every shard starts empty; (3) the agent has no
+  correctness signal on the testset -- only probe counts -- so carried lessons harden right or
+  wrong alike; (4) a 15-turn case already fills much of a small model's usable window
+  (PromptTooLongError ends the loop), so raw cross-case history overflows within a few cases.
+  THE DESIGN: run the agent over data/agent_devset.json (38 entries, NEVER scored in the thesis, so
+  its gold is legitimately usable -- the same standing as training data), show it its score and the
+  gold after each entry, and have IT write short lessons. Distil to a cap (~1-1.5k tokens, so small
+  models can hold it), FREEZE and hash into the manifest before any scored run, and inject into
+  every testset case as prompt text. Cases stay independent: order stops mattering and sharding
+  stays safe.
+  CONSTRAINTS: the MODEL writes the lessons, not us -- human-written lessons (our dev-set notes)
+  are expertise injected into the prompt, a separate "expert notes" ablation, never system
+  performance. The lessons may never be tuned on testset results, same freeze rule as the prompt.
+  ATTRIBUTION: A3 - A1 is learning-from-experience; keep A2 - A1 as budget alone, so A2 stays
+  budget-only and does NOT get the memory.
+  THE UNLEASHED ARM: if an "anything goes" number is wanted (the supervisor's second evaluation),
+  make it A4 = tools + large budget + memory, and report it as a SYSTEM CEILING whose components
+  are already decomposed by A1/A2/A3 -- not as an attributable effect. Budget-gated, like the
+  frontier arm.
+  COST: one extra pass over 38 dev entries per model, then the same 169 cases as A1.
+
+- OPEN, DESIGN (2026-09-22) IS "THINKING" A MATRIX VARIABLE FOR THE AGENTIC ARM? Raised because
+  Claude Code reasons before acting and several evaluated models have no reasoning mode.
+  THE BLOCKER, checked in the code: the agentic loop constrains EVERY turn to AgentAction
+  (LLM._run_pipeline_agentic) and the xgrammar processor is attached whenever constrained_decoding
+  is on (LLM._ocpq_logits_processor, :1561). A native reasoning model therefore CANNOT emit its
+  thinking tokens under our protocol -- the grammar masks everything that is not the action JSON.
+  With constrained decoding off it could, but _parse_agent_action takes the first `{`, so a think
+  block containing braces becomes a malformed action. Native reasoning is thus not a clean
+  crossable factor: it is available to some models only, and it fights the protocol.
+  PROPOSAL: make reasoning a PROTOCOL-LEVEL variable instead -- add an optional `thought: str` to
+  AgentAction and a line to AGENT_PROTOCOL_RULES. Every model can then reason, inside the grammar,
+  whether or not it has a native mode, and the variable is crossable and comparable. It is the
+  agentic analogue of schema-chain-of-thought-plus in the non-agentic matrix.
+  SCOPE, because every binary factor DOUBLES the GPU cells: cross `thought` on the tool rung A1
+  only (2 cells per model), not on every rung. Measure it first on the dev set in the Stage 4 model
+  gate -- malformed-action rate, turns used, tool calls -- before spending matrix time; a model
+  that cannot hold the protocol WITH a thought field is a finding on its own.
+  CAVEATS to record: a thought costs tokens every turn, so A1-with-thought and A1-without must
+  share the same turn budget and case_timeout_sec, and the comparison then includes that cost.
+  Native reasoning modes (if any evaluated model has one) stay a separate, model-specific arm,
+  reported apart and never as a matrix cell.
+
+- DONE (2026-09-23, notes 43.4) THE `thought` FIELD, as a SEPARATE schema (AgentActionWithThought),
+  not a field on AgentAction: the grammar's strict_mode forbids unknown keys, so the off rung
+  cannot emit a thought and stays byte-identical to Stage 3. Optional, not required (any_order can
+  skip a required property); uptake is measured instead (agent_thought_turn_rate). Grammar-level
+  proof pending on the cluster (Stage 4 item b above).
+  (was OPEN, IMPLEMENT IN STAGE 4) THE `thought` FIELD (decision entry directly above).
+  Concrete work, all additive:
+    1. src/ocpq_schema.py: AgentAction gains `thought: Optional[str] = None`, documented as the
+       one place a model may reason under the grammar mask. Check it against xgrammar first --
+       notes 31 / tests/test_constrained_decoding.py record that an optional property interacts
+       with `any_order=True`, so add a case to that test rather than assuming.
+    2. src/LLM.py: one line in AGENT_PROTOCOL_RULES ("you may add \"thought\": \"...\" with one or
+       two sentences of reasoning before the action"), gated by a config flag so the rungs differ
+       in exactly that line; `_parse_agent_action` already ignores unknown/extra keys, so a model
+       that omits it is unaffected. Record the thought per turn in the trajectory JSONL and its
+       LENGTH (chars) in the record's turn_summary -- the raw text is mechanism evidence, the
+       length is what a cost comparison needs.
+    3. src/eval_testset.py: config key `agent_thought` (default false), into the manifest and into
+       config_id as `_thought` (it is a CONDITION, like the turn budget).
+    4. tests: a case in tests/test_agent_action_protocol.py that a thought does not become a tool
+       call and does not reach the final tree; a case that the field is absent by default.
+    5. Report: thought-vs-no-thought on rung A1 only, at the SAME turn budget and case_timeout_sec,
+       with mean completion chars beside it -- the cost is part of the comparison.
+
+- PARTLY DONE (2026-09-23, notes 43.4) STAGE 4 -- items 1-5 BUILT AND TESTED LOCALLY; items 6-7 NEED
+  THE CLUSTER. Done: --agent-max-turns / --agent-max-tool-calls / --agent-thought flags; shard names
+  carry the agent suffix (verified: five rungs, five directories); configs/eval_config.agentic.json
+  and eval_config.agentic_gate.json; slurm/submit_agentic_rungs.sh (tasks 0-4) and
+  slurm/submit_agentic_gate.sh (tasks 0-7); tests/test_agentic_rungs.py (mutation-checked).
+  --agent-memory NOT added: a flag that does nothing yet would be worse than none; it comes with A3.
+  OPEN, IN ORDER, ON THE CLUSTER:
+    a. sync; build the web server on a login node (command in the submit script header).
+       FOUND 2026-09-23: the cluster's OCPQ very likely LACKS the web-server patch the probe needs
+       (OCPQ_WEB_PORT, OCPQ_WEB_SKIP_DEFAULT_OCEL): the only OCPQ patch that ever existed as a
+       file, docs/ocpq-local-modifications.patch (untracked, 2026-08-18), holds the ocpq_cli change
+       only. Ship docs/ocpq-nlxocpq-pinned.patch (git format-patch of 50f60c1; verified to apply
+       onto upstream 2c5e0d6 and reproduce 50f60c1 byte for byte) and `git am` it there on a
+       branch nlxocpq-pinned. Never `git pull` upstream there (v0.12.1 removes /ocel/*).
+    b. DONE (2026-09-23, reported by the user from the cluster): tests/test_constrained_decoding.py
+       PASSES, including the 5 `thought` grammar checks -- the plain grammar rejects a thought
+       (strict_mode), the thought grammar accepts one before/after the action or none.
+    c. python tests/test_agentic_rungs.py tests/test_agentic_no_gold.py tests/test_agent_action_protocol.py
+    d. sbatch slurm/submit_agentic_gate.sh -- read compliance and WALL CLOCK PER CASE only.
+    e. size A2 from (d): set A2_TURNS / A2_TOOL_CALLS in submit_agentic_rungs.sh (test_agentic_rungs
+       re-derives the suffix, so nothing else to edit), then export OCPQ_A2_CONFIRMED=1.
+  (was OPEN, NEXT 2026-09-22) AGENTIC PLAN STAGE 4 -- CONFIG, SUBMIT SCRIPT, MODEL GATE. Stage 3 is
+  done (notes 43.3). Plan, in order:
+    1. CLI FLAGS in src/eval_testset.py, mirroring the decoding flags: --agent-max-turns,
+       --agent-max-tool-calls, --agent-thought / --no-agent-thought (the `thought` entry above),
+       and --agent-memory FILE reserved for A3. The rungs must be selectable from the submit
+       script without editing a config, exactly as the non-oracle rungs are.
+    2. SHARD NAMING -- A REAL HAZARD, FOUND READING THE CODE. `shard_tag` (eval_testset.py:1782)
+       is built from model/strategy/schema index plus `_decoding_suffix` only. A1 and A2 share all
+       three indices AND the strategy name, so both land on the same `shard_m*_s*_e*_...` directory
+       and `--resume` (globs the prefix, takes the newest) would resume one rung into the other's
+       directory -- the documented 2026-09-12 failure, silently. FIX: append `_agent_suffix(...)`
+       to shard_tag too, and pin shard_tag == config_id suffix == the script's RUNG_SUFFIX in
+       tests/test_agentic_rungs.py, the way tests/test_forced_arity.py pins the existing three.
+    3. configs/eval_config.agentic.json: output_dir eval_runs/agentic; ONE model; strategies
+       [schema-allowed-entities-only, agentic-log-tools, agentic-self-refine]; schema_enforced
+       [true]; constrained_decoding true; force_root_arity false; NO oracle- strategy;
+       corpus_check error; result_store true; case_timeout_sec 600; the agent_* keys.
+    4. slurm/submit_agentic_rungs.sh: array over the rungs, the standard preamble copied from
+       submit_non_oracle_rungs.sh (project-dir resolution, modules, conda env, HF offline,
+       OCPQ_CLI_SCRATCH_DIR, schema token budget, resume glob including RUNG_SUFFIX, --case-shard
+       passthrough), plus `python src/check_probe.py` in the preflight and node/GPU echo. No CR
+       characters. Rungs: 0 A0 one-shot / 1 A1 tools / 2 A1' self-refine (same turns, no tools) /
+       3 A2 large budget / 4 A1+thought.
+       PREBUILD THE WEB SERVER on a login node before the first job: the first release build takes
+       several minutes and would otherwise happen inside a GPU job's preflight.
+    5. tests/test_agentic_rungs.py: structural clone of tests/test_non_oracle_rungs.py -- script
+       exists, no CR, array size matches the rung table, every RUNG_SUFFIX equals what
+       _agent_suffix/_decoding_suffix produce, the config carries no oracle strategy and a
+       case_timeout_sec, and every strategy named is registered in LLM.PROMPT_STRATEGIES.
+    6. MODEL GATE ON THE DEV SET, before any matrix time. data/agent_devset.json has the same shape
+       as the testset (nl_query, ocel_path, ocpq_query), so it runs through run_evaluation with
+       `testset_path` pointed at it -- no new runner. configs/eval_config.agentic_gate.json +
+       a small submit script. READ BEFORE ANY F1: malformed-action rate, budget-exhaustion rate,
+       no-answer rate, mean turns, mean tool calls, probe restarts, and WALL-CLOCK PER CASE.
+       Candidates: Llama 3.1 8B fine-tuned (same base as the fine-tuned arm), Qwen3 8B/14B,
+       Ministral 3 14B. A model that cannot hold the protocol is not measurable -- that is a
+       finding, not a failure. The gate also measures the `thought` variable (item above).
+       NOTE: dev entries are absent from eval_runs/testset_discriminability.json, so floors and
+       skill are undefined there (_STRATUM_MISS). That is fine -- the gate reads compliance and
+       cost, never F1 -- but do not quote a dev-set F1 anywhere.
+    7. THE BUDGET MUST FIT THE CAP. case_timeout_sec is 600 and CLAUDE.md 6 requires the same cap
+       on every compared arm. A2's turn budget must be sized from the gate's measured per-turn
+       cost so a 169-case run does not turn into a timeout study; if it cannot fit, the cap has to
+       rise for EVERY arm (A0, A1, A1', A2) and they all re-run. Decide from the gate's numbers,
+       not by guessing.
+    PRE-REGISTRATION for the submit-script header: oracle_conditions == [] in every manifest;
+    compliance block reported before any F1; A1-A1' is the tool effect, A1-A0 mixes tools with
+    compute, A2-A1 is budget; paired bootstrap over per-case F1 on the same 135 discriminating
+    cases; skill reported beside F1.
+    THEN Stage 5: tune on the dev set only, freeze and hash the prompt, 2-case probe-only run,
+    4-case slice across rungs, src/smoke_check.py, then the full run; notes 43.4.
+
+- DONE LOCALLY (2026-09-23, notes 43.5) THE GATE SMOKE FOUND THREE HARNESS DEFECTS; FIXED, NOT YET
+  RE-RUN. Smoke: eval_runs/agentic_gate_smoke (llama31-8b-finetuned, A1 thought off/on, dev slice
+  0/8, 5 cases each). Harness side clean (pinned OCPQ, probe/CLI agree, 0 restarts); model side
+  showed 0/10 declared final trees, ~50% malformed turns, 2/5 timeouts, 0% thought uptake. Causes:
+    1. final_tree rejected for a missing `filters` -- the any_order artefact the one-shot pipeline
+       repairs (_fill_missing_box_containers) and the agent parser did not. FIX: _repair_agent_tree
+       applies the same repair to final and try_query trees; counted (agent_repaired_turn_rate).
+    2. sample / attribute_values DENIED REAL TYPES (DiagnosticEquipment, LabTechnician in
+       04_hospital.xml): a 400-id untyped prefix scan. FIX: typed lookup by a one-box evaluation
+       paged from the server; unknown names get the log's real type lists; the agent's own last
+       evaluation is re-run (uncharged) if inspect_situations needs it. Verified on a live server.
+    3. The action grammar was too loose (all-optional fields, args: Dict[str, Any]): the model wrote
+       final_tree AND args.tree in one object to the 4000-token limit (~180 s/turn) -> both
+       timeouts; try_query trees were unconstrained. FIX: AgentTurn / AgentTurnWithThought, a union
+       of one typed variant per tool + a final answer; the parser validates the named variant.
+  NEXT, ON THE CLUSTER: pull; python tests/test_constrained_decoding.py (13 turn-grammar checks --
+  the union must compile in xgrammar and refuse the smoke's runaway shape; cannot run locally);
+  then the SAME smoke again (sbatch --array=2,3 slurm/submit_agentic_gate.sh --case-shard 0/8) and
+  compare against the numbers above before the full gate. Thought uptake is re-read after (3).
+
+- DONE LOCALLY (2026-09-24, notes 43.6) SMOKE RE-RUN: THE HARNESS HOLDS; THE ARM MOVES TO BASE
+  MODELS; THE AGENT PROMPT GETS B0's TREE RULES. Re-run smoke (llama31-8b-finetuned, same 5 cases):
+  10/10 declared (was 0/10), 2/12 malformed turns (was ~50%), 0/10 timeouts (was 2/5), 0 probe
+  restarts, probe/CLI 2/2. But 0 TOOL CALLS in 10 cases -- the fine-tuned model declares on turn 1.
+  That is what option D above predicted: the arm runs on BASE instruct models; Stage 4 had drifted
+  (gate included the adapters, rung script hard-coded MODEL_IDX=1, notes 43.4 said A0 == B0).
+  FIXED:
+    1. Agent prompt carries B0's `Rules:` block verbatim (LLM.OCPQ_TREE_RULES), both rungs. It had
+       none: the model wrote `filters` in 0/12 turns vs O2E filters in 158/169 B0 predictions.
+       test_agent_action_protocol.py pins the copy to B0's template read from source.
+    2. Gate default array 0,1,4,5 (Llama/Ministral base x thought off/on).
+    3. Rung script: no default model; --model-idx N (env OCPQ_AGENT_MODEL_IDX as fallback);
+       refuses fine-tuned indices 1/3 and a missing index. test_agentic_rungs.py runs the guard.
+    4. Notes 43.4 corrected: A0 = B0's prompt on the SAME base model; B0 is a reference line.
+  NEXT, ON THE CLUSTER: pull; sbatch --array=0,1 slurm/submit_agentic_gate.sh --case-shard 0/8
+  (Llama base, 5 cases, thought off/on). Read: tool calls per case, malformed rate, thought uptake,
+  wall clock per turn, and whether `filters` now appears in the raw turns. Then the full gate.
+  OPEN DECISIONS, from that smoke:
+    - "TEST IT FIRST" BOUNCE, behind a config flag: with tools on, a final_tree declared before any
+      try_query gets one "run it with try_query first" reply (tree kept as last_valid_probe); A1'
+      gets a matching single "re-check it" bounce so A1 - A1' stays compute-matched. Only if base
+      models also skip the tools. Changes A1's definition -> notes before any scored run.
+    - Watch: one turn stopped one `}` short UNDER THE GRAMMAR (thought shard, case 4, turn 1, 1310
+      chars, not the token limit). Should be impossible with xgrammar masking EOS; if it recurs,
+      check which stop tokens generate() uses vs the xgrammar TokenizerInfo stop set (Llama 3.1
+      has three: 128001, 128008, 128009).
+    - Known, not changed (same in every arm): CEL binding `labels` fail with exit 0 and no stderr,
+      so the single stderr repair never fires (B0: 15/17 CEL-label predictions failed).
+
+- DONE LOCALLY (2026-09-25, notes 43.7) BASE-MODEL SMOKE: THE GRAMMAR ADMITS A REPEATED KEY. Smoke on
+  llama31-8b-base (eval_runs/agentic_gate_smoke/shard_m0_*): 10/10 cases hit the 600 s cap, 58/70
+  turns malformed, 0 trees. All 58 malformed turns = one key repeated (>=20x) to the 4000-token
+  limit (~95 s/turn). xgrammar 0.2.5 any_order=True admits a repeated key; any_order=False refuses
+  it and still admits every gold tree in schema order (169/169 testset, 38/38 dev).
+  FIXED: config key `constrained_any_order` (default true = every existing run unchanged), false in
+  both agentic configs, all rungs incl. A0; `_ordered` in the decoding suffix (RUNG_SUFFIX in both
+  scripts); grammar cache keyed on it; thought variants declare `thought` FIRST (ordered grammar =
+  generation order); thought rule says "START either form with". Tests: test_constrained_decoding
+  (now runs locally -- xgrammar installed), test_agentic_rungs.
+  NEXT, ON THE CLUSTER: pull; python tests/test_constrained_decoding.py (must PASS);
+  sbatch --array=0,1 slurm/submit_agentic_gate.sh --case-shard 0/8 -> new `_constrained_ordered_`
+  directories. Read: tool calls, malformed rate, thought position/uptake, wall clock per turn.
+  OPEN:
+    - IF items repeat inside a list (the fine-tuned smoke's empty-box runaway), the fallback is a
+      per-turn token cap for agent turns, sized from gold (longest gold tree ~3000 chars compact).
+      Hold until measured.
+    - COUNT (thesis sentence, not a blocker): how many B0 / matrix constrained failures were
+      repeated-key runaways under any_order=True. Needs raw outputs (failure_log raw_output / the
+      generated/ dirs); do not re-run anything for it.
+
+- DONE LOCALLY (2026-09-26, notes 43.9) TWO-MODEL SMOKE: NO TIMEOUTS; MINISTRAL HOLDS THE PROTOCOL.
+  20 cases, 0 timeouts, probe/CLI agree. Ministral 14B base: 0% malformed, uses sample /
+  attribute_values / activity_stats before try_query, thought in 52% of turns, 4.9-9.4 s/turn.
+  Llama 8B base: 11-28% malformed, try_query only, 0% thought, ~30 s/turn, cases up to 447 s.
+  FIXED: (1) stderr repair now gets [system, task, assistant=query] + fix prompt instead of the loop
+  transcript (two user turns broke Mistral's template: 5/10 Ministral cases pipeline_error);
+  (2) bounded grammar requires numeric variable names (propertyNames ^[0-9]+$) in newEventVars /
+  newObjectVars / evVarLabels / obVarLabels -- OCPQ panics otherwise; all 652 gold keys numeric.
+  NEXT, ON THE CLUSTER: pull; tests/test_constrained_decoding.py + tests/test_agent_turn_budget.py
+  must PASS; then the FULL GATE: sbatch slurm/submit_agentic_gate.sh (array 0,1,4,5; 38 dev cases).
+  STAGE 5 INPUTS (dev set only, after the gate picks the model): identical try_query resubmissions
+  (Llama 12/28, Ministral 8/19 without thought) -> refuse with previous counts; budget exhaustion
+  (Ministral 3-5/5) -> reserve the last turn for an answer; A2 budget from the gate's s/turn.
+
+- DONE LOCALLY (2026-09-26, notes 43.10) FULL GATE VOID: GRAMMAR REGRESSION + CYCLES KILL THE PROBE.
+  eval_runs/agentic_gate (fp 25cc83e88b, commit 9b11b8d): Llama 87%/76% malformed, 32-34/38 no
+  answer; Ministral 46%/41% malformed, 11/38 probe_unavailable (restart budget spent by case 31).
+  (1) 9b11b8d's propertyNames made xgrammar drop the dict VALUE schema ({"1": {"type": ...}},
+  labels outside the enum). FIXED: patternProperties + additionalProperties false; tests check bad
+  values are refused in both grammars; all 571 gate turns that failed validation are refused now.
+  (2) cyclic trees ([0,0,0,0]): 9/38 killed the server, 29/38 bound 0 at the root. FIXED: probe
+  refuses `cycle` (PROBE_REFUSED_DEFECT_KINDS), gold has none.
+  NEXT, ON THE CLUSTER: move the void run aside (mv eval_runs/agentic_gate
+  eval_runs/agentic_gate_void_20260926); pull; test_constrained_decoding + test_agent_turn_budget +
+  test_ocpq_probe must PASS; sbatch slurm/submit_agentic_gate.sh.
+  LESSON (verification): a constraint that tightens one thing must be tested for NOT loosening
+  another -- test the bounded grammar against the unbounded one on invalid inputs, not only on
+  the new rule.
+
+- DONE (2026-09-26, notes 43.11) MODEL GATE: MINISTRAL 3 14B BASE (idx 2). Clean run
+  (eval_runs/agentic_gate, fp 137f1fc52d): 0 timeouts, 0 probe_unavailable, 1 restart, probe/CLI
+  25/26 (the 1 = bindings_skipped). Ministral: 0-0.4% malformed, lookups before try_query,
+  8-9 s/turn (p90 ~15), max case 189 s; +thought executes 27/38 vs 16/38, 0 resubmits.
+  Llama 8B base fails the protocol (28-30% malformed = runaways at the 2000 cap, 0% thought).
+  THE FAILURE NOW: TREE STRUCTURE. ~100 refused trees per Ministral run (cycles), finals full of
+  children_mismatch / root_count / cycle / multiple_parents / unbound_variable.
+  NEXT = STAGE 5 (dev set only; then freeze + hash the prompt):
+    1. structural_defects on EVERY try_query, returned with the counts (flag, e.g.
+       agent_structural_feedback) -- biggest expected lever.
+    2. finalise on the last EVALUATED tree, else last schema-valid (amends the pre-registered
+       rule -> notes BEFORE any scored run).
+    3. one worked example of tree topology (children lists + edgeNames) in the prompt.
+    4. reserve the last turn for an answer.
+    5. refuse identical resubmission (low priority for Ministral+thought).
+  Iterate with: sbatch --array=4,5 slurm/submit_agentic_gate.sh (Ministral, thought off/on).
+  THEN: size A2 from the new s/turn; smoke the rungs (--model-idx 2 --case-shard 8/11); full run.
+
+- PLAN (2026-09-26) STAGE 5, ITEMS 1-4 -- dev set only; Ministral 3 14B base (idx 2), thought off/on.
+  BASELINE (gate, eval_runs/agentic_gate, Ministral off / on): structurally clean finals 1/38 / 4/38
+  (71 of 75 finals carry a BLOCKING defect); try_query trees without any defect 2/298; cases with
+  >=1 tree the probe evaluated 11/38 / 13/38; refused trees 102 / 97; executed 16 / 27.
+  Defects in the 298 try_query trees: children_mismatch 205, cycle 192 (178 trees list a node as its
+  OWN child), root_count 168, unbound_variable 101, multiple_parents 90. Only 6/298 have N-1 child
+  links. Box CONTENT is mostly fine; the model does not understand how a tree LINKS boxes.
+  Every lever is a config flag, default false (the gate stays reproducible); the enabled set enters
+  the agent suffix as `_p<letters>` (F, E, X, L) so dev iterations never share a directory.
+  1. F -- STRUCTURAL FEEDBACK (`agent_structural_feedback`). OcpqProbe.try_query computes
+     structural_defects once: refused kinds are refused as now; otherwise the result carries
+     "structure": [defects, blocking first, capped] beside the counts OR beside the server's error
+     ("Could not get o1" becomes "[unbound_variable] node 0: ... reads object variable 1, which
+     neither node 0 nor its ancestors declare"). Plus a one-line fix hint per kind (static dict):
+     cycle -> "a child list holds OTHER nodes' indices, never the node's own"; children_mismatch ->
+     "node p's child list must hold exactly the c of every [[p, c], name] in edgeNames";
+     root_count -> "node 0 is the root: the only node in no child list".
+     Reads only the model's tree (the no-gold AST test must still pass).
+     OPEN (a): the no-tools control A1'. Recommended: A1' gets a STATIC `check_tree(tree)` tool (the
+     same structure report, no log access), so A1 - A1' isolates LOG ACCESS and both rungs get the
+     same structural help. Alternative: A1' gets nothing, and A1 - A1' = log + structure checker.
+     OPEN (b): a declared final_tree with BLOCKING defects is bounced ONCE with its defects while
+     turns remain (both loop rungs; static, no log). Recommended: yes -- 71/75 finals are blocking,
+     and notes 41 found the structural check to be what worked in the non-oracle arm.
+  2. E -- FINALISE ON THE LAST EVALUATED TREE (`agent_finalise_evaluated`): prefer the last
+     try_query tree the probe returned COUNTS for (final_source `last_evaluated_probe`), else the
+     last schema-valid one (`last_valid_probe`). Today refused cyclic trees are finalised and crash
+     ocpq_cli. Reach is limited now (11-13/38 cases have an evaluated tree) and grows with 1 and 3.
+     AMENDS THE PRE-REGISTERED RULE (notes 43) -> write it into the notes BEFORE any scored run.
+  3. X -- TREE STRUCTURE IN THE PROMPT (`agent_worked_example`): (i) five short structure rules
+     (node 0 is the root; Box = [data, child indices]; a node never lists itself; every other node
+     is in exactly one child list; one edgeNames entry per child link, whose name SAT/NOT/NumChilds
+     use); (ii) ONE worked 2-box example in an invented domain (library: book / borrow book) with
+     an O2E filter, a child list [1], edgeNames [[[0, 1], "A"]] and a NumChilds/SAT constraint.
+     Tests: the example validates, has no structural defect, uses no type name from any of the 11
+     corpus logs, and equals no testset or dev-set gold. Both loop rungs get it; A0 keeps B0's
+     prompt.
+     OPEN (c): A1 - A0 then also contains the example. Recommended: accept and state it -- the
+     headline contrast is A1 - A1' (same prompt, same loop).
+  4. L -- LAST TURN RESERVED (`agent_reserve_last_turn`): the last turn is constrained to the
+     FinalAnswer variant (with thought under the thought condition), and the previous user message
+     says "This is your last turn". Ends the 61-79% budget exhaustion; the fallback of 2 remains
+     for a truncated last turn.
+  ALSO: compliance metrics -- final_blocking_defect_rate, try_query defect-free rate, refused per
+  case, final_source incl. last_evaluated_probe; `agent_prompt_sha256` in the manifest (hash of the
+  static prompt parts) from now on, so the Stage 5 freeze is a recorded value, not a claim.
+  DEV ITERATION: run 1 = F+E+X+L on (sbatch --array=4,5 slurm/submit_agentic_gate.sh, ~1.5 h),
+  read against the baseline above; ablate single levers only if the result is ambiguous. Then freeze
+  (prompt hash), size A2 from the new s/turn, smoke the rungs (--model-idx 2 --case-shard 8/11).
+
+- DONE LOCALLY (2026-09-26, notes 43.12) STAGE 5 LEVERS F B E X L IMPLEMENTED (plan above). Decided:
+  (a) A1' gets the static check_tree tool; (b) a blocking final is bounced once; (c) A0 keeps B0's
+  prompt. Finalisation rule AMENDED in notes 43.12 (declared > last EVALUATED > last schema-valid).
+  All five on in both agentic configs; suffix `_pFBEXL`; levers off reproduce the gate exactly
+  (prompt hashes pinned in tests/test_agent_stage5.py). Manifest records agentic.prompt_sha256.
+  NEXT, ON THE CLUSTER: pull; python tests/test_constrained_decoding.py (the new turn grammars
+  compile there) + tests/test_agent_stage5.py; then the dev iteration:
+    sbatch --array=4,5 slurm/submit_agentic_gate.sh      (Ministral, thought off / on, ~1.5 h)
+  READ against the gate baseline: agent_final_blocking_rate (71/75 blocking), clean try_query
+  trees (2/298), cases with an evaluated tree (11/13 of 38), executed (16/27), s/turn (check_tree
+  and the bounce cost turns), bounce and check_tree uptake.
+  THEN: freeze (record the prompt_sha256), size A2 from the new s/turn, smoke the rungs
+  (--model-idx 2 --case-shard 8/11), full run.
+
+- DONE (2026-09-26, notes 43.13) STAGE 5 DEV RUN (Ministral, pFBEXL): clean run; finals with a
+  blocking defect 36/37 -> 9/38 (thought on 34/38 -> 11/38); clean try_query trees 1/139 -> 30/35;
+  executed 16 -> 32 (27 -> 26 with thought); every case declares an answer; 6.4-7.0 s/turn, max
+  case 95 s. Remaining: unbound variables in finals; 14-16/38 cases never call try_query (dev
+  evidence on whether that matters is mixed); thought no longer helps on dev.
+  PROPOSED NEXT (awaiting go-ahead):
+    1. FREEZE the protocol: pin the four FBEXL prompt hashes (tool/control x thought off/on) in
+       tests/test_agent_stage5.py; notes 43.13 records them.
+    2. A2 = 16 turns / 24 tool calls, confirmed IN the script (a committed constant, not the
+       OCPQ_A2_CONFIRMED env var, which may not survive sbatch -- the --case-shard lesson).
+    3. Rung smoke: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
+       -> src/smoke_check.py -> full run (5 rungs x 169 cases; est. A1 ~2.5 h, A2 ~5 h).
+
+- DONE (2026-09-26, notes 43.14) PROTOCOL FROZEN + A2 SIZED. Frozen prompt hashes pinned in
+  tests/test_agent_stage5.py (A1/A2 f70eb067..., A1' 093b2eb0..., A1+thought d46ba7c2...); A2 =
+  16 turns / 24 tool calls, a committed constant (A2_SIZED=1) in slurm/submit_agentic_rungs.sh.
+
+- DONE (step 3): THE SCORED AGENTIC RUNS, Ministral 3 14B base (--model-idx 2), frozen pFBEXL.
+    a. On the cluster: git pull; python tests/test_agent_stage5.py (the frozen hashes must PASS
+       there too) and python tests/test_agentic_rungs.py.
+    b. RUNG SMOKE on a testset slice (small logs):
+         sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
+       Read per rung: manifest agentic.prompt_sha256 == the frozen table (notes 43.14);
+       oracle_conditions == []; compliance block (timeouts, probe restarts/panics, probe/CLI
+       agreement, malformed rate, final_source, bounce rate); s/turn against the dev run.
+    c. python src/smoke_check.py on the smoke directories.
+    d. FULL RUN: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2
+       (5 rungs x 169 cases; est. A0 < 1 h, A1/A1'/A1+thought ~2.5 h, A2 ~5 h; 24 h wall).
+    e. Merge per rung, check pipeline/corpus/ocpq consistency, then the pre-registered analysis:
+       compliance BEFORE any F1; paired bootstrap A1 - A1' (log access, the headline), A2 - A1
+       (budget), A1+thought - A1 (reasoning), A1 - A0 (the whole arm vs one-shot, incl. the
+       prompt's structure block); skill beside F1; mechanism (population vs syntax revisions).
+  DONE (2026-09-27, notes 43.15). Smoke clean; full run 5 x 169/169, one pipeline fingerprint
+  (d1329a46), one corpus, one OCPQ (333bdca), oracle_conditions [] x5, frozen hashes x4.
+  Discriminating 135, floor 0.7250: A0 0.0001 | A1' 0.0908 | A1 0.1104 | A1+thought 0.1111 |
+  A2 0.1179. Paired: A1-A1' +0.0196 [-0.037, +0.077] (null; evaluated +51/-16, p<0.001);
+  A2-A1 +0.0075 (null); A1+thought-A1 +0.0007 (null); A1-A0 +0.1103 [+0.067, +0.159], of which
+  A1'-A0 is +0.0908. Mechanism: revisions mostly syntactic (root population changed in 4 of 17
+  multi-try cases); an empty try_query result was left empty in 19 of 20 cases.
+
+- DONE (2026-09-27, notes 43.15) CAP FEEDBACK, lever C (`agent_cap_feedback`, suffix letter C,
+  appended after L so "FBEXL" is unchanged). The angular log caused nearly every malformed turn of
+  the scored run (62/62 A1', 31/32 A1, 39/39 A2), all 7 A1' no-answers and A2's one timeout: the
+  model lists ~70 event types in one variable or copies commit messages into `is_in`, runs into
+  the 2000-token per-turn cap, and was then told "do not truncate the object" -- blaming it for a
+  cut the harness made. Now: every cut turn is recorded (`hit_cap` per turn, `cap_hits` per case,
+  `agent_cap_hit_turn_rate` in the compliance block, None for runs before 43.15); with C on, the
+  reply names the cap and says the object is too long. C changes no prompt text (the A1/A2 hash
+  is unchanged) and NO scored rung runs it; tests/test_agent_stage5.py pins both.
+  OPEN DECISION: whether a future arm (the frontier arm) runs C. On = a different protocol from the
+  scored open-model arm, so its rungs are compared among themselves, not across the two arms.
+
+- OPEN (cluster, 5 min): PROBE vs CLI ON THE ANGULAR LOG. A1's 7 disagreements (agreement 0.94):
+  one is case 73 (hospital, bindings skipped -- the pre-registered exemption; and OCPQ's counts
+  are NOT deterministic once it skips bindings: laptop CLI 41 then 46, server 38 then 44). The six
+  others are ONE tree, declared for six different questions (root = node 2, which re-declares the
+  variables its children bind). Cluster: server 51, CLI 45 root situations. Laptop, byte-identical
+  log (sha256 491a50aa...), OCPQ 50f60c1: 17 from both, every time, and the 17 are a strict subset
+  of the cluster CLI's 45 (event 7667 linked to 17 files on the laptop, 45 on the cluster). So the
+  builds differ on this XML's E2O links (import is the likeliest place); the two front ends agree when
+  built together (laptop). No F1 can move (all six scored 0 against the 45, which contain the 17),
+  but on the cluster the server and the CLI disagree, and the laptop disagrees with both. Steps:
+    1. python src/probe_cli_diff.py --run-dir eval_runs/agentic/<A1 dir> --disagreements --repeats 3
+       (prints OCPQ rev, both binaries' sha256 + mtime, the log digest vs the run, and per-node
+       counts from both front ends).
+    2. If the server still says 51 and the CLI 45: the server binary (mtime 2026-09-23 11:43) is
+       older than the CLI (18:23). Rebuild BOTH from 333bdca (cargo build --release in
+       backend/web-server and backend/ocpq_cli), re-run step 1, and record the new digests.
+    3. Record in notes 43.15 which build is right, and whether any GOLD on the three XML logs
+       changes under the rebuilt CLI (gold is scored by the cluster CLI, so this is the question
+       that matters beyond the probe). Do NOT re-run scored rungs to fix six zero-F1 cases.
+
+- OPEN, NEXT: DECIDE THE FRONTIER ARM (Stage 6), notes 43.15. The open model does not use the
+  tools; the question the supervisor asked is whether a strong model does. Same config with
+  backend custom-endpoint, no code change. Rungs A0, A1, A1' (the headline repeated), A2 optional.
+  Budget from the scored run's measured tokens (A1: 50k prompt + 1.7k completion per case).
+  CHECKED 2026-09-27 (platform.claude.com pricing + Opus 5.5 migration guide):
+    * Opus 5.5 AND Sonnet 5 reject temperature/top_p/top_k != default (HTTP 400). The frontier arm
+      CANNOT be greedy: the harness must omit `temperature` (a config flag, recorded in the
+      manifest), and the arm is sampled -> decide repeats (CLAUDE.md: ask) before spending.
+    * Opus 5.5 thinks on every request (thinking cannot be disabled; `effort` controls it) and
+      `max_tokens` covers thinking + text, so the 2000-token per-turn cap would be eaten by
+      thinking -> a different per-turn budget = a different protocol. Sonnet 5 accepts
+      thinking {type: disabled}: the closest replication of the frozen protocol.
+    * Prices /MTok: Opus 5.5 $4 in, $20 out, cache read $0.20, 5-min write $5; Sonnet 5 $2/$10,
+      cache read $0.20. Estimated per repeat for A0+A1'+A1+A2 (x1.3 tokenizer, unmeasured):
+      Sonnet 5 no thinking ~$45-80; Opus 5.5 ~$120-310 depending on effort and caching.
+    * Unverified: whether the OpenAI-compatible route the `custom-endpoint` backend uses supports
+      json_object, prompt caching, usage and finish_reason for these models; else a native
+      Anthropic backend (small, behind the backend switch).
+
+- OPEN, NEXT: THE SECOND AGENTIC ARM, MUSE GLIMMER-30B (model index 8), notes 43.16. Decided
+  2026-09-27: NF4 4-bit, reasoning strength low, all five rungs, the FROZEN protocol (pFBEXL, same
+  hashes, budgets, caps; lever C off). Code done and tested locally (27/27 runnable tests pass;
+  the 4 xgrammar tests need the cluster). On the cluster, in order:
+    1. git pull. Storage: $HOME is 150 GB with ~108 GB used, so Glimmer's ~60 GB go to $HPCWORK.
+       Check that quota first (r_quota / df -h $HPCWORK). Optional $HOME cleanup if needed:
+       ~/envs (7 GB, the superseded virtualenv), NLxOCPQ/logs (6.3 GB), core_dumps (0.6 GB).
+    2. ENV (login node): OCPQ_ENV_VARIANT=glimmer bash scripts/make_eval_env.sh
+       -> clones nlxocpq-eval-v5 to nlxocpq-eval-glimmer and installs transformers==5.17.0 ONLY.
+       STOP if it reports any other package CHANGED (torch above all) -- do not work around it.
+       It ends with "transformers knows muse_glimmer" and writes requirements.eval-glimmer.txt.
+    3. WEIGHTS (login node): bash scripts/prefetch_glimmer.sh && VERIFY=1 bash scripts/prefetch_glimmer.sh
+       (~60 GB into $HPCWORK/nlxocpq-hf, pinned commit a4e59da from the config).
+    4. TESTS in the new env (conda activate nlxocpq-eval-glimmer; export HF_HOME=$HPCWORK/nlxocpq-hf):
+         python tests/test_constrained_decoding.py   <- THE risk: xgrammar 0.2.6 on transformers 5.17
+         python tests/test_model_chat_options.py
+         python tests/test_agent_turn_budget.py
+         python tests/test_agentic_rungs.py && python tests/test_agent_stage5.py
+       and, in the OLD env, test_constrained_decoding.py once more (nothing there should move).
+  DONE 2026-09-27, steps 1-4: $HPCWORK 1 TB free; nlxocpq-eval-glimmer built (only transformers
+  5.5.0 -> 5.17.0 and tokenizers 0.22.2 -> 0.23.2 moved; pip's unsloth/unsloth-zoo "<=5.5.0"
+  conflict is irrelevant: only train_unsloth.py / merge_gemma.py import them -- never train or merge
+  in this env); 7.5 GB in $HOME. Weights 13 files / 55.5 GiB, VERIFY OK. In the new env all of
+  test_constrained_decoding (xgrammar 0.2.6 on transformers 5.17), test_model_chat_options,
+  test_agent_turn_budget, test_agentic_rungs, test_agent_stage5 PASS. The MiniLM embedding model
+  LLM.py loads at import is now cached on $HPCWORK too (offline jobs find it; non-fatal anyway).
+    5. LOAD SMOKE, 2 dev cases: sbatch --array=8 slurm/submit_agentic_gate.sh --case-shard 0/19
+       Read: which auto class loaded it ([model load] line), load time, GPU memory, s/turn, the
+       first turns' raw output (JSON, ending at the object; completion tokens ~ JSON length),
+       malformed and cap-hit counts, manifest `libraries` (transformers 5.17.0).
+  DONE 2026-09-27, step 5 (load smoke, dev cases 0-1, eval_runs/agentic_smoke/shard_m8_*_172245):
+  runtime nlxocpq-eval-glimmer + $HPCWORK cache; loaded via AutoModelForImageTextToText (the 2nd
+  fallback, like Ministral), 1436 tensors in 35 s incl. NF4; manifest libraries transformers 5.17.0
+  / xgrammar 0.2.6; frozen A1 hash; 16/16 turns clean JSON ending at the object (~110-330
+  completion tokens), 0 malformed, 0 cap hits, 2/2 declared, executed, probe = CLI. 13.5 and
+  19.3 s/turn (~2.3x Ministral), ~17 tok/s decode: a turn run to the 2000-token cap costs ~2 min,
+  so cap-hitting cases (the angular log) may time out at 600 s -- watch in the gate. Case 2 re-ran
+  the same try_query three times without revising (n=2; the mechanism measures will say more).
+    6. GATE: sbatch --array=8,9 slurm/submit_agentic_gate.sh (38 dev cases x thought off/on).
+       Compliance + s/turn + cap hits ONLY (dev F1 not quotable). A2 fits the 600 s cap only if
+       s/turn stays under ~30. Only the CHAT settings (prefix, reasoning strength) may change here,
+       never the protocol; then FREEZE them (notes + pin in test_model_chat_options.py).
+    7. RUNG SMOKE: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 8 --case-shard 8/11
+       (check prompt_sha256 = the frozen table, oracle_conditions [], libraries), smoke_check.py.
+    8. FULL RUN: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 8
+       (~2x Ministral: A2 ~8-9 h, the others 3-6.5 h; ~35 GPU-h with the gate).
+    9. ANALYSIS as pre-registered in notes 43.16: compliance first; A1 - A1' headline; the three
+       mechanism measures against Ministral's (empty-result revision 1/20, population change
+       4/17, try_query 1.05/case); cross-arm comparison descriptive only.
+  DONE 2026-09-28, step 6 (Glimmer gate, pFBEXL, eval_runs/agentic_gate/shard_m8_*_20260927_193501):
+  format perfect (0 malformed, 0 cap hits, 75/76 declared, probe = CLI), structure far better than
+  Ministral (1/37 blocking finals vs 9/38) -- but REPETITION LOOPS: 57% of thought-off turns repeat
+  an identical earlier action (Ministral 4%); 0/33 multi-try cases changed the population. Both
+  thought-off failures are loops (case 37 bpic2017 timeout; case 31). Notes 43.17. Steps 7-9
+  above are SUPERSEDED by the next entry.
+
+- OPEN, NEXT: pFBEXLR -- LEVER R (repeat guard) ON BOTH MODELS (option 2, decided 2026-09-28),
+  notes 43.17. Code done and tested locally. R: an action identical to an earlier one of the case
+  (tool + args, thought ignored) is not re-run; the model is told which turn made it. No prompt
+  text (the 3 frozen hashes are unchanged). Also preload_model: the model loads before the case
+  timer (Glimmer's 60 GB load was inside case 1's 600 s). Rungs now write to eval_runs/agentic_r;
+  the 43.15 pFBEXL run in eval_runs/agentic is NOT replaced. On the cluster:
+    1. git pull; in each env: python tests/test_agent_stage5.py && python tests/test_agentic_rungs.py
+       && python tests/test_model_chat_options.py (Glimmer env: export HF_HOME=$HPCWORK/nlxocpq-hf).
+    2. GATE on pFBEXLR, both models: sbatch --array=4,5,8,9 slurm/submit_agentic_gate.sh
+       Read ONLY: compliance, agent_repeat_turn_rate, guarded turns, s/turn, the preload line
+       ("loaded in Ns, outside the case time limit"), case-1 duration. Criterion: R must break
+       Glimmer's loops (repeat attempts and population changes vs 43.17's table) without hurting
+       Ministral's compliance. R's note wording may change HERE only; then FREEZE it (pin the
+       AGENT_REPEAT_NOTE sha256 in test_agent_stage5.py, record in notes).
+       If R does not break the loops: fall back to 43.16 (Glimmer on pFBEXL), loop = the finding.
+    3. RUNG SMOKES: sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2 --case-shard 8/11
+       and the same with --model-idx 8; smoke_check.py; manifests: frozen hashes, levers FBEXLR,
+       oracle [], libraries.
+    4. FULL RUNS (one job per model, all five rungs):
+         sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 2   (~13 h of GPU)
+         sbatch --array=0-4 slurm/submit_agentic_rungs.sh --model-idx 8   (~30-35 h of GPU)
+    5. ANALYSIS (notes 43.17 point 4): within each model on pFBEXLR, as pre-registered (compliance
+       first; A1 - A1' headline; mechanism incl. de-duplicated tries); R's effect on Ministral
+       (pFBEXL vs pFBEXLR, paired, descriptive, read against the A0 - A0 run-to-run baseline);
+       Glimmer vs Ministral descriptive only. Both protocols reported; none chosen by scored F1.
+  DONE 2026-09-28, step 2 (R's gate, pFBEXLR, job 4495606, eval_runs/agentic_gate/shard_m{2,8}_*_20260928_*):
+  R FAILED its criterion. Glimmer 57.0% -> 55.6% repeated turns; after the note it resent the same
+  action 128/167 times. Ministral 4.0% -> 2.9% (never repeats after a note). Preload did not run
+  (global_cfg bug, fixed in f288240). Notes 43.18. Steps 3-5 above are SUPERSEDED by the next entry.
+
+- OPEN, NEXT: EVALUATION 1 WITH QWEN3.8-27B (idx 9) AND GEMMA 4 31B-IT (idx 10), notes 43.18.
+  Decided 2026-09-28: evaluation 1 stays on pFBEXL (R off; rungs back to eval_runs/agentic, beside
+  43.15); no Ministral rerun; Glimmer out (dev-set negative result). Both new models run their
+  TRAINED non-thinking mode (enable_thinking: false), pinned commits, NF4, all five rungs.
+  Native reasoning (two-step turns) is EVALUATION 2, to design with the supervisor (TODO below).
+  PRE-REGISTERED (43.18): every candidate that passes its gate is run; none chosen among passers.
+  Pass = malformed <= 5%; repeated turns <= 10% (thought off); no loop-driven timeout; p90 s/turn
+  <= 30 (off) / <= 60 (on); >= 90% declared; probe = CLI. On the cluster:
+    1. git pull. Check the envs know the model types:
+         conda activate nlxocpq-eval-glimmer && python -c "from transformers import AutoConfig; AutoConfig.for_model('qwen3_5'); print('qwen3_5 ok')"
+         conda activate nlxocpq-eval-v5 && python -c "from transformers import AutoConfig; AutoConfig.for_model('gemma4'); print('gemma4 ok')"
+       If gemma4 is missing on 5.5.0: move index 10 to the newer env (slurm/model_runtime.sh) and say so
+       in the notes.
+    2. WEIGHTS (login node): bash scripts/prefetch_pinned_models.sh qwen3.8-27b-base gemma4-31b-base
+       && VERIFY=1 bash scripts/prefetch_pinned_models.sh   (~118 GB into $HPCWORK/nlxocpq-hf)
+    3. TESTS, HF_HOME set per command, never exported (an exported HF_HOME breaks Ministral's jobs):
+         in both envs: HF_HOME=$HPCWORK/nlxocpq-hf python tests/test_model_chat_options.py
+                       HF_HOME=$HPCWORK/nlxocpq-hf python tests/test_agent_turn_budget.py
+                       python tests/test_agentic_rungs.py && python tests/test_agent_stage5.py
+         in nlxocpq-eval-glimmer also: python tests/test_constrained_decoding.py
+    4. LOAD SMOKES, 2 dev cases each: sbatch --array=10,12 slurm/submit_agentic_gate.sh --case-shard 0/19
+       Read: Runtime line (10 -> glimmer env; 12 -> eval-v5, both $HPCWORK cache), "loaded in Ns,
+       outside the case time limit", [model load] class, clean JSON turns, no thinking text, s/turn.
+       DONE 2026-09-28 (job 4498520, eval_runs/agentic_gate_smoke/shard_m{9,10}_*_20260928_1450*):
+       both clean. Qwen: glimmer env, transformers 5.17.0, preloaded in 49 s outside the timer,
+       0 malformed / 0 cap hits / 1 of 16 turns repeated, 2/2 declared + executed, probe = CLI,
+       ~10 s/turn. Gemma 4: eval-v5, transformers 5.5.0 (gemma4 loads there), preloaded in 53 s,
+       0 / 0 / 0 repeats, 2/2, ~19 s/turn. Both via AutoModelForCausalLM (no fallback line), no
+       thinking text or template markers in any turn, every turn starts at the JSON object.
+    5. GATE: sbatch --array=10-13 slurm/submit_agentic_gate.sh; apply the pass rule (43.18).
+    6. Each passing model: rung smoke (--model-idx 9 / 10 --case-shard 8/11), smoke_check.py, full
+       run (--array=0-4), analysis as pre-registered in 43.15/43.16 (within model; cross-model
+       descriptive only).
+
+- OPEN, NEXT: EVALUATION 2, "UNLEASHED" -- DESIGNED, PRE-REGISTERED AND BUILT (notes 44, 2026-09-28).
+  The recommended package: every generation first reasons in the model's own channel (<= 2048 tokens since notes 44.5; was 1024,
+  forced close at the budget), then acts under the grammar as in evaluation 1; earlier reasoning
+  dropped; vendor sampling, fixed seeds, 2 draws; 1800 s cap; rungs A0*, A1*, A1'* at 8 turns; same
+  prompts (frozen hashes), tools, levers pFBEXL, scorer. Models, in the PRE-REGISTERED order:
+  0 Ministral-3-14B-Reasoning, 1 Qwen3.8-27B (thinking, effort medium), 2 Muse Glimmer-30B (strength
+  medium), 3 Gemma 4 31B-it (thinking; SDPA flash/efficient). Gate rule and analysis: notes 44.4.
+  ONLY THE FRONTIER ARM needs the supervisor (paid; and a native Anthropic backend, not built yet).
+  Code tested locally (tests/test_unleashed.py). On the cluster:
+    1. git pull; in BOTH envs (HF_HOME per command, never exported):
+         HF_HOME=$HPCWORK/nlxocpq-hf python tests/test_unleashed.py
+         python tests/test_agent_stage5.py && python tests/test_model_chat_options.py
+         and in nlxocpq-eval-glimmer: python tests/test_constrained_decoding.py
+    2. WEIGHTS: bash scripts/prefetch_pinned_models.sh ministral3-14b-reasoning
+       && VERIFY=1 bash scripts/prefetch_pinned_models.sh   (Ministral-R ~14 GB; the rest are cached)
+    3. MEMORY: sbatch slurm/submit_long_prompt_smoke.sh   -- peak GiB at 16k-64k-token prompts per model.
+       Gemma (task 3) must fit >= 49k; if it OOMs, stop and fix before its gate.
+       DONE 2026-09-30 (job 4521758): tasks 0-2 fit 64k (peak 31/43/38 GiB). Gemma: "No available
+       kernel" (head dim 512 + grouped K/V); FIXED in _sdpa_context (K/V repeated under sdpa_kernels,
+       notes 44.3). RE-RUN Gemma only: sbatch --array=3 slurm/submit_long_prompt_smoke.sh
+    4. LOAD SMOKES, 2 dev cases each: sbatch slurm/submit_unleashed_gate.sh --case-shard 0/19
+       DONE at 1024 (2026-09-30, models 0-2): clean mechanics, but forced closes 80% (Ministral-R) and
+       78% (Glimmer) -> BUDGET RAISED TO 2048 FOR ALL FOUR, FROZEN (notes 44.5). Not raised again.
+       Gemma re-smoke (4548761): fits 49k, OOM at 64k. RE-RUN the load smoke for all four at 2048.
+       DONE at 2048 for 0-2 (notes 44.5): forced 40% / 13% / 11%, <= 90 s/turn, all clean -> GATE 0-2.
+       Gemma (task 3) at 2048: clean, 13% forced, 44-140 s/turn, but 4/13 tool turns repeat (A/B
+       oscillation; notes 44.5) -> criterion 2 at risk; the gate decides. GATE ALL FOUR.
+       SUPERSEDED 2026-10-01 (notes 44.6): earlier reasoning is now KEPT within a case
+       (reasoning_history keep; every vendor template keeps it in a tool loop -- 44.2 was wrong).
+       Conditions are now _think2048keep. PROTOCOL FROZEN. RE-RUN, in order:
+         a. git pull; HF_HOME=$HPCWORK/nlxocpq-hf python tests/test_unleashed.py  (both envs)
+         b. load smokes, all four: sbatch slurm/submit_unleashed_gate.sh --case-shard 0/19
+            read: clean actions, forced closes, repeats, s/turn (trigger 150), prompt tokens/call
+         c. the gate: sbatch slurm/submit_unleashed_gate.sh
+       DONE b (2026-10-01): clean, but consecutive turns replayed one random stream (Ministral case 2
+       turns 3/4 identical) -> FIXED: generation_seed_per_call true (notes 44.7). Also added
+       max_context_tokens per model (verified memory; Gemma 49152) -> context_limit_hit, no warning.
+       RE-RUN b (all four), then c. Gate: context-limit cases count against ">= 90% declared".
+       DONE b again (14:49): seeds decoupled (no copies, 0 repeats for 0-2); Gemma 3/7 repeats, up to
+       140 s/turn and 1136 s/case -- left to the gate. -> RUN THE GATE (c), all four.
+       DONE c, THE GATE (2026-10-01, notes 44.8): ONLY QWEN3.8 PASSES. Ministral-R fails (forced closes
+       73%, 1 probe_unavailable); Glimmer fails (repeats 12.4%); Gemma fails (repeats 22.8%). All 122
+       repeats verified genuine (identical results, evalVersion aside). No re-gating.
+    7. QWEN3.8 SCORED RUN (model index 1):
+         sbatch --array=0-2 slurm/submit_unleashed_rungs.sh --model-idx 1 --smoke   # 3 rungs, slice 8/11
+         DONE smoke (2026-10-02): all three rungs as designed, A1'* check_tree only, no pipeline
+         failures; revised cost ~140 GPU-h (A0* 34, A1* 61, A1'* 44). Smoke dirs are c8of11 -- on the
+         cluster, move them OUT of eval_runs/unleashed before merging.
+         then: sbatch slurm/submit_unleashed_rungs.sh --model-idx 1                 # 18 tasks
+         then merge the 6 shards per rung (eval_testset.py --merge-shards), analysis per notes 44.4.
+         DONE 2026-10-03 (notes 44.9): merged into eval_runs/unleashed/merged_m1_s{0,1,2} (clean).
+         HEADLINE A1* - A1'* = +0.0453 [+0.0087, +0.0848], 39/22 -- resolved, just under the >=0.05 bar;
+         executed F1 rises (0.1735 vs 0.1265), evaluation does not. A1* 0.1536, A1'* 0.1083, A0* 0.0207.
+         Open: manual annotation of a reasoning sample (the keyword divergence measure is uninformative).
+    8. ASK THE SUPERVISOR (both designs already fixed in notes 44.8, so only go/no-go is open):
+       a. FRONTIER ARM (Opus 5.5, paid) -- needs a native Anthropic backend (not built).
+       b. EXPLORATORY ARM: all three gate failures or none, 1 draw, reported apart (~100 GPU-h).
+       Frontier first if budget is short. Decide without reference to Qwen's scored results.
+       c. IDEA (follow-up, NOT evaluation 2): an example-lookup tool, search_examples(question), over
+          the FINE-TUNING DATASET only -- never the testset (answer key) or the dev set (too close to
+          the testset; already used to tune and gate the agent). Motivation: OCPQ syntax is learned
+          from examples, which log inspection cannot teach (Gemma invented field names at the gate).
+          Asks: does an agent with textbook examples AND log access do better? Design before running:
+          the tool in both loop rungs or a dedicated rung, pre-registered, gated on the dev set like
+          every condition. Else: thesis future work.
+          BUILT 2026-10-03 (notes 45): lever S, tool search_examples over data/ocpq_dataset.json
+          (3 per call, unseen-next, static), 2x2 reusing evaluation 2's A1*/A1'*. Pre-registered gate:
+          notes 44.4's six + uptake >= 25% of cases. NO SUPERVISOR APPROVAL NEEDED (user, 2026-10-03; ~127 GPU-h):
+            a. git pull; python tests/test_example_search.py (both envs, HF_HOME per command)
+            b. REPRODUCTION (S off, new pipeline): sbatch --array=1 slurm/submit_unleashed_rungs.sh
+               --model-idx 1 --smoke -> compare with eval_runs/unleashed_smoke/..._s1_..._c8of11
+               (identical predictions expected); move the new dir to eval_runs/unleashed_smoke after.
+               DONE 2026-10-04 (notes 45.6): first turns 32/32 identical, final F1 31/32 -> reuse stands.
+            c. load smoke: sbatch slurm/submit_unleashed_examples_gate.sh --case-shard 0/19   (all four)
+            d. gate:       sbatch slurm/submit_unleashed_examples_gate.sh                     (all four)
+               RULE A (notes 45.5): tasks 0, 2, 3 are DIAGNOSTIC ONLY -- never scored, whatever the
+               result; only Qwen (task 1) can lead to the 2x2. ~17 GPU-h for the four tasks.
+               DONE 2026-10-05 (notes 45.7): QWEN PASSES (uptake 74%) -> run e. Diagnostic: Glimmer
+               cured (repeats 12.4% -> 2.5%); Gemma fails (23.4%; 4.1% when it searched, 36.3% when
+               not); Ministral-R fails (forced 75.8%, uptake 13%).
+               GLIMMER ALSO RUNS its two S cells (notes 45.8; claim A1*+S - A1'*+S only, ~40 GPU-h):
+                 sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke --model-idx 2
+                 sbatch slurm/submit_unleashed_examples_rungs.sh --model-idx 2
+               DONE 2026-10-08 (notes 45.9): merged eval_runs/unleashed_examples/merged_m{1,2}_s{0,1}.
+               Qwen: examples +0.064 (with log) / +0.058 (without); log access given examples +0.052;
+               interaction +0.006 (additive). Glimmer log access given examples +0.070 [+0.023,+0.118].
+               Glimmer A1*+S 0.2877 = best non-oracle score so far (descriptive).
+            e. if it passes: sbatch --array=0-1 slurm/submit_unleashed_examples_rungs.sh --smoke,
+               then sbatch slurm/submit_unleashed_examples_rungs.sh (12 tasks), merge, analysis 45.4.
+       Read: Runtime line, "loaded in", each turn's reasoning (in the model's channel, closed by it or
+       forced), clean JSON actions, s/turn, forced-close rate.
+       SPEED TRIGGER (notes 44.3, decided before output): median s/turn <= 150 per model. If Qwen is
+       above it: pip install flash-linear-attention causal-conv1d in nlxocpq-eval-glimmer, re-pin,
+       re-smoke Qwen, all before its gate. Gemma above it: no faster exact kernel; the gate decides.
+    5. GATE: sbatch slurm/submit_unleashed_gate.sh   (A1*, 38 dev cases, 1 draw; ~5 h per model).
+       Apply the notes-44.4 rule; budget/effort may be raised here only, then re-gate and freeze.
+    6. Each passing model, in order: sbatch --array=0-2 slurm/submit_unleashed_rungs.sh --model-idx N --smoke
+       then sbatch slurm/submit_unleashed_rungs.sh --model-idx N (18 tasks: 3 rungs x 6 case shards),
+       merge the shards per rung, analysis as pre-registered in notes 44.4.
+- DONE (2026-10-30; decoding + structure hint re-run 2026-10-27, self-consistency 2026-10-29; all
+  analysed, FLAGS IC-39/IC-40/IC-41, TH-07 resolved): RE-RUN THE OLD-CORPUS STUDIES on the pinned
+  corpus, so Ch. 4 no longer mixes corpora (FLAGS TH-07, IC-10). Three jobs, unchanged designs:
+    sbatch --array=0-2 slurm/submit_decoding_ablation.sh      D0/D1/D2  (~6 GPU-h; D0, D2 replicate N0, N1)
+    sbatch --array=0-2 slurm/submit_structure_ablation.sh     H0/H1/H2  (~5 GPU-h)
+    sbatch --array=0-15%8 slurm/submit_selfconsistency.sh     2 arms x 8 shards (~45 GPU-h)
+  Before: commit + pull the current pipeline; check_eval_deps.py and corpus_manifest.py --check pass;
+  same OCPQ checkout/build as matrix_v2; move the old eval_runs/{decoding_ablation,structure_ablation,
+  selfconsistency} shards out of the way (merge globs shard_*). Reproduction check first: the new D0
+  must match N0 (0.2030 on the 135, up to the #25 re-gold) before anything else is read.
+  After (Claude): merge, point configs/analysis_contrasts.json (D*, H*) and ablation_tables.py
+  (SELFCONS_RUN) at the new runs, corpus "old" -> "pinned", compute_runs.json globs, regenerate
+  selfconsistency/structure_hint/rescoring/decoding*/paired_oldcorpus/ablation_synthesis, refresh
+  the Ch. 4 comments, close TH-07/IC-10/IC-36.
+  2026-10-28: D and H are done (tables regenerated); only self-consistency is outstanding. When it
+  lands, also: drop the "113 not on a retyped log" row from selfconsistency.py's table (it exists
+  only for the old-corpus sensitivity argument); rescore rescoring on the new run; the consensus
+  table is now input in Appendix F (Thesis/script/appendices/F-additional-results.tex).

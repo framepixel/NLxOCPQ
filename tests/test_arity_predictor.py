@@ -129,8 +129,11 @@ def _gate(rows):
 
 constant = _gate([{"gold": list(gd), "predicted": list(MAJORITY)} for gd in golds])
 check("a constant predictor FAILS the gate", constant["gate_passed"], False)
-check("...even though its pooled accuracy is 63.3%",
-      round(constant["accuracy"], 3), 0.633)
+# 106/169 = 62.7%. It was 107/169 = 63.3% (notes 33, 42) until testset #25's gold was corrected on
+# 2026-09-22: its root now binds the payment EVENT the question asks for, so its arity is no longer
+# (0,1). The gate's verdict does not depend on it.
+check("...even though its pooled accuracy is 62.7%",
+      round(constant["accuracy"], 3), 0.627)
 check("...because its minority recall is zero", constant["minority_recall"], 0.0)
 
 perfect = _gate([{"gold": list(gd), "predicted": list(gd)} for gd in golds])
@@ -150,6 +153,19 @@ check("a predictor that only finds the majority class fails, whatever its pooled
 abstaining = _gate([{"gold": list(gd), "predicted": None} for gd in golds])
 check("abstentions are counted separately", abstaining["abstained"], len(golds))
 check("...and never count as correct", abstaining["correct"], 0)
+
+print("\n--- --regold re-derives a stored probe's gold from the current testset ---")
+from arity_predictor_probe import _regold  # noqa: E402
+
+stale = [{"nl_query": e["nl_query"], "gold": list(MAJORITY), "predicted": None}
+         for e in TESTSET]
+with contextlib.redirect_stdout(io.StringIO()):
+    changed = _regold(stale, str(REPO / "data" / "testset.json"))
+check("every row whose gold is not (0,1) is re-golded",
+      len(changed), sum(1 for gd in golds if tuple(gd) != MAJORITY))
+check("...keeping the stale gold as gold_before",
+      all(r["gold_before"] == list(MAJORITY) for r in stale if "gold_before" in r), True)
+check("...and taking the testset's", [r["gold"] for r in stale], [list(gd) for gd in golds])
 
 print("\n--- the probe resolves a REAL config, the way the evaluation does ---")
 # This is here because guessing `expand_models`' signature cost a cluster job: the probe called
@@ -244,7 +260,8 @@ for forbidden_pattern in ("wrong:", "mistake to avoid", "should not be"):
           forbidden_pattern in rendered, False)
 
 # The gold arity distribution must not appear, in any of the forms it would naturally be written.
-for forbidden in ("63.3", "63%", "0.633", "107 of", "107/169", "21.3"):
+for forbidden in ("63.3", "63%", "0.633", "107 of", "107/169", "21.3",
+                  "62.7", "0.627", "106 of", "106/169"):
     check(f"the prompt does not quote the gold distribution ({forbidden!r})",
           forbidden in rendered, False)
 

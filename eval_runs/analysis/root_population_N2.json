@@ -1,0 +1,74 @@
+{
+  "run_dir": "eval_runs\\arity_ablation\\shard_m1_s0_e0_constrained_arityforced_tok4000_20260913_164048",
+  "store_dir": "eval_runs\\arity_ablation\\shard_m1_s0_e0_constrained_arityforced_tok4000_20260913_164048\\result_store",
+  "class_meanings": {
+    "arity_mismatch": "declared a different NUMBER of root variables",
+    "type_mismatch": "same variable count, different declared TYPES",
+    "link_mismatch": "same variables, different root FILTERS (type, operands or qualifier)",
+    "size_filter_mismatch": "same filters, different root sizeFilters",
+    "residual": "root box matches on every feature, population still differs"
+  },
+  "by_config": {
+    "llama31-8b-finetuned_schema-allowed-entities-only_schema-on_constrained_arityforced_tok4000": {
+      "n": 169,
+      "no_result": 65,
+      "scoreable": 104,
+      "population_exact": 54,
+      "population_wrong": 50,
+      "classes": {
+        "arity_mismatch": 0,
+        "type_mismatch": 14,
+        "link_mismatch": 26,
+        "size_filter_mismatch": 7,
+        "residual": 3,
+        "unreadable_root": 0
+      },
+      "class_share_of_wrong": {
+        "arity_mismatch": 0.0,
+        "type_mismatch": 0.28,
+        "link_mismatch": 0.52,
+        "size_filter_mismatch": 0.14,
+        "residual": 0.06,
+        "unreadable_root": 0.0
+      },
+      "arity_repaired_by_kind_projection": 0,
+      "link_subclasses": {
+        "placement": 7,
+        "attribute": 11,
+        "value_type": 1,
+        "bounds": 6,
+        "structural_link": 1
+      },
+      "clearing_oracle_discriminating": {
+        "link_mismatch+no_result": 0.8002508888888888,
+        "no_result+population_exact": 0.7703609777777778,
+        "no_result+type_mismatch": 0.7608697259259258,
+        "no_result+size_filter_mismatch": 0.722313837037037,
+        "no_result+residual": 0.7042859333333333,
+        "no_result": 0.6895203407407408,
+        "link_mismatch+population_exact": 0.518128562962963,
+        "link_mismatch+type_mismatch": 0.5086373111111111,
+        "population_exact+type_mismatch": 0.4787474,
+        "link_mismatch+size_filter_mismatch": 0.4700814222222222,
+        "link_mismatch+residual": 0.45205351851851855,
+        "population_exact+size_filter_mismatch": 0.4401915111111111,
+        "link_mismatch": 0.4372879259259259,
+        "size_filter_mismatch+type_mismatch": 0.43070025925925925,
+        "population_exact+residual": 0.4221636074074074,
+        "residual+type_mismatch": 0.4126723555555556,
+        "population_exact": 0.4073980148148148,
+        "type_mismatch": 0.39790676296296296,
+        "residual+size_filter_mismatch": 0.3741164666666667,
+        "size_filter_mismatch": 0.35935087407407407,
+        "residual": 0.34132297037037035
+      }
+    }
+  },
+  "link_subclass_meanings": {
+    "placement": "gold's root restricts no attribute; the prediction adds an attribute filter there",
+    "attribute": "an attribute filter is missing, extra, or on a different attribute",
+    "value_type": "same attribute, different value type (e.g. Boolean against Integer)",
+    "bounds": "same attribute and value type, different bounds or values",
+    "structural_link": "attribute filters agree; an O2E/O2O/time/inequality link differs"
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "note": "MODEL GATE for the agentic arm (TODO Stage 4 item 6). Runs on data/agent_devset.json, which is NEVER scored in the thesis. Read COMPLIANCE AND COST ONLY: malformed-action rate, budget exhaustion, no-answer rate, turns, tool calls, probe restarts, thought uptake, wall clock per case. Dev entries have no floors (they are not in testset_discriminability.json), so skill is undefined and NO dev-set F1 may be quoted anywhere. Select the model with --model-idx and the thought condition with --agent-thought.",
+  "testset_path": "data/agent_devset.json",
+  "output_dir": "eval_runs/agentic_gate",
+  "backend": "local-gpu",
+  "local_device": "cuda",
+  "local_dtype": "auto",
+  "local_quantization": "4bit",
+  "temperature": 0.0,
+  "repeats": 1,
+  "limit": 0,
+  "seed": 3407,
+  "few_shot_k": 3,
+  "keep_result_files": false,
+  "result_store": true,
+  "result_store_max_situations": 200000,
+  "shuffle": false,
+  "auto_expand_finetuned": true,
+  "case_timeout_sec": 600,
+  "max_result_file_gb": 4,
+  "fine_tune_map": {
+    "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit": {
+      "name": "models/adapters/llama31-8b-fine-tuned-quantized",
+      "label": "llama31-8b-finetuned"
+    },
+    "unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit": {
+      "name": "models/adapters/ministral3-14b-fine-tuned-quantized",
+      "label": "ministral3-14b-finetuned"
+    },
+    "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit": {
+      "name": "models/adapters/ministral3-3b-fine-tuned-quantized",
+      "label": "ministral3-3b-finetuned"
+    },
+    "models/adapters/gemma3-4b-base-16bit": {
+      "name": "models/adapters/gemma3-4b-merged-16bit",
+      "label": "gemma3-4b-finetuned"
+    }
+  },
+  "models": [
+    {
+      "name": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit",
+      "label": "llama31-8b-base"
+    },
+    {
+      "name": "unsloth/Ministral-3-14B-Instruct-2512-unsloth-bnb-4bit",
+      "label": "ministral3-14b-base"
+    },
+    {
+      "name": "unsloth/Ministral-3-3B-Instruct-2512-unsloth-bnb-4bit",
+      "label": "ministral3-3b-base"
+    },
+    {
+      "name": "models/adapters/gemma3-4b-base-16bit",
+      "label": "gemma3-4b-base"
+    },
+    {
+      "name": "meta-models/Muse-Glimmer-30B",
+      "label": "muse-glimmer-30b-base",
+      "revision": "a4e59da52a7bc87ae7251dd5545c0dd437c44b68",
+      "finetuned": false,
+      "chat_template_kwargs": {
+        "reasoning_strength": "low"
+      },
+      "generation_prefix": " to=user<|message|>"
+    },
+    {
+      "name": "Qwen/Qwen3.8-27B",
+      "label": "qwen3.8-27b-base",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+      "finetuned": false,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    {
+      "name": "google/gemma-4-31B-it",
+      "label": "gemma4-31b-base",
+      "revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+      "finetuned": false,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    }
+  ],
+  "schema_enforced": [
+    true
+  ],
+  "schema_validation": true,
+  "schema_validation_when_no_schema": false,
+  "prompt_strategies": [
+    "agentic-log-tools"
+  ],
+  "prompt_strategies_note": "The gate measures the tool rung A1 only.",
+  "constrained_decoding": true,
+  "generation_token_budget": 4000,
+  "constrained_any_order": false,
+  "constrained_bounded_shape": true,
+  "constrained_bounded_note": "No free whitespace and tree lists bounded at twice the largest gold list (LLM.OCPQ_TREE_MAX_ITEMS), notes 43.8: base Llama wrote ~3900 tokens of blanks in one turn and repeated list items in others. Every gold tree still passes (tests/test_constrained_decoding.py). All rungs, A0 included.",
+  "decoding_note": "Constrained decoding and the 4000-token budget are B0's (notes 41); A0 is B0's one-shot prompt on the arm's own BASE model (notes 43.6). The grammar is ORDERED (constrained_any_order false, notes 43.7): xgrammar's any_order admits a repeated key, and base Llama looped on one in 58 of 70 smoke turns. It applies to every rung, A0 included, so the rungs share one grammar; the ordered grammar still admits every gold tree written in schema order. For the loop rungs the grammar is the AgentTurn union per turn (notes 43.5).",
+  "force_root_arity": false,
+  "type_aware_filters": false,
+  "structural_validation": false,
+  "constant_root_arity": false,
+  "corpus_check": "error",
+  "agent_max_turns": 8,
+  "agent_max_tool_calls": 12,
+  "agent_thought": false,
+  "agent_turn_token_budget": 2000,
+  "agent_structural_feedback": true,
+  "agent_bounce_blocking_final": true,
+  "agent_finalise_evaluated": true,
+  "agent_worked_example": true,
+  "agent_reserve_last_turn": true,
+  "agent_repeat_guard": false,
+  "agent_protocol_note": "Stage 5 levers (notes 43.12), letters FBEXL in the directory suffix: F structure report on try_query + a static check_tree tool in BOTH loop rungs (A1 - A1' isolates log access); B a final tree with blocking defects is returned once; E fall back to the last tree the probe EVALUATED first (amends the pre-registered rule); X tree-linking rules + one worked example (invented domain; A0 keeps B0's prompt, so A1 - A0 includes it); L the last turn admits a final answer only. All false reproduces the model gate of notes 43.11. The prompt hash is recorded in the manifest (agentic.prompt_sha256).",
+  "agent_turn_token_budget_note": "Per-TURN cap for the loop rungs (A1, A1-prime, A2, A1+thought); A0 keeps generation_token_budget. Bounds what a runaway turn costs (~48 s instead of ~95 s), not an answer: tests/test_agent_turn_budget.py checks every gold tree fits with margin in each evaluated model's own tokens. Notes 43.8.",
+  "agent_budget_note": "Defaults = A1. A2's budget is passed by flag and must be SIZED FROM THE MODEL GATE's measured per-case wall clock so it fits case_timeout_sec (600), which CLAUDE.md 6 requires to be the same on every compared arm. See TODO, Stage 4 item 7.",
+  "agent_tool_result_char_cap": 4000,
+  "agent_probe_request_timeout_sec": 30,
+  "agent_probe_load_timeout_sec": 300,
+  "agent_probe_max_restarts_per_case": 2,
+  "agent_probe_max_restarts_per_run": 10,
+  "agent_record_turn_char_cap": 600,
+  "models_note": "Index order is load-bearing: the submit scripts select by the EXPANDED index (even = base, odd = its adapter, for the first four). Models added for the agentic arm are appended LAST with no adapter (finetuned: false), so no earlier index moves: 8 Muse Glimmer-30B (notes 43.16; failed its gate, 43.17-43.18), 9 Qwen3.8-27B and 10 Gemma 4 31B-it (notes 43.18). Each pins its hub commit (revision); chat_template_kwargs / generation_prefix are its chat settings, frozen after its gate. Qwen and Gemma run with their trained non-thinking mode (enable_thinking: false): evaluation 1 has no native reasoning phase for any model.",
+  "agent_repeat_guard_note": "R (notes 43.17), letter R: an action identical to an earlier one of the case is not re-run. OFF (notes 43.18): on the dev gate it did not break Muse Glimmer's loops (57% -> 56% of turns repeated; after the note Glimmer resent the same action 128 of 167 times) and barely touched Ministral (4% -> 3%), so evaluation 1 stays on the protocol Ministral's scored run used, pFBEXL. Repeats are still recorded (agent_repeat_turn_rate) whatever this flag says.",
+  "preload_model": true,
+  "preload_model_note": "Load the model before the case loop, outside case_timeout_sec (notes 43.17). Lazily it loads inside the first case's cap, which a 60 GB checkpoint (Muse Glimmer) can exhaust. Changes no output, only where the load time is counted."
+}

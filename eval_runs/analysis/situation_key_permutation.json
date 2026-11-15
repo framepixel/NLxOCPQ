@@ -1,0 +1,146 @@
+{
+  "generated": {
+    "command": "python src/situation_key_permutation_check.py eval_runs/matrix_v2/merged eval_runs/unleashed/merged_m1_s0 eval_runs/unleashed/merged_m1_s1 eval_runs/unleashed/merged_m1_s2",
+    "utc": "2026-10-22T10:50:21+00:00",
+    "nlxocpq_commit": "e1712a6b6b229e0ed10fe4483b784f035e18d5b4-dirty",
+    "inputs": [
+      {
+        "run": "eval_runs/matrix_v2/merged",
+        "predictions_sha256": "8d32e62f9eb38f2b782c137fd53339f2ad51430b8c151baaf8f61676c88fa255",
+        "pipeline_fingerprints": [
+          "32dfd9156757c5744a103b947c07b7d2e3a9f6303ece353f8bd258f320686bf5"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed/merged_m1_s0",
+        "predictions_sha256": "4e151691ba5c64f7b6f417d78de1e590f7109563f9920c390e4e7e1cae5c06b5",
+        "pipeline_fingerprints": [
+          "f5cd068d2b39cf225f4f84e94677454ac54c00836dd888ac242d9e7721108bee"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed/merged_m1_s1",
+        "predictions_sha256": "35b5b8d8f47a138cf540800987f673f88b1661e3a1d32792f7c5bfaf169710f0",
+        "pipeline_fingerprints": [
+          "f5cd068d2b39cf225f4f84e94677454ac54c00836dd888ac242d9e7721108bee"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed/merged_m1_s2",
+        "predictions_sha256": "104762cfe1a9b3fe7fa5735b2b78212fd2338fa4a3044d95defb317ff3540b91",
+        "pipeline_fingerprints": [
+          "f5cd068d2b39cf225f4f84e94677454ac54c00836dd888ac242d9e7721108bee"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      }
+    ]
+  },
+  "runs": [
+    {
+      "run": "eval_runs/matrix_v2/merged",
+      "result_store": "eval_runs/matrix_v2/merged/result_store",
+      "records_with_both_results": 2512,
+      "records_with_reorderable_prediction": 483,
+      "records_whose_f1_rises": 6,
+      "distinct_questions_affected": 1,
+      "discriminating_records_affected": 0,
+      "max_mean_discriminating_gain_per_condition": 0.0,
+      "changed": [
+        {
+          "config_id": "llama31-8b-finetuned_schema-allowed-entities-only_schema-on",
+          "question": "Which sales employees confirmed orders for which customers?",
+          "log": "order-management.json",
+          "discriminating": false,
+          "repeat": 1,
+          "base_f1": 0.0,
+          "best_f1": 1.0
+        },
+        {
+          "config_id": "llama31-8b-finetuned_schema-allowed-entities-only_schema-off",
+          "question": "Which sales employees confirmed orders for which customers?",
+          "log": "order-management.json",
+          "discriminating": false,
+          "repeat": 1,
+          "base_f1": 0.0,
+          "best_f1": 1.0
+        },
+        {
+          "config_id": "llama31-8b-finetuned_schema-chain-of-thought-plus_schema-on",
+          "question": "Which sales employees confirmed orders for which customers?",
+          "log": "order-management.json",
+          "discriminating": false,
+          "repeat": 1,
+          "base_f1": 0.0,
+          "best_f1": 1.0
+        },
+        {
+          "config_id": "llama31-8b-finetuned_schema-chain-of-thought-plus_schema-off",
+          "question": "Which sales employees confirmed orders for which customers?",
+          "log": "order-management.json",
+          "discriminating": false,
+          "repeat": 1,
+          "base_f1": 0.0,
+          "best_f1": 1.0
+        },
+        {
+          "config_id": "ministral3-14b-finetuned_schema-chain-of-thought-plus_schema-on",
+          "question": "Which sales employees confirmed orders for which customers?",
+          "log": "order-management.json",
+          "discriminating": false,
+          "repeat": 1,
+          "base_f1": 0.0,
+          "best_f1": 1.0
+        },
+        {
+          "config_id": "ministral3-14b-finetuned_schema-chain-of-thought-plus_schema-off",
+          "question": "Which sales employees confirmed orders for which customers?",
+          "log": "order-management.json",
+          "discriminating": false,
+          "repeat": 1,
+          "base_f1": 0.0,
+          "best_f1": 1.0
+        }
+      ]
+    },
+    {
+      "run": "eval_runs/unleashed/merged_m1_s0",
+      "result_store": "eval_runs/unleashed/merged_m1_s0/result_store",
+      "records_with_both_results": 158,
+      "records_with_reorderable_prediction": 26,
+      "records_whose_f1_rises": 0,
+      "distinct_questions_affected": 0,
+      "discriminating_records_affected": 0,
+      "max_mean_discriminating_gain_per_condition": 0.0,
+      "changed": []
+    },
+    {
+      "run": "eval_runs/unleashed/merged_m1_s1",
+      "result_store": "eval_runs/unleashed/merged_m1_s1/result_store",
+      "records_with_both_results": 300,
+      "records_with_reorderable_prediction": 28,
+      "records_whose_f1_rises": 0,
+      "distinct_questions_affected": 0,
+      "discriminating_records_affected": 0,
+      "max_mean_discriminating_gain_per_condition": 0.0,
+      "changed": []
+    },
+    {
+      "run": "eval_runs/unleashed/merged_m1_s2",
+      "result_store": "eval_runs/unleashed/merged_m1_s2/result_store",
+      "records_with_both_results": 292,
+      "records_with_reorderable_prediction": 13,
+      "records_whose_f1_rises": 0,
+      "distinct_questions_affected": 0,
+      "discriminating_records_affected": 0,
+      "max_mean_discriminating_gain_per_condition": 0.0,
+      "changed": []
+    }
+  ]
+}

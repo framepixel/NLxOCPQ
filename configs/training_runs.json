@@ -1,0 +1,122 @@
+{
+  "_comment": [
+    "The four fine-tuning runs (v5), read by src/training_summary.py (FLAGS NS-03).",
+    "`log` is the unsloth job output, where it survives. The logs of jobs 2945122, 2960623 and 2960624 were",
+    "deleted from the cluster; their training figures exist only as transcribed by hand into",
+    "Thesis/notes/04-experimental-setup.md on 2026-08-15 (`transcribed`), and the summary marks them so.",
+    "Everything about the adapters themselves is measured from the files in models/adapters/.",
+    "`trainer_state` is the last checkpoint's state (outputs/<model>/checkpoint-6750), holding every logged loss and",
+    "evaluation; it predates the final runtime line, so training time still comes from the log or the transcription.",
+    "`slurm` is `sacct -j <job> --format=JobID,Elapsed,Start,End,State`, run on the cluster on 2026-10-22: the job's",
+    "wall time including model loading, as charged."
+  ],
+  "runs": [
+    {
+      "model": "Llama 3.1 8B",
+      "label": "llama31-8b",
+      "job": 2945122,
+      "adapter": "models/adapters/llama31-8b-fine-tuned-quantized",
+      "log": null,
+      "transcribed": {
+        "total_params": "8.07 B",
+        "wall_hours": 4.01,
+        "samples_per_second": 3.742,
+        "train_loss": 0.02071,
+        "best_eval_loss": 0.016077,
+        "steps": 6750,
+        "source": "notes 04, v5 table (2026-08-15)"
+      },
+      "expected": {
+        "lora_tensors": 448,
+        "layers": 32,
+        "trainable_params": 41943040,
+        "file_mib": 80.1,
+        "vision_tensors": 0,
+        "best_eval_loss": 0.016077
+      },
+      "trainer_state": "outputs/llama31-8b-fine-tuned-quantized/checkpoint-6750/trainer_state.json",
+      "slurm": {
+        "elapsed": "04:06:42",
+        "start": "2026-08-13T16:42:15",
+        "end": "2026-08-13T20:48:57",
+        "state": "COMPLETED"
+      }
+    },
+    {
+      "model": "Ministral 3 14B",
+      "label": "ministral3-14b",
+      "job": 2960623,
+      "adapter": "models/adapters/ministral3-14b-fine-tuned-quantized",
+      "log": null,
+      "transcribed": {
+        "total_params": "14.01 B",
+        "wall_hours": 8.31,
+        "samples_per_second": 1.804,
+        "train_loss": 0.04509,
+        "best_eval_loss": 0.042364,
+        "steps": 6750,
+        "source": "notes 04, v5 table (2026-08-15)"
+      },
+      "expected": {
+        "lora_tensors": 560,
+        "layers": 40,
+        "trainable_params": 60948480,
+        "file_mib": 116.3,
+        "vision_tensors": 0,
+        "best_eval_loss": 0.042364
+      },
+      "trainer_state": "outputs/ministral3-14b-fine-tuned-quantized/checkpoint-6750/trainer_state.json",
+      "slurm": {
+        "elapsed": "08:31:47",
+        "start": "2026-08-14T13:00:24",
+        "end": "2026-08-14T21:32:11",
+        "state": "COMPLETED"
+      }
+    },
+    {
+      "model": "Ministral 3 3B",
+      "label": "ministral3-3b",
+      "job": 3021705,
+      "adapter": "models/adapters/ministral3-3b-fine-tuned-quantized",
+      "log": "logs/training logs.txt",
+      "expected": {
+        "trainable_params": 24707072,
+        "train_runtime_sec": 16820,
+        "train_loss": 0.02029,
+        "vision_tensors": 0
+      },
+      "trainer_state": "outputs/ministral3-3b-fine-tuned-quantized/checkpoint-6750/trainer_state.json",
+      "slurm": null
+    },
+    {
+      "model": "Gemma 3 4B",
+      "label": "gemma3-4b",
+      "job": 2960624,
+      "adapter": "models/adapters/gemma3-4b-fine-tuned-quantized",
+      "log": null,
+      "transcribed": {
+        "total_params": "4.33 B",
+        "wall_hours": 7.56,
+        "samples_per_second": 1.983,
+        "train_loss": 0.02186,
+        "best_eval_loss": 0.014993,
+        "steps": 6750,
+        "source": "notes 04, v5 table (2026-08-15)"
+      },
+      "expected": {
+        "lora_tensors": 476,
+        "layers": 34,
+        "trainable_params": 29802496,
+        "file_mib": 56.9,
+        "vision_tensors": 0
+      },
+      "trainer_state": null,
+      "slurm": {
+        "elapsed": "07:45:03",
+        "start": "2026-08-14T13:12:55",
+        "end": "2026-08-14T20:57:58",
+        "state": "COMPLETED"
+      }
+    }
+  ]
+}

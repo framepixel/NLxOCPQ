@@ -1,0 +1,469 @@
+{
+  "generated": {
+    "command": "python src/rung_tables.py",
+    "utc": "2026-11-13T15:39:55+00:00",
+    "nlxocpq_commit": "644d44673a5065ccb5fd1223baae669986c59e19-dirty",
+    "inputs": [
+      {
+        "run": "eval_runs/arity_ablation/shard_m1_s0_e0_20260913_164030_recomputed",
+        "predictions_sha256": "ae32f8f6af191afd91c106427bea7ae62f7ba95a9e28945a3a40b230fe4d6589",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_tok4000_20260913_164029_recomputed",
+        "predictions_sha256": "72e398e205d001b6925ea4b6f0e53c884a516a01d2c51ca9703d1b1c1d573103",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/arity_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260913_164048_recomputed",
+        "predictions_sha256": "e615c34ae13c2f56c6dcf55671cbbe3d7486fffd64cc827e91b011b94f38fd8f",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structure_ablation/shard_m1_s0_e0_20261027_120413",
+        "predictions_sha256": "582b165f9e145ef0263ff8c23360a7e531f592aff6e2e3b5d801b5a06c70eaef",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structure_ablation/shard_m1_s1_e0_20261027_120414",
+        "predictions_sha256": "d31db698cc55a7aad8ec0e269f9765ec3627b2aa79c0f9ccadfea39ec62ac561",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structure_ablation/shard_m1_s2_e0_20261027_120413",
+        "predictions_sha256": "eead34c70c791871845d02c13ebca47b03375cb6b32f5cbe14a18d401c33dbe5",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_tok4000_20260914_194256",
+        "predictions_sha256": "c4c7381e42a9eadec9bc1a7a0e5d2b3ffe91e218fbf5540badc2f789f9fcf1b9",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_structval_tok4000_20260914_200456",
+        "predictions_sha256": "fadf4bb473910c95942520ac1bdff1399d888361315a5f82fe2f0498b1243f06",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_arityforced_tok4000_20260914_201903",
+        "predictions_sha256": "1794a9025b534c876fd195cbfe16d230585c9fe9912fc30161c69f0c5e64d321",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/structural_ablation/shard_m1_s0_e0_constrained_structval_arityforced_tok4000_20260914_201931",
+        "predictions_sha256": "9c2c02092f81cd5e6180a27d829dac950d593faac3c3fae188661228243ff0fb",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_tok4000_20260918_132544",
+        "predictions_sha256": "a4caf9837998fcae528e8f6e986460b381e9c64e459ccb21ef125bf835458ada",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_tok4000_20260918_135412",
+        "predictions_sha256": "50f06ac163858bd2193b15d10e89a4f7b783670e96ee5f4ff6a41e813bc37af8",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_arityconst_tok4000_20260918_135842",
+        "predictions_sha256": "3687fba480a744c418664705a84f4b6f9f9562609ad31188bc3b9d59c32f258d",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/non_oracle/regold_20260922/shard_m1_s0_e0_constrained_structval_arityconst_tok4000_20260918_144134",
+        "predictions_sha256": "2b0b5a023e91c94678699ec76157c24dd335a0b9378d9e36f3d44c5dc9173e2a",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s0_e0_constrained_ordered_bounded_tok4000_20260927_090726",
+        "predictions_sha256": "650488b66d5a95315bedb3ff378e4b5ea5d6a21ab80fe6f06b97fcaeedf4f1ee",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s2_e0_constrained_ordered_bounded_tok4000_turns8_turntok2000_pFBEXL_20260927_090726",
+        "predictions_sha256": "379b98afb44109572385902510acc629987fdec3d955a76a46e36d384b9afbc5",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726",
+        "predictions_sha256": "7d4a249f45409d7e387ef2b05344ca0aa309b563845e9c14960e7a39918bc0b8",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_thought_20260927_090739",
+        "predictions_sha256": "342ab1fa22790adb96e41bc39e1cbcde935e621d7ec9825739ca0a8d6a66a849",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns16_tools24_turntok2000_pFBEXL_20260927_090739",
+        "predictions_sha256": "996a8a5b289945a62c5a69ee5a8e95f27be07b082afbb955d3056d54a234bf55",
+        "pipeline_fingerprints": [],
+        "pipeline_consistent": null,
+        "corpus_consistent": null
+      },
+      {
+        "run": "eval_runs/unleashed/merged_m1_s0",
+        "predictions_sha256": "4e151691ba5c64f7b6f417d78de1e590f7109563f9920c390e4e7e1cae5c06b5",
+        "pipeline_fingerprints": [
+          "f5cd068d2b39cf225f4f84e94677454ac54c00836dd888ac242d9e7721108bee"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed/merged_m1_s2",
+        "predictions_sha256": "104762cfe1a9b3fe7fa5735b2b78212fd2338fa4a3044d95defb317ff3540b91",
+        "pipeline_fingerprints": [
+          "f5cd068d2b39cf225f4f84e94677454ac54c00836dd888ac242d9e7721108bee"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed/merged_m1_s1",
+        "predictions_sha256": "35b5b8d8f47a138cf540800987f673f88b1661e3a1d32792f7c5bfaf169710f0",
+        "pipeline_fingerprints": [
+          "f5cd068d2b39cf225f4f84e94677454ac54c00836dd888ac242d9e7721108bee"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed_examples/merged_m1_s1",
+        "predictions_sha256": "3902d1ab8ebdaa4321abf7a024fe95a2c3ecd0b98873121850874fb8c8a88879",
+        "pipeline_fingerprints": [
+          "1e3a8e864b2412be1624a527954e3c3e13a04a9c4396e097393375188f436d7c"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed_examples/merged_m1_s0",
+        "predictions_sha256": "dc91557eccb2d27648dae75f1728addc8fd4e72414e6e5706fa4777f184f5a67",
+        "pipeline_fingerprints": [
+          "1e3a8e864b2412be1624a527954e3c3e13a04a9c4396e097393375188f436d7c"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed_examples/merged_m2_s1",
+        "predictions_sha256": "2be1eceae57201b7e4533c5321a5b0697585bdc7d466e666f43fde7a0c9219b1",
+        "pipeline_fingerprints": [
+          "1e3a8e864b2412be1624a527954e3c3e13a04a9c4396e097393375188f436d7c"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      },
+      {
+        "run": "eval_runs/unleashed_examples/merged_m2_s0",
+        "predictions_sha256": "42c42b28a14b9b6eb0bcd2565a42a240a986d406780f059ef6d12b711fd72181",
+        "pipeline_fingerprints": [
+          "1e3a8e864b2412be1624a527954e3c3e13a04a9c4396e097393375188f436d7c"
+        ],
+        "pipeline_consistent": true,
+        "corpus_consistent": true
+      }
+    ]
+  },
+  "rungs_ablations": {
+    "N0": {
+      "label": "N0 free",
+      "strict_f1": 0.20300614074074075,
+      "executed_f1": 0.3559198571428572,
+      "skill": -0.624027983377794,
+      "evaluated": 0.6074074074074074,
+      "structural_f1": 0.4835113407407407,
+      "exact": 0.1037037037037037,
+      "questions": 135
+    },
+    "N1": {
+      "label": "N1 constrained",
+      "strict_f1": 0.23541228148148147,
+      "executed_f1": 0.35311842222222223,
+      "skill": -0.5657015970943641,
+      "evaluated": 0.7037037037037037,
+      "structural_f1": 0.6079664148148148,
+      "exact": 0.1111111111111111,
+      "questions": 135
+    },
+    "N2": {
+      "label": "N2 arity forced (oracle)",
+      "strict_f1": 0.32655737777777777,
+      "executed_f1": 0.5126191395348837,
+      "skill": -0.42831347798751224,
+      "evaluated": 0.6370370370370371,
+      "structural_f1": 0.6167496518518518,
+      "exact": 0.13333333333333333,
+      "questions": 135
+    },
+    "H0": {
+      "label": "H0 no hint",
+      "strict_f1": 0.20300614074074075,
+      "executed_f1": 0.3342174268292683,
+      "skill": -0.624027983377794,
+      "evaluated": 0.6074074074074074,
+      "structural_f1": 0.4874650148148148,
+      "exact": 0.1037037037037037,
+      "questions": 135
+    },
+    "H1": {
+      "label": "H1 skeleton (oracle)",
+      "strict_f1": 0.1389741777777778,
+      "executed_f1": 0.20173670967741938,
+      "skill": -0.7299321351894462,
+      "evaluated": 0.6888888888888889,
+      "structural_f1": 0.5150737259259259,
+      "exact": 0.08148148148148149,
+      "questions": 135
+    },
+    "H2": {
+      "label": "H2 skeleton and constraint types (oracle)",
+      "strict_f1": 0.11795996296296296,
+      "executed_f1": 0.1942023780487805,
+      "skill": -0.7708977553389279,
+      "evaluated": 0.6074074074074074,
+      "structural_f1": 0.45395273333333336,
+      "exact": 0.05185185185185185,
+      "questions": 135
+    },
+    "S0": {
+      "label": "S0 constrained",
+      "strict_f1": 0.23541228148148147,
+      "executed_f1": 0.3380921063829787,
+      "skill": -0.5657015970943641,
+      "evaluated": 0.6962962962962963,
+      "structural_f1": 0.6119969185185186,
+      "exact": 0.1111111111111111,
+      "questions": 135
+    },
+    "S1": {
+      "label": "S1 structural check",
+      "strict_f1": 0.24999487407407406,
+      "executed_f1": 0.33749308,
+      "skill": -0.5433135373928716,
+      "evaluated": 0.7407407407407407,
+      "structural_f1": 0.5841050296296296,
+      "exact": 0.11851851851851852,
+      "questions": 135
+    },
+    "S2": {
+      "label": "S2 arity forced (oracle)",
+      "strict_f1": 0.31950936296296295,
+      "executed_f1": 0.5074560470588235,
+      "skill": -0.4393264764447538,
+      "evaluated": 0.6296296296296297,
+      "structural_f1": 0.6155800592592593,
+      "exact": 0.13333333333333333,
+      "questions": 135
+    },
+    "S3": {
+      "label": "S3 check + arity forced (oracle)",
+      "strict_f1": 0.32837081481481484,
+      "executed_f1": 0.49809056179775285,
+      "skill": -0.42766342258381757,
+      "evaluated": 0.6592592592592592,
+      "structural_f1": 0.6076908518518518,
+      "exact": 0.13333333333333333,
+      "questions": 135
+    },
+    "B0": {
+      "label": "B0 constrained",
+      "strict_f1": 0.22836426666666668,
+      "executed_f1": 0.3503315454545455,
+      "skill": -0.5767145955516058,
+      "evaluated": 0.6888888888888889,
+      "structural_f1": 0.6156304222222222,
+      "exact": 0.1111111111111111,
+      "questions": 135
+    },
+    "B1": {
+      "label": "B1 structural check",
+      "strict_f1": 0.2534359037037037,
+      "executed_f1": 0.36397709574468085,
+      "skill": -0.5368392863172117,
+      "evaluated": 0.7481481481481481,
+      "structural_f1": 0.5842611703703704,
+      "exact": 0.11851851851851852,
+      "questions": 135
+    },
+    "B2": {
+      "label": "B2 constant arity",
+      "strict_f1": 0.24827975555555554,
+      "executed_f1": 0.3852616896551724,
+      "skill": -0.5607605759470415,
+      "evaluated": 0.6444444444444445,
+      "structural_f1": 0.6321448222222222,
+      "exact": 0.1111111111111111,
+      "questions": 135
+    },
+    "B3": {
+      "label": "B3 check + constant arity",
+      "strict_f1": 0.25176014074074077,
+      "executed_f1": 0.3862229431818182,
+      "skill": -0.5622519757793633,
+      "evaluated": 0.6518518518518519,
+      "structural_f1": 0.6247133333333333,
+      "exact": 0.1111111111111111,
+      "questions": 135
+    }
+  },
+  "rungs_agentic": {
+    "A0": {
+      "label": "A0 one-shot",
+      "strict_f1": 5.234814814814815e-05,
+      "executed_f1": 0.00011217460317460317,
+      "skill": -0.9999443504440034,
+      "evaluated": 0.4666666666666667,
+      "structural_f1": 0.2274672962962963,
+      "exact": 0.0,
+      "questions": 135
+    },
+    "A1p": {
+      "label": "A1' self-refine, no log",
+      "strict_f1": 0.09081648148148148,
+      "executed_f1": 0.17768442028985507,
+      "skill": -0.8513367758756984,
+      "evaluated": 0.5111111111111111,
+      "structural_f1": 0.5103967037037037,
+      "exact": 0.007407407407407408,
+      "questions": 135
+    },
+    "A1": {
+      "label": "A1 log tools",
+      "strict_f1": 0.11037505185185185,
+      "executed_f1": 0.1432753076923077,
+      "skill": -0.8181052106166256,
+      "evaluated": 0.7703703703703704,
+      "structural_f1": 0.5555435259259259,
+      "exact": 0.037037037037037035,
+      "questions": 135
+    },
+    "A1t": {
+      "label": "A1 + thought",
+      "strict_f1": 0.11111023703703703,
+      "executed_f1": 0.16666535555555556,
+      "skill": -0.784917027950981,
+      "evaluated": 0.7481481481481481,
+      "structural_f1": 0.5371109703703704,
+      "exact": 0.037037037037037035,
+      "questions": 135
+    },
+    "A2": {
+      "label": "A2 doubled budget",
+      "strict_f1": 0.11791659259259259,
+      "executed_f1": 0.15761128712871286,
+      "skill": -0.8115155126603549,
+      "evaluated": 0.7481481481481481,
+      "structural_f1": 0.5645838592592592,
+      "exact": 0.037037037037037035,
+      "questions": 135
+    },
+    "Q_A0": {
+      "label": "Qwen A0* one-shot",
+      "strict_f1": 0.020741392592592594,
+      "executed_f1": 0.03713286842105263,
+      "skill": -0.9622328427977399,
+      "evaluated": 0.5259259259259259,
+      "structural_f1": 0.3845783074074074,
+      "exact": 0.0,
+      "questions": 135
+    },
+    "Q_A1p": {
+      "label": "Qwen A1'* no log",
+      "strict_f1": 0.10826511851851851,
+      "executed_f1": 0.12576480952380953,
+      "skill": -0.8031273970126444,
+      "evaluated": 0.8555555555555555,
+      "structural_f1": 0.588075,
+      "exact": 0.037037037037037035,
+      "questions": 135
+    },
+    "Q_A1": {
+      "label": "Qwen A1* log tools",
+      "strict_f1": 0.15355194814814815,
+      "executed_f1": 0.17120721538461536,
+      "skill": -0.7218509208208314,
+      "evaluated": 0.8851851851851852,
+      "structural_f1": 0.5908169148148148,
+      "exact": 0.05185185185185185,
+      "questions": 135
+    },
+    "Q_A1pS": {
+      "label": "Qwen A1'*+S",
+      "strict_f1": 0.1660356888888889,
+      "executed_f1": 0.17818228888888887,
+      "skill": -0.6935313668775701,
+      "evaluated": 0.9222222222222223,
+      "structural_f1": 0.6419363333333333,
+      "exact": 0.08888888888888889,
+      "questions": 135
+    },
+    "Q_A1S": {
+      "label": "Qwen A1*+S",
+      "strict_f1": 0.21774267037037037,
+      "executed_f1": 0.23358904887218046,
+      "skill": -0.5929224744892175,
+      "evaluated": 0.9333333333333333,
+      "structural_f1": 0.6507893777777778,
+      "exact": 0.12222222222222222,
+      "questions": 135
+    },
+    "G_A1pS": {
+      "label": "Glimmer A1'*+S",
+      "strict_f1": 0.21807368148148149,
+      "executed_f1": 0.23139534328358208,
+      "skill": -0.6115174416949679,
+      "evaluated": 0.9592592592592593,
+      "structural_f1": 0.6571812518518518,
+      "exact": 0.1,
+      "questions": 135
+    },
+    "G_A1S": {
+      "label": "Glimmer A1*+S",
+      "strict_f1": 0.2877049555555556,
+      "executed_f1": 0.2940172925925926,
+      "skill": -0.47265208098430544,
+      "evaluated": 0.9740740740740741,
+      "structural_f1": 0.6414253592592593,
+      "exact": 0.15925925925925927,
+      "questions": 135
+    }
+  }
+}

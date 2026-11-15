@@ -5,7 +5,9 @@
 
 
 import copy
+import typing
 import hashlib
+import contextlib
 import json
 import numpy as np
 import os
@@ -22,9 +24,14 @@ from huggingface_hub import InferenceClient
 from pydantic import ValidationError
 
 import paths
-from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
+from ocpq_schema import AGENT_TOOL_CALLS, AGENT_TURN_SCHEMA, AGENT_TURN_WITH_THOUGHT_SCHEMA, AgentTurn, AgentTurnWithThought  # noqa: E402
+from ocpq_schema import CheckTreeCall, SearchExamplesCall, DEFECT_HINTS, PROBE_TOOL_NAMES, agent_turn_model, blocking_defects, defect_kind, structural_defects as _tree_structural_defects  # noqa: E402
+from ocpq_schema import OCPQ_JSON_SCHEMA, ROOT_ARITY_SCHEMA, AGENT_ACTION_SCHEMA, AgentAction, AGENT_ACTION_WITH_THOUGHT_SCHEMA, AgentActionWithThought, BindingBoxTree, RootArity, VERIFICATION_JSON_SCHEMA, EXTRACTED_STRUCTURE_SCHEMA, QUERY_TREE_SCHEMA
 
 from LogEvents import events_and_objects_from_ocel, extract_ocel_schema
+# The agentic arm's tool surface (notes 43). Imported as a module, not as names, so the tool
+# registry the prompt is generated from and the dispatcher the probe runs can never be two lists.
+import ocpq_probe
 
 # In[2]:
 
@@ -135,10 +142,24 @@ few_shot_k = DEFAULT_FEW_SHOT_K
 generation_temperature = None
 # Consulted only when sampling is active. See `set_generation_seed`.
 generation_seed = None
+# Notes 44.7: give every generation of a record its own seed, derived from the record's seed and the
+# call's ordinal within the record. Off (False): every generation re-applies the record's seed, as
+# every run before 44.7 did -- harmless for a one-call record, but under sampling it replays the same
+# random stream on every turn of an agent's case, which couples the turns.
+generation_seed_per_call = False
+_generation_call_index = 0
 # When True, generation is constrained to the OCPQ grammar so invalid output cannot be produced.
 # Default False: every run recorded before 2026-09-02 generated freely, and the flag must not
 # change what those runs meant. See `set_constrained_decoding`.
 constrained_decoding = False
+# xgrammar's `any_order` for that grammar. True is what every recorded constrained run used. False
+# (the agentic arm, notes 43.7) makes property order generation order and forbids a key twice,
+# which `any_order=True` silently admits. See `set_constrained_any_order`.
+constrained_any_order = True
+# Tightens that grammar further (the agentic arm, notes 43.8): no free whitespace between JSON
+# tokens, and every list in a tree bounded at twice the largest gold list. Off by default, so every
+# recorded run is unchanged. See `set_constrained_bounded_shape`.
+constrained_bounded_shape = False
 # Overrides the per-call `max_tokens` the pipelines pass. None keeps their own values.
 generation_token_budget = None
 # ORACLE control: `(root_index, n_event_vars, n_object_vars)` taken from gold, or None. Tightens
@@ -159,6 +180,40 @@ _last_structural_report = None
 # by the arity predictor, which asks a narrow question and wants a two-integer answer, not a query.
 # None keeps the OCPQ grammar. See `set_constrained_schema`.
 constrained_schema_override = None
+# The agentic arm (notes 43). `agent_probe` is the log-inspection surface -- an `ocpq_probe.OcpqProbe`
+# owned by `eval_testset`, or None for the compute-matched control that runs the same loop with no
+# tools. `agent_max_turns` caps model turns per case and IS the difference between the A1 and A2
+# rungs. `_last_agent_trajectory` is per case, read back like `_last_structural_report`.
+agent_probe = None
+agent_max_turns = 8
+# Whether agentic turns may carry a short `thought` (notes 43, the reasoning condition). Off by
+# default, which is exactly the protocol every run before 2026-09-23 used.
+agent_thought = False
+# Per-TURN generation cap for the agent loop, or None to use the run's budget (notes 43.8). Applied
+# where generation happens (`_effective_max_tokens`), because the run-wide budget overrides every
+# caller's `max_tokens` there and would silently swallow a cap passed from the loop.
+agent_turn_token_budget = None
+# True only while an agent turn is generating, so the per-turn cap cannot reach any other call --
+# the verifier, the post-execution repair, or the one-shot rung.
+_agent_turn_active = False
+# The Stage 5 protocol levers (notes 43.12). Each is off by default, so every run before them --
+# the model gate included -- is reproduced exactly. See `set_agent_protocol`.
+AGENT_PROTOCOL_DEFAULTS = {
+    "structural_feedback": False,     # F: structure report on try_query; the check_tree tool
+    "bounce_blocking_final": False,   # B: a final tree with blocking defects is returned ONCE
+    "finalise_evaluated": False,      # E: fall back to the last tree the probe EVALUATED first
+    "worked_example": False,          # X: how a tree links boxes, and one worked example
+    "reserve_last_turn": False,       # L: the last turn admits a final answer only
+    "cap_feedback": False,            # C: a turn cut off at the per-turn cap is told so (43.15)
+    "repeat_guard": False,            # R: an action identical to an earlier one is not re-run (43.17)
+    "example_search": False,          # S: the search_examples tool over the retrieval pool (notes 45)
+}
+agent_protocol = dict(AGENT_PROTOCOL_DEFAULTS)
+_last_agent_trajectory = None
+# S (notes 45): how many pool examples one search_examples call returns, and the size its result may
+# take in the transcript. Set from the config by eval_testset (`set_agent_example_search`).
+agent_examples_per_search = 3
+agent_example_result_char_cap = 4000
 
 LLM_CALL_STATS = []
 QUERY_EXEC_STATS = []
@@ -169,6 +224,29 @@ local_model_key = None
 local_gpu_device = "cuda"
 local_gpu_dtype = "auto"
 local_gpu_quantization = "4bit"
+# Per-model chat settings (notes 43.16), set from a model's config entry. All three are empty for
+# every model before Muse Glimmer, which leaves the local path byte-identical to what every recorded
+# run used (tests/test_model_chat_options.py).
+local_model_revision = None          # a hub commit, so every job loads the same weights
+local_chat_template_kwargs = {}      # extra variables for the chat template
+local_generation_prefix = None       # text appended after the generation prompt
+# Evaluation 2, "unleashed" (notes 44). All empty unless a model entry sets them, so evaluation 1 and
+# every earlier run generate exactly as before (tests/test_unleashed.py).
+local_system_prompt_prefix = None    # the vendor's own reasoning switch, when it is prompt text
+local_reasoning = None               # {"open", "close", "answer_prefix"}: the native reasoning channel
+local_sampling = {}                  # {"top_p", "top_k"}: the vendor's sampling beside the temperature
+local_sdpa_kernels = None            # attention kernels allowed during generation (memory, notes 43.19)
+local_max_context_tokens = None      # prompt + generation the GPU was verified to hold (notes 44.7)
+# Tokens a model may reason before each generation, in its own channel (notes 44). None: no
+# reasoning step at all -- evaluation 1, and every run before it.
+reasoning_token_budget = None
+# What the agent's transcript keeps of each earlier turn's reasoning (notes 44.6). "drop" (None):
+# actions and results only -- every run before 44.6. "keep": each earlier turn's reasoning, rendered
+# the way the model's own template renders reasoning inside a tool loop (the model's
+# `reasoning["history"]` says how).
+REASONING_HISTORY_MODES = ("drop", "keep")
+REASONING_HISTORY_VIAS = ("thinking_chunk", "reasoning_content", "splice")
+reasoning_history = None
 
 def set_hf_client(
     token=None,
@@ -219,7 +297,7 @@ def set_hf_client(
         # Only evict the cached model when the configuration actually changes.
         # Without this guard, calling set_local_gpu_client() in every eval loop
         # iteration resets local_model to None each case, forcing a full reload.
-        new_key = (hf_model, hf_token, new_device, new_dtype, new_quantization)
+        new_key = _local_model_key(hf_model, hf_token, new_device, new_dtype, new_quantization)
         if local_model_key != new_key:
             local_model = None
             local_tokenizer = None
@@ -323,8 +401,9 @@ def set_generation_seed(value):
 
     None leaves the global RNG untouched, reproducing the pre-2026-08-29 behaviour exactly.
     """
-    global generation_seed
+    global generation_seed, _generation_call_index
     generation_seed = None if value is None else int(value)
+    _generation_call_index = 0   # a new record: its first generation is call 0 again (notes 44.7)
 
 
 def set_constrained_decoding(value):
@@ -350,6 +429,106 @@ def set_constrained_decoding(value):
 
 def get_constrained_decoding():
     return constrained_decoding
+
+
+def set_constrained_any_order(value):
+    """Compile the decoding grammar with xgrammar's `any_order` on (default) or off.
+
+    `any_order=True` lets object properties come in any order, which was adopted because gold
+    writes some out of schema order (tests/test_constrained_decoding.py). It also admits the SAME
+    key any number of times -- `"filters": [], "filters": [], ...` -- and the 2026-09-24 gate smoke
+    on base Llama 3.1 8B fell into exactly that loop on 58 of 70 turns, each to the 4000-token
+    limit, timing out all 10 cases. The ordered grammar forbids a repeated key and still expresses
+    every gold tree once it is written in schema order (169/169 testset, 38/38 dev set), which is
+    the only order a constrained model can write anyway. Notes 43.7.
+
+    None means the default (True), so a config that does not mention it is unchanged.
+    """
+    global constrained_any_order
+    constrained_any_order = True if value is None else bool(value)
+
+
+def get_constrained_any_order():
+    return constrained_any_order
+
+
+# The largest list of each kind in any gold tree (testset 169 + dev set 38, measured 2026-09-26),
+# doubled. Doubling keeps the bound far from anything gold needs -- every gold tree is admitted,
+# asserted in tests/test_constrained_decoding.py -- while a list that repeats its items forever (the
+# 2026-09-26 smoke: one empty box x60, a child list `[0, 0, 0, ...]`) is cut off. Lists of type
+# names per variable are deliberately NOT bounded: gold binds up to 67 event types to one variable,
+# and the per-turn token cap bounds those instead.
+OCPQ_TREE_MAX_ITEMS = {
+    "nodes": 16,         # gold max 8
+    "edgeNames": 16,     # gold max 7
+    "filters": 14,       # gold max 7
+    "constraints": 8,    # gold max 4
+    "sizeFilters": 2,    # gold max 1
+    "labels": 2,         # gold max 1
+    "children": 4,       # gold max 2 (the List[int] half of a Box)
+    "child_names": 4,    # gold max 2 (SAT/NOT/OR/AND/ANY)
+}
+# What a variable name must look like in a box's variable and label maps -- see `_bounded_schema`.
+OCPQ_VARIABLE_KEY_PATTERN = "^[0-9]+$"
+
+
+def set_constrained_bounded_shape(value):
+    """Tighten the decoding grammar: no free whitespace, and bounded lists (see OCPQ_TREE_MAX_ITEMS).
+
+    Two more holes the ordered grammar (notes 43.7) left open, both measured in the 2026-09-26 gate
+    smoke on base Llama 3.1 8B: JSON admits unlimited whitespace between tokens, and one case wrote
+    398 visible characters and ~3900 tokens of blanks; and a list may repeat its items without
+    end. `any_whitespace=False` keeps the standard `", "` / `": "` separators and nothing else;
+    `maxItems` bounds each tree list. Every gold tree still passes both. Notes 43.8.
+    """
+    global constrained_bounded_shape
+    constrained_bounded_shape = bool(value)
+
+
+def get_constrained_bounded_shape():
+    return constrained_bounded_shape
+
+
+def _bounded_schema(schema):
+    """`schema` (a JSON-schema dict) with OCPQ_TREE_MAX_ITEMS applied to every BindingBoxTree in it.
+
+    Works on any schema that embeds the tree -- `BindingBoxTree` itself and the agent's turn union,
+    whose `$defs` carry the same definitions -- and leaves one without them unchanged. A copy.
+    """
+    schema = copy.deepcopy(schema)
+    defs = schema.get("$defs", {})
+    tree = defs.get("BindingBoxTree", schema if "nodes" in schema.get("properties", {}) else None)
+    if tree is not None:
+        tree["properties"]["nodes"]["maxItems"] = OCPQ_TREE_MAX_ITEMS["nodes"]
+        tree["properties"]["edgeNames"]["maxItems"] = OCPQ_TREE_MAX_ITEMS["edgeNames"]
+    box_data = defs.get("BindingBoxData", {}).get("properties", {})
+    for key in ("filters", "sizeFilters", "constraints", "labels"):
+        if key in box_data:
+            box_data[key]["maxItems"] = OCPQ_TREE_MAX_ITEMS[key]
+    node_box = defs.get("BindingBoxTreeNodeBox", {}).get("properties", {}).get("Box")
+    if node_box is not None:
+        node_box["prefixItems"][1]["maxItems"] = OCPQ_TREE_MAX_ITEMS["children"]
+    for definition in defs.values():
+        child_names = definition.get("properties", {}).get("child_names")
+        if child_names is not None:
+            child_names["maxItems"] = OCPQ_TREE_MAX_ITEMS["child_names"]
+    # Variable names are numbers in quotes: OCPQ refuses anything else ("expected key to be a
+    # number in quotes"; ocpq_cli panics on it). The schema admits any string, and in the
+    # 2026-09-26 smoke both base models named variables "Event"/"Object" and resubmitted the same
+    # unparseable tree. All 652 variable keys in gold are numeric. Notes 43.9.
+    #
+    # `patternProperties` + `additionalProperties: false`, NOT `propertyNames`: xgrammar 0.2.5
+    # honours `propertyNames` on the keys but then DROPS the value schema, so every value became
+    # free JSON -- `{"1": {"type": "X"}}` where a list of type names belongs, label values outside
+    # IGNORED/INCLUDED/EXCLUDED. That shipped in 9b11b8d and wrecked the full model gate (87% / 46%
+    # malformed turns, notes 43.10). This form enforces the key AND keeps the value schema;
+    # tests/test_constrained_decoding.py checks both directions.
+    for key in ("newEventVars", "newObjectVars", "evVarLabels", "obVarLabels"):
+        if key in box_data and "additionalProperties" in box_data[key]:
+            value_schema = box_data[key].pop("additionalProperties")
+            box_data[key]["patternProperties"] = {OCPQ_VARIABLE_KEY_PATTERN: value_schema}
+            box_data[key]["additionalProperties"] = False
+    return schema
 
 
 def set_constrained_schema(model):
@@ -439,6 +618,133 @@ def get_last_structural_report():
     return _last_structural_report
 
 
+def set_agent_probe(probe):
+    """Hand the agentic strategies their log-inspection surface, or None for no tools.
+
+    **Not an oracle.** `ocpq_probe` reads the log and the model's own candidate trees; it cannot
+    reach gold, which `tests/test_ocpq_probe.py` asserts on the module source. The probe is created
+    and owned by `eval_testset` (it owns a server process), for the same reason gold-derived
+    controls are set there: this module never manages run-level resources.
+
+    None is what makes the compute-matched control possible -- `agentic-self-refine` is the same
+    loop, the same turn budget and the same prompt with the tool surface withheld, so a gain over
+    it is attributable to log access rather than to extra generations (notes 43).
+    """
+    global agent_probe
+    agent_probe = probe
+
+
+def get_agent_probe():
+    return agent_probe
+
+
+def set_agent_max_turns(value):
+    """Cap how many model turns one agentic case may take. This IS the rung.
+
+    A1 and A2 differ in nothing else, so the number is a measured variable and belongs in the
+    config rather than here (CLAUDE.md 4.2). It also has to stay inside `case_timeout_sec`, which
+    CLAUDE.md 6 requires to be identical on every arm being compared.
+    """
+    global agent_max_turns
+    agent_max_turns = max(1, int(value))
+
+
+def get_agent_max_turns():
+    return agent_max_turns
+
+
+def set_agent_thought(value):
+    """Let agentic turns carry a `thought` -- a CONDITION, crossed on the tool rung only.
+
+    Switches both the action schema (`AgentActionWithThought`, which the grammar needs because
+    `strict_mode` forbids unknown keys) and one line of the protocol rules, so the rungs differ in
+    exactly those two things. See `ocpq_schema.AgentActionWithThought` for why a protocol field and
+    not native reasoning.
+    """
+    global agent_thought
+    agent_thought = bool(value)
+
+
+def get_agent_thought():
+    return agent_thought
+
+
+def set_agent_protocol(**levers):
+    """Set the Stage 5 protocol levers (notes 43.12); anything not named goes back to its default.
+
+    Replacing rather than merging, so a case can never inherit a lever from a previous condition.
+    An unknown name raises: a misspelt lever would silently run the wrong condition.
+    """
+    global agent_protocol
+    unknown = set(levers) - set(AGENT_PROTOCOL_DEFAULTS)
+    if unknown:
+        raise ValueError(f"unknown agent protocol lever(s): {sorted(unknown)}")
+    agent_protocol = {name: bool(levers.get(name, default))
+                      for name, default in AGENT_PROTOCOL_DEFAULTS.items()}
+
+
+def get_agent_protocol():
+    return dict(agent_protocol)
+
+
+def set_agent_example_search(per_search=3, result_char_cap=4000):
+    """S (notes 45): examples per search_examples call, and the result's character cap. Inert unless
+    the `example_search` lever is on."""
+    global agent_examples_per_search, agent_example_result_char_cap
+    if int(per_search) < 1:
+        raise ValueError(f"examples per search must be >= 1, got {per_search}")
+    agent_examples_per_search = int(per_search)
+    agent_example_result_char_cap = int(result_char_cap)
+
+
+def set_agent_turn_token_budget(value):
+    """Cap each agent TURN at `value` tokens, or None to use the run's generation budget.
+
+    A turn that loops (a list repeating its items, a string that never closes) runs to the cap, and
+    at the run's 4000 tokens that is ~95 s -- six such turns spend a case's 600 s (notes 43.7-43.8).
+    The cap bounds the cost of a runaway, not the length of an answer: it is sized so every gold
+    tree fits with margin, which `tests/test_agent_turn_budget.py` checks with the evaluated
+    models' own tokenizers. The one-shot rung never enters the loop and keeps the run budget.
+    """
+    global agent_turn_token_budget
+    agent_turn_token_budget = None if value is None else int(value)
+
+
+def get_agent_turn_token_budget():
+    return agent_turn_token_budget
+
+
+def _effective_max_tokens(max_tokens):
+    """The `max_tokens` generation actually uses: the run budget overrides the caller's value, and
+    inside an agent turn the per-turn cap overrides both. One function, so the local backend and
+    the tests read the same rule."""
+    if generation_token_budget is not None:
+        max_tokens = generation_token_budget
+    if _agent_turn_active and agent_turn_token_budget is not None:
+        max_tokens = agent_turn_token_budget
+    return max_tokens
+
+
+def get_last_agent_trajectory():
+    """Every turn of the most recent agentic case, or None when the last case was not agentic.
+
+    Read by `eval_testset` immediately after the pipeline returns, exactly as
+    `get_last_structural_report` is, and recorded on the case record: the trajectory is the
+    mechanism evidence the arm exists to produce, not decoration.
+    """
+    return _last_agent_trajectory
+
+
+def reset_last_agent_trajectory():
+    """Forget the previous case's trajectory. Called by `eval_testset` before every agentic case.
+
+    Without it a case that dies before the loop starts (a probe that failed to load, an exception
+    in schema extraction) would read back the PREVIOUS case's trajectory and record it as its own.
+    """
+    global _last_agent_trajectory
+    _last_agent_trajectory = None
+
+
 def set_generation_token_budget(value):
     """Override every pipeline's `max_tokens`, or None to leave their own values alone.
 
@@ -458,6 +764,33 @@ def get_generation_token_budget():
 
 def get_generation_seed():
     return generation_seed
+
+
+def set_generation_seed_per_call(enabled):
+    """Notes 44.7: derive one seed per generation of a record (True), or re-apply the record's seed
+    to every generation (False, every run before 44.7)."""
+    global generation_seed_per_call
+    generation_seed_per_call = bool(enabled)
+
+
+def get_generation_seed_per_call():
+    return generation_seed_per_call
+
+
+def _seed_for_this_call():
+    """The seed for the next sampled generation, and advance the call ordinal under per-call seeding.
+
+    Call 0 is the record's own seed, so a one-call record (A0*) draws exactly as before; call n > 0
+    is derived from (record seed, n). Still a function of the record's identity and the order of its
+    own calls only, so a shard boundary cannot change it."""
+    global _generation_call_index
+    if not generation_seed_per_call:
+        return generation_seed
+    n = _generation_call_index
+    _generation_call_index += 1
+    if n == 0:
+        return generation_seed
+    return int(hashlib.sha256(f"{generation_seed}:{n}".encode("utf-8")).hexdigest()[:8], 16)
 
 
 def reset_llm_call_stats():
@@ -491,6 +824,162 @@ def get_hf_backend_description():
     return "HF default"
 
 
+def set_local_model_options(revision=None, chat_template_kwargs=None, generation_prefix=None,
+                            system_prompt_prefix=None, reasoning=None, sampling=None,
+                            sdpa_kernels=None, max_context_tokens=None):
+    """Set the per-model chat settings for the local backend (notes 43.16, 44); None clears each.
+
+    Called for every model before it is selected, so a model without the settings never inherits
+    another model's. Set BEFORE `set_local_gpu_client`: the revision is part of the cached model's
+    key, and a key computed without it would keep serving the wrong weights.
+
+    The evaluation-2 options (notes 44):
+      * `system_prompt_prefix` -- prepended to the system prompt. Ministral 3 Reasoning's switch into
+        reasoning is its vendor system prompt, which its template adds only when NO system prompt
+        is given, and the agent always gives one.
+      * `reasoning` -- {"open", "close", "answer_prefix"}: the text that opens the model's native
+        reasoning channel after the generation prompt, the SINGLE token that closes it, and the
+        text between that and the answer. With `reasoning_token_budget` set, every generation
+        reasons first and then answers (see `_call_local_gpu_chat_completion`).
+      * `sampling` -- {"top_p", "top_k"}: the vendor's recommended values; the temperature is the
+        model entry's own `temperature`, as before.
+      * `sdpa_kernels` -- names in torch.nn.attention.SDPBackend to allow during generation, to
+        keep long prompts from materialising the attention matrix (Gemma 4, notes 43.19).
+      * `reasoning["history"]` (notes 44.6) -- how the model's own template carries an earlier
+        turn's reasoning, used when `reasoning_history` is "keep":
+          {"via": "thinking_chunk"}     the content becomes [thinking chunk, text chunk] (Mistral);
+          {"via": "reasoning_content"}  the message's `reasoning_content` field (Qwen, Glimmer);
+          {"via": "splice", "after": ..., "format": "...{reasoning}..."}  the template renders
+              reasoning only after the LAST user message, and the agent's tool results are user
+              messages, so the harness writes the template's own text after each assistant
+              turn's header (Gemma 4; tests/test_unleashed.py checks it against the template).
+      * `max_context_tokens` (notes 44.7) -- the longest context (prompt plus everything this call
+        may generate) the model's memory check verified on the GPU. A call that could exceed it
+        raises PromptTooLongError before generating, which the agent loop treats as the end of the
+        case (finalised with its best tree, recorded as `context_limit_hit`) instead of an OOM.
+    """
+    global local_model_revision, local_chat_template_kwargs, local_generation_prefix
+    global local_system_prompt_prefix, local_reasoning, local_sampling, local_sdpa_kernels
+    global local_max_context_tokens
+    local_model_revision = revision or None
+    local_chat_template_kwargs = dict(chat_template_kwargs or {})
+    local_generation_prefix = generation_prefix or None
+    local_system_prompt_prefix = system_prompt_prefix or None
+    if reasoning is not None and not (isinstance(reasoning, dict) and reasoning.get("close")):
+        raise ValueError("reasoning needs at least a 'close' marker: the token that ends the channel")
+    history = (reasoning or {}).get("history")
+    if history is not None:
+        via = history.get("via") if isinstance(history, dict) else None
+        if via not in REASONING_HISTORY_VIAS:
+            raise ValueError(f"reasoning history 'via' must be one of {REASONING_HISTORY_VIAS}, "
+                             f"got {via!r}")
+        if via == "splice" and not (history.get("after")
+                                    and "{reasoning}" in (history.get("format") or "")):
+            raise ValueError("a 'splice' history needs 'after' and a 'format' containing {reasoning}")
+    local_reasoning = dict(reasoning) if reasoning else None
+    unknown = set(sampling or {}) - {"top_p", "top_k"}
+    if unknown:
+        raise ValueError(f"unsupported sampling option(s): {sorted(unknown)} (top_p, top_k only)")
+    local_sampling = dict(sampling or {})
+    local_sdpa_kernels = list(sdpa_kernels) if sdpa_kernels else None
+    local_max_context_tokens = int(max_context_tokens) if max_context_tokens else None
+
+
+def set_reasoning_token_budget(value):
+    """Let every generation reason for up to `value` tokens first (notes 44); None: no reasoning step.
+
+    Only a model that also declares a `reasoning` channel reasons; for any other model it is inert.
+    """
+    global reasoning_token_budget
+    reasoning_token_budget = None if value is None else int(value)
+
+
+def get_reasoning_token_budget():
+    return reasoning_token_budget
+
+
+def set_reasoning_history(mode):
+    """What the agent's transcript keeps of earlier reasoning (notes 44.6); None means "drop"."""
+    global reasoning_history
+    if mode is not None and mode not in REASONING_HISTORY_MODES:
+        raise ValueError(f"reasoning_history must be one of {REASONING_HISTORY_MODES}, got {mode!r}")
+    reasoning_history = None if mode in (None, "drop") else mode
+
+
+def get_reasoning_history():
+    return reasoning_history or "drop"
+
+
+def _render_reasoning_history(messages):
+    """Hand each earlier turn's reasoning to the template the way it renders reasoning in a tool
+    loop (notes 44.6). Returns (messages for the template, reasonings to splice, in order).
+
+    The agent marks an assistant message's reasoning with the private key `_reasoning`, which never
+    reaches a template or an API. Without it every message is passed through unchanged."""
+    if not any("_reasoning" in m for m in messages):
+        return messages, []
+    history = (local_reasoning or {}).get("history")
+    if history is None:
+        raise ValueError("reasoning_history is 'keep' but this model declares no reasoning "
+                         "'history' (how its template carries earlier reasoning)")
+    via, out, splices = history["via"], [], []
+    for message in messages:
+        if "_reasoning" not in message:
+            out.append(message)
+            continue
+        message = dict(message)
+        reasoning = message.pop("_reasoning")
+        if via == "thinking_chunk":
+            message["content"] = [{"type": "thinking", "thinking": reasoning},
+                                  {"type": "text", "text": message["content"]}]
+        elif via == "reasoning_content":
+            message["reasoning_content"] = reasoning
+        else:
+            splices.append(reasoning)
+        out.append(message)
+    return out, splices
+
+
+def _splice_reasoning(rendered, messages, splices):
+    """Write the template's own reasoning text after each earlier assistant turn's header (Gemma 4,
+    notes 44.6). The headers are counted, not searched for by content, and must match exactly: one
+    per assistant message, plus the generation prompt's, which gets none."""
+    history = local_reasoning["history"]
+    after, fmt = history["after"], history["format"]
+    assistant_turns = sum(1 for m in messages if m.get("role") == "assistant")
+    if assistant_turns != len(splices):
+        raise ValueError(f"splice: {len(splices)} reasonings for {assistant_turns} assistant turns")
+    parts = rendered.split(after)
+    if len(parts) - 1 != assistant_turns + 1:
+        raise ValueError(f"splice: {len(parts) - 1} {after!r} headers for {assistant_turns} "
+                         "assistant turns and the generation prompt")
+    out = parts[0]
+    for i, part in enumerate(parts[1:]):
+        out += after + (fmt.format(reasoning=splices[i]) if i < len(splices) else "") + part
+    return out
+
+
+def preload_local_model():
+    """Load (and quantize) the selected local model now; seconds taken, 0 if it was loaded already.
+
+    Loading is otherwise lazy -- on the first generation -- which puts it inside the first case's
+    time limit. For a pre-quantized 8 GB checkpoint that is seconds; for Muse Glimmer's 60 GB of bf16
+    read from $HPCWORK and quantized to NF4 it is minutes, charged to whichever case comes first
+    (notes 43.17). Called by `eval_testset` only when the config sets `preload_model`. None when the
+    backend is not local.
+    """
+    if hf_backend != "local-gpu":
+        return None
+    started = time.time()
+    _ensure_local_gpu_model_loaded()
+    return round(time.time() - started, 3)
+
+
+def _local_model_key(model, token, device, dtype, quantization):
+    """What identifies the loaded local model. One function for both places that compare it."""
+    return (model, token, device, dtype, quantization, local_model_revision)
+
+
 def set_local_gpu_client(model_name=None, token=None, device="cuda", dtype="auto", quantization="4bit"):
     set_hf_client(
         token=token,
@@ -522,8 +1011,15 @@ PROMPT_STRATEGIES = [
     # unmissable in a config, a log line, a run directory name and a config_id.
     "oracle-skeleton-given",
     "oracle-skeleton-and-constraints-given",
+    # The agentic arm (notes 43). NON-ORACLE, both of them: the loop reads the log and its own
+    # candidate trees, never gold. `-self-refine` is the compute-matched control -- the same loop
+    # and the same turn budget with the tool surface withheld -- so that a gain for `-log-tools`
+    # is attributable to log access rather than to spending more generations.
+    "agentic-log-tools",
+    "agentic-self-refine",
 ]
 ORACLE_PROMPT_STRATEGIES = ("oracle-skeleton-given", "oracle-skeleton-and-constraints-given")
+AGENTIC_PROMPT_STRATEGIES = ("agentic-log-tools", "agentic-self-refine")
 DEFAULT_PROMPT_STRATEGY = os.getenv("OCPQ_PROMPT_STRATEGY", "schema-grammar-guided")
 
 
@@ -760,6 +1256,11 @@ def normalize_prompt_strategy(prompt_strategy):
         "oracle-skeleton-given": "oracle-skeleton-given",
         "skeleton-and-constraints-given": "oracle-skeleton-and-constraints-given",
         "oracle-skeleton-and-constraints-given": "oracle-skeleton-and-constraints-given",
+        "agentic": "agentic-log-tools",
+        "agentic-log-tools": "agentic-log-tools",
+        "log-tools": "agentic-log-tools",
+        "agentic-self-refine": "agentic-self-refine",
+        "self-refine": "agentic-self-refine",
     }
     return aliases.get(normalized, normalized)
 
@@ -1036,7 +1537,21 @@ def _load_text_generation_model(model_name, **kwargs):
             f"[model load] {model_name} is not registered for AutoModelForCausalLM; "
             "loading via AutoModelForImageTextToText (multimodal checkpoint)."
         )
-        return AutoModelForImageTextToText.from_pretrained(model_name, **kwargs)
+        try:
+            return AutoModelForImageTextToText.from_pretrained(model_name, **kwargs)
+        except ValueError as exc2:
+            # Muse Glimmer's card loads it with AutoModelForMultimodalLM (transformers 5.x), and
+            # it may be registered only there (notes 43.16). Reached only when BOTH classes
+            # above reject the config, so no model that loaded before takes this path.
+            if "Unrecognized configuration class" not in str(exc2):
+                raise
+            try:
+                from transformers import AutoModelForMultimodalLM
+            except ImportError:
+                raise exc2
+            print(f"[model load] {model_name} is not registered for AutoModelForImageTextToText "
+                  "either; loading via AutoModelForMultimodalLM.")
+            return AutoModelForMultimodalLM.from_pretrained(model_name, **kwargs)
 
 
 def _as_tokenizer(tokenizer_or_processor):
@@ -1059,7 +1574,8 @@ def _ensure_local_gpu_model_loaded():
     global local_tokenizer
     global local_model_key
 
-    model_key = (hf_model, hf_token, local_gpu_device, local_gpu_dtype, local_gpu_quantization)
+    model_key = _local_model_key(hf_model, hf_token, local_gpu_device, local_gpu_dtype,
+                                 local_gpu_quantization)
     if local_model is not None and local_tokenizer is not None and local_model_key == model_key:
         return
 
@@ -1237,11 +1753,13 @@ def _ensure_local_gpu_model_loaded():
             )
 
     else:
-        # Normal HF hub id or remote model
-        tokenizer = _as_tokenizer(AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs))
+        # Normal HF hub id or remote model. A pinned revision (notes 43.16) reaches the tokenizer
+        # and the weights alike; without one the kwargs are exactly what every earlier run passed.
+        rev_kwargs = {"revision": local_model_revision} if local_model_revision else {}
+        tokenizer = _as_tokenizer(AutoTokenizer.from_pretrained(hf_model, use_fast=True, trust_remote_code=True, **auth_kwargs, **rev_kwargs))
         if tokenizer.pad_token is None and tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = _load_text_generation_model(hf_model, **auth_kwargs, **model_kwargs)
+        model = _load_text_generation_model(hf_model, **auth_kwargs, **rev_kwargs, **model_kwargs)
 
     if not any(param.is_cuda for param in model.parameters()):
         raise RuntimeError(
@@ -1277,6 +1795,23 @@ def _model_context_limit():
 
 class PromptTooLongError(RuntimeError):
     """The prompt alone exceeds the model's context, so no generation budget can rescue it."""
+
+
+def _check_memory_budget(prompt_tokens, max_tokens):
+    """Refuse a call whose context could outgrow what the model's memory check verified (notes 44.7).
+
+    Counted conservatively: the prompt, the whole reasoning budget when this model reasons first,
+    and the whole action budget -- so a call that passes cannot run out of memory part-way. No
+    limit configured (every model before 44.7): no check."""
+    if not local_max_context_tokens:
+        return
+    reasoning = reasoning_token_budget if (local_reasoning and reasoning_token_budget) else 0
+    needed = prompt_tokens + reasoning + int(max_tokens or 0)
+    if needed > local_max_context_tokens:
+        raise PromptTooLongError(
+            f"context limit: a {prompt_tokens}-token prompt plus up to {reasoning} reasoning and "
+            f"{int(max_tokens or 0)} answer tokens could reach {needed}, over the "
+            f"{local_max_context_tokens} tokens this model's memory check verified (notes 44.7)")
 
 
 def _check_context_budget(prompt_tokens, max_tokens):
@@ -1474,7 +2009,10 @@ def _ocpq_logits_processor():
     * `any_order=True` -- gold writes object properties out of schema order (`value_filter` before
       `at_time` in `FilterObjectAttributeValueFilter`). With ordered matching the grammar rejects
       **32 of the 169 gold queries**, which would cap the model below gold on 19% of the testset
-      and read as a finding rather than a bug.
+      and read as a finding rather than a bug. That counts gold as WRITTEN; in schema order the
+      ordered grammar admits all 169. And `any_order=True` admits a repeated key, which base
+      models loop on. So it is the default, not a constant: `set_constrained_any_order(False)`
+      compiles the ordered grammar instead (the agentic arm, notes 43.7).
     * `strict_mode=True` -- forbids unknown fields. Pydantic ignores them, so here the grammar is
       the stricter of the two, which is the safe direction: everything it admits validates.
 
@@ -1496,7 +2034,8 @@ def _ocpq_logits_processor():
     # arities across 13 (root_index, arity) combinations in the whole testset, so this cache stays
     # tiny even though the grammar is nominally per-case.
     key = (id(local_tokenizer), id(local_model), forced_root_arity, type_aware_filters_log,
-           getattr(constrained_schema_override, "__name__", None))
+           getattr(constrained_schema_override, "__name__", None), constrained_any_order,
+           constrained_bounded_shape)
     cached = _XGRAMMAR_CACHE.get(key)
     if cached is None:
         # The model's vocabulary is often LARGER than the tokenizer's, because checkpoints pad the
@@ -1521,8 +2060,13 @@ def _ocpq_logits_processor():
             if type_aware_filters_log is not None:
                 built = _type_aware_schema(built, type_aware_filters_log)
             source = json.dumps(built)
+        if constrained_bounded_shape:
+            # Applied LAST, to whatever the source is, so it composes with every transform above.
+            as_dict = json.loads(source) if isinstance(source, str) else source.model_json_schema()
+            source = json.dumps(_bounded_schema(as_dict))
         cached = xgr.GrammarCompiler(tokenizer_info).compile_grammar(
-            xgr.Grammar.from_json_schema(source, any_order=True, strict_mode=True)
+            xgr.Grammar.from_json_schema(source, any_order=constrained_any_order, strict_mode=True,
+                                         any_whitespace=not constrained_bounded_shape)
         )
         _XGRAMMAR_CACHE[key] = cached
     # The matcher carries per-generation state, so it is built fresh per call; the expensive
@@ -1546,15 +2090,52 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
             ] + normalized_messages[1:]
         else:
             normalized_messages = [{"role": "system", "content": json_instruction}] + normalized_messages
+    if local_system_prompt_prefix:
+        # The vendor's reasoning switch, when it is prompt text (Ministral 3 Reasoning, notes 44):
+        # its template adds it only when no system prompt is given. Prepended, so our own prompt --
+        # and its frozen hash -- is unchanged after it.
+        if normalized_messages and normalized_messages[0]["role"] == "system":
+            normalized_messages = [{"role": "system", "content": local_system_prompt_prefix + "\n\n"
+                                    + normalized_messages[0]["content"]}] + normalized_messages[1:]
+        else:
+            normalized_messages = ([{"role": "system", "content": local_system_prompt_prefix}]
+                                   + normalized_messages)
 
-    if hasattr(local_tokenizer, "apply_chat_template"):
+    normalized_messages, splices = _render_reasoning_history(normalized_messages)
+    if hasattr(local_tokenizer, "apply_chat_template") and splices:
+        # Gemma 4 with earlier reasoning kept (notes 44.6): render, write the template's own
+        # reasoning text in, then tokenize as apply_chat_template does (no special tokens added:
+        # the rendered text already carries them).
+        rendered = local_tokenizer.apply_chat_template(
+            normalized_messages, add_generation_prompt=True, tokenize=False,
+            **local_chat_template_kwargs)
+        rendered = _splice_reasoning(rendered, normalized_messages, splices)
+        input_ids = torch.tensor(
+            [local_tokenizer.encode(rendered, add_special_tokens=False)], dtype=torch.long)
+        if local_generation_prefix:
+            prefix_ids = local_tokenizer.encode(local_generation_prefix, add_special_tokens=False)
+            input_ids = torch.cat(
+                [input_ids, torch.tensor([prefix_ids], dtype=input_ids.dtype)], dim=-1)
+        input_ids = input_ids.to(local_model.device)
+        attention_mask = torch.ones_like(input_ids)
+    elif hasattr(local_tokenizer, "apply_chat_template"):
         input_ids = local_tokenizer.apply_chat_template(
             normalized_messages,
             add_generation_prompt=True,
             return_tensors="pt",
+            **local_chat_template_kwargs,
         )
         if not isinstance(input_ids, torch.Tensor):
             input_ids = input_ids["input_ids"]
+        if local_generation_prefix:
+            # Opens the answer channel of a model whose generation prompt stops before it (Muse
+            # Glimmer: `<|start|>assistant`, then ` to=user<|message|>` or a reasoning channel).
+            # Constrained decoding would otherwise force `{` where the model expects a channel
+            # header. The prefix is the text the template itself writes for a plain assistant
+            # turn, so the model's current turn looks exactly like its history (notes 43.16).
+            prefix_ids = local_tokenizer.encode(local_generation_prefix, add_special_tokens=False)
+            input_ids = torch.cat(
+                [input_ids, torch.tensor([prefix_ids], dtype=input_ids.dtype)], dim=-1)
         input_ids = input_ids.to(local_model.device)
         attention_mask = torch.ones_like(input_ids)
     else:
@@ -1566,12 +2147,13 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
             attention_mask = attention_mask.to(local_model.device)
 
     # Applied here rather than at the eight call sites that hard-code 1000/2000, so no pipeline
-    # signature changes and nothing can bypass it. None leaves each caller's own value alone.
-    if generation_token_budget is not None:
-        max_tokens = generation_token_budget
+    # signature changes and nothing can bypass it. None leaves each caller's own value alone. The
+    # agent's per-turn cap is applied at the same point, for the same reason.
+    max_tokens = _effective_max_tokens(max_tokens)
 
     prompt_tokens = int(input_ids.shape[-1])
     _check_context_budget(prompt_tokens, max_tokens)
+    _check_memory_budget(prompt_tokens, max_tokens)
 
     do_sample = False
     temperature = generation_temperature
@@ -1587,6 +2169,10 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
     }
     if temperature is not None and temperature > 0:
         generate_kwargs["temperature"] = float(temperature)
+        # The vendor's other sampling values (notes 44); absent for every earlier model.
+        for key in ("top_p", "top_k"):
+            if key in local_sampling:
+                generate_kwargs[key] = local_sampling[key]
     if attention_mask is not None:
         generate_kwargs["attention_mask"] = attention_mask
 
@@ -1601,25 +2187,104 @@ def _call_local_gpu_chat_completion(messages, max_tokens, response_format):
     # (case, condition, repeat) so a shard boundary cannot change it. No-op when sampling is off,
     # where the RNG is not consulted at all.
     if do_sample and generation_seed is not None:
-        torch.manual_seed(generation_seed)
+        seed = _seed_for_this_call()
+        torch.manual_seed(seed)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(generation_seed)
+            torch.cuda.manual_seed_all(seed)
 
-    with torch.no_grad():
+    reasoning_ids, forced_close = None, None
+    if local_reasoning and reasoning_token_budget:
+        # EVALUATION 2 (notes 44): reason first, in the model's own channel and WITHOUT the grammar,
+        # for at most `reasoning_token_budget` tokens; then answer under the grammar as always. The
+        # channel closes on its own marker, or is closed here at the budget ("forced close"). Only
+        # the answer is returned as content; the reasoning is returned beside it, and the agent
+        # keeps it in the transcript only under reasoning_history "keep" (notes 44.6).
+        close_ids = local_tokenizer.encode(local_reasoning["close"], add_special_tokens=False)
+        if len(close_ids) != 1:
+            raise ValueError(f"reasoning 'close' must be ONE token, got {close_ids} for "
+                             f"{local_reasoning['close']!r}")
+        close_id = close_ids[0]
+        opener = local_tokenizer.encode(local_reasoning.get("open") or "", add_special_tokens=False)
+        reasoning_input = torch.cat(
+            [input_ids, torch.tensor([opener], dtype=input_ids.dtype, device=input_ids.device)],
+            dim=-1) if opener else input_ids
+        stops = [close_id] + _eos_ids()
+        reasoning_kwargs = {k: v for k, v in generate_kwargs.items() if k != "logits_processor"}
+        reasoning_kwargs.update(input_ids=reasoning_input, attention_mask=torch.ones_like(reasoning_input),
+                                max_new_tokens=reasoning_token_budget, eos_token_id=stops)
+        with torch.no_grad(), _sdpa_context():
+            reasoning_out = local_model.generate(**reasoning_kwargs)
+        reasoned = reasoning_out[0][reasoning_input.shape[-1]:].tolist()
+        forced_close = not (reasoned and reasoned[-1] == close_id)
+        while reasoned and (reasoned[-1] == close_id or reasoned[-1] in stops):
+            reasoned = reasoned[:-1]
+        reasoning_ids = reasoned
+        answer_ids = local_tokenizer.encode(local_reasoning.get("answer_prefix") or "",
+                                            add_special_tokens=False)
+        input_ids = torch.cat([reasoning_input, torch.tensor(
+            [reasoned + [close_id] + answer_ids], dtype=input_ids.dtype, device=input_ids.device)],
+            dim=-1)
+        _check_context_budget(int(input_ids.shape[-1]), max_tokens)
+        generate_kwargs["input_ids"] = input_ids
+        generate_kwargs["attention_mask"] = torch.ones_like(input_ids)
+
+    with torch.no_grad(), _sdpa_context():
         output_ids = local_model.generate(**generate_kwargs)
 
     generated_ids = output_ids[0][input_ids.shape[-1]:]
     content = local_tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
-    completion_tokens = int(generated_ids.shape[-1])
+    action_tokens = int(generated_ids.shape[-1])
+    reasoning_tokens = len(reasoning_ids) if reasoning_ids is not None else 0
+    completion_tokens = action_tokens + reasoning_tokens
     usage = SimpleNamespace(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
     )
-    return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
-        usage=usage,
-    )
+    message = SimpleNamespace(content=content)
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
+    if reasoning_ids is not None:
+        message.reasoning = local_tokenizer.decode(reasoning_ids, skip_special_tokens=True).strip()
+        # Kept apart from the answer's tokens: the per-turn cap is on the ACTION (notes 43.15).
+        response.reasoning_tokens = reasoning_tokens
+        response.action_tokens = action_tokens
+        response.forced_close = forced_close
+    return response
+
+
+def _eos_ids():
+    """The tokenizer's end-of-sequence id(s) as a list, to stop a reasoning step that ends the turn."""
+    eos = getattr(local_tokenizer, "eos_token_id", None)
+    if eos is None:
+        return []
+    return list(eos) if isinstance(eos, (list, tuple)) else [eos]
+
+
+@contextlib.contextmanager
+def _sdpa_context():
+    """Restrict attention to the configured kernels while generating (notes 43.19, 44); a no-op
+    for every model that configures none.
+
+    With kernels set, transformers is also made to repeat K/V to the query's head count itself
+    instead of passing `enable_gqa=True`: neither fused kernel accepts grouped K/V, and flash
+    caps the head dimension at 256, so Gemma 4's global layers (32 query heads, 4 K/V heads, head
+    dim 512) would find no kernel at all (the long-prompt smoke of notes 44.3). The attention is
+    the same computation either way; only the kernel differs."""
+    if not local_sdpa_kernels:
+        yield
+        return
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+    import transformers.integrations.sdpa_attention as hf_sdpa
+    if not hasattr(hf_sdpa, "use_gqa_in_sdpa"):
+        raise RuntimeError("sdpa_kernels: this transformers has no sdpa_attention.use_gqa_in_sdpa to "
+                           "turn grouped K/V off; check how its SDPA path handles GQA before running")
+    original = hf_sdpa.use_gqa_in_sdpa
+    hf_sdpa.use_gqa_in_sdpa = lambda *args, **kwargs: False
+    try:
+        with sdpa_kernel([getattr(SDPBackend, name.upper()) for name in local_sdpa_kernels]):
+            yield
+    finally:
+        hf_sdpa.use_gqa_in_sdpa = original
 
 
 def _extract_usage_from_response(response):
@@ -1835,6 +2500,8 @@ def call_hf_with_retry(model, messages, max_tokens, response_format, max_retries
                     continue
                 raise
 
+    # The agent's private reasoning marker (notes 44.6) is for the local templates only.
+    messages = [{k: v for k, v in m.items() if k != "_reasoning"} for m in messages]
     if hf_backend == "custom-endpoint":
         if openai_client is None:
             raise RuntimeError(
@@ -3690,6 +4357,843 @@ Return JSON:
     return structure_text, verification_json, ocpq_json, query_result, query_result_file_path
 
 
+# --- THE AGENTIC ARM (notes 43) -------------------------------------------------------------
+#
+# Every earlier intervention repaired a query BEFORE it ran and left what it answers unchanged
+# (notes 31, 32, 37, 41 -- six times). This loop is the first that can act on what a candidate
+# query SELECTS: the model runs a tree against the log through `ocpq_probe`, sees how many
+# situations each box binds, and revises. The final tree is then executed and scored on exactly
+# the path every other strategy uses, so the arm is comparable rather than a parallel evaluation.
+
+# CLAUDE.md 2.3 wants raw model output recorded before post-processing, and the trajectory is where
+# an agentic turn's raw output lives. Capped because a 12-turn case at A2's budget would otherwise
+# add tens of KB per record to predictions.json.
+_AGENT_RAW_CHAR_CAP = int(os.getenv("OCPQ_AGENT_RAW_CHAR_CAP", "8000"))
+
+AGENT_PROTOCOL_RULES = (
+    "Reply with ONE JSON object per turn and nothing else. Two forms are allowed:\n"
+    "  {\"tool\": \"<name>\", \"args\": {...}}   to look something up in the log\n"
+    "  {\"final_tree\": {...}}                    to answer with the finished OCPQ query\n"
+    "Never put both in one reply. Never write prose around the JSON."
+)
+# Appended to the rules ONLY under `agent_thought`, so the reasoning condition differs from the
+# plain one in this line and in the action schema, and in nothing else. Asks for brevity because a
+# thought costs tokens every turn against the same turn budget and case_timeout_sec (notes 43).
+AGENT_THOUGHT_RULE = (
+    "You may START either form with \"thought\": \"...\" -- one or two sentences on what you "
+    "expect and why -- before the action itself."
+)
+
+
+# The one-shot prompt's tree rules, verbatim (`_run_pipeline_allowed_entities_only`, rendered). The
+# agent prompt first shipped without them, and in the 2026-09-23 gate smoke the model wrote a
+# `filters` key in 0 of 12 turns (B0: O2E filters in 158/169 predictions), so A1 - A0 would have
+# measured the missing rules as well as the tools. A copy rather than a shared reference because
+# B0's prompt is a completed, pinned condition and is not refactored mid-experiment;
+# `tests/test_agent_action_protocol.py` asserts this string equals B0's rendered rules exactly.
+OCPQ_TREE_RULES = (
+    "- The root object MUST contain both \"nodes\" and \"edgeNames\".\n"
+    "- \"edgeNames\" is an array of [[parent_index, child_index], \"label\"] pairs, one per parent-child\n"
+    "  link used in \"nodes\" (e.g. [[0, 1], \"A\"]). Do NOT omit it.\n"
+    "- Basic filters (\"TimeBetweenEvents\", \"NotEqual\", \"EventAttributeValueFilter\",\n"
+    "  \"ObjectAttributeValueFilter\", \"BasicFilterCEL\") must be wrapped as\n"
+    "  {\"type\": \"Filter\", \"filter\": {...}} when placed in \"constraints\".\n"
+    "- \"O2E\" and \"O2O\" belong in the node's \"filters\" array, never directly in \"constraints\".\n"
+    "- Use ONLY event and object names from the allowed lists.\n"
+    "- Do NOT invent unsupported filter types such as \"ExactlyOnce\".\n"
+    "- Represent \"exactly once\" using supported schema structure, not a custom operator.\n"
+    "- If a node contains both events and objects, include the required O2E filter(s).\n"
+    "- Keep all nodes connected in a single tree and avoid empty nodes."
+)
+
+
+# X (notes 43.12). The model gate's 298 try_query trees: 178 list a node as its OWN child, 205 have
+# child lists that disagree with edgeNames, 168 have the wrong number of roots -- box content is
+# mostly right, the LINKING is not understood. Rules about the representation plus ONE worked
+# example in an invented domain: `tests/test_agent_action_protocol.py` checks it validates, has no
+# structural defect, and shares no type name with any corpus log and no tree with any gold.
+AGENT_TREE_STRUCTURE_RULES = (
+    "How a tree is linked (this is where most mistakes happen):\n"
+    "- \"nodes\" is a list; node 0 is the ROOT.\n"
+    "- Each node is {\"Box\": [box data, child list]}. The child list holds the indices of OTHER "
+    "nodes that are this node's children -- never the node's own index.\n"
+    "- Every node except node 0 appears in exactly one child list; node 0 appears in none.\n"
+    "- \"edgeNames\" has exactly one entry [[parent, child], \"name\"] for each child link, and "
+    "nothing else. SAT, NOT and NumChilds refer to a child by that name.\n"
+    "- A filter may read the variables declared in its own box or in any ancestor box, and no "
+    "others."
+)
+AGENT_WORKED_EXAMPLE_QUESTION = "Every book must be shelved at least once."
+AGENT_WORKED_EXAMPLE = {
+    "nodes": [
+        {"Box": [{"newEventVars": {}, "newObjectVars": {"0": ["book"]}, "filters": [],
+                  "sizeFilters": [],
+                  "constraints": [{"type": "SizeFilter", "filter": {
+                      "type": "NumChilds", "child_name": "A", "min": 1, "max": None}}],
+                  "evVarLabels": {}, "obVarLabels": {}}, [1]]},
+        {"Box": [{"newEventVars": {"0": ["shelve book"]}, "newObjectVars": {},
+                  "filters": [{"type": "O2E", "object": 0, "event": 0, "qualifier": None}],
+                  "sizeFilters": [], "constraints": [], "evVarLabels": {}, "obVarLabels": {}},
+                 []]},
+    ],
+    "edgeNames": [[[0, 1], "A"]],
+}
+AGENT_CHECK_TREE_SPEC = {
+    "name": "check_tree",
+    "args": {"tree": "a complete BindingBoxTree JSON object"},
+    "description": ("Check how a candidate tree is linked, WITHOUT running it and without the log: "
+                    "every structural defect (child lists, edgeNames, the root, variables in "
+                    "scope), each with how to fix it."),
+}
+AGENT_SEARCH_EXAMPLES_SPEC = {
+    "name": "search_examples",
+    "args": {"text": "what to look for, in your own words: the question, or a pattern such as "
+                     "'at least twice within one hour'"},
+    "description": ("Solved example questions with their OCPQ trees, the most similar first; each call "
+                    "returns ones you have not seen yet. They are on OTHER logs: copy how their trees "
+                    "are built, never their type names."),
+}
+# The search text is embedded as written; past this it adds nothing to a 384-dim sentence embedding.
+AGENT_SEARCH_TEXT_CHAR_CAP = 500
+AGENT_LAST_TURN_NOTE = "This is your LAST turn: answer now with {\"final_tree\": {...}}."
+# C (notes 43.15). Without it, a turn the harness cut at the cap is answered "do not truncate the
+# object" -- blaming the model for a cut it did not make, and not saying the object was too LONG.
+# On the angular log that was nearly every malformed turn of the scored run: ~70 event types listed
+# in one variable, or a dozen full commit messages in one `is_in`.
+AGENT_CAP_FEEDBACK = ("it reached the {cap}-token limit for one reply before its JSON object "
+                      "closed, so it was cut off. The object is too long, not malformed: write a "
+                      "much shorter one. Bind the one type each variable needs instead of listing "
+                      "every type, and filter on a few values, not a long list copied from a "
+                      "sample")
+
+
+# R (notes 43.17). Muse Glimmer's model gate: without it, 172 of 302 turns repeated an earlier
+# action of the same case exactly -- one try_query sent seven times -- and a 4.7k-character
+# check_tree repeated six times timed a case out. Greedy decoding cannot leave that loop by
+# itself: the repeat's result is the same, so the next context invites the same action again.
+AGENT_REPEAT_NOTE = ("You already ran exactly this action in turn {turn}, and its result, shown "
+                     "after that turn, has not changed. Running it again tells you nothing new. "
+                     "Change the tree or the arguments to test something different, or answer "
+                     "with {{\"final_tree\": {{...}}}}.")
+
+
+def _turn_hit_cap(response, cap):
+    """Did this turn stop at the token cap instead of finishing its object?
+
+    An endpoint says so (`finish_reason == "length"`); the local backend reports only how many
+    tokens it generated, and it stops at exactly `cap` when the cap is what stopped it.
+    """
+    choice = response.choices[0]
+    if getattr(choice, "finish_reason", None) == "length":
+        return True
+    # With a reasoning step (notes 44) the usage counts reasoning too; the cap is on the action.
+    used = getattr(response, "action_tokens", None)
+    if used is None:
+        used = getattr(getattr(response, "usage", None), "completion_tokens", None)
+    return used is not None and cap is not None and used >= cap
+_STRUCTURE_REPORT_CAP = 8
+
+
+def _agent_structure_block():
+    """The X block: the linking rules, then the worked example on an invented log."""
+    return (f"{AGENT_TREE_STRUCTURE_RULES}\n\n"
+            f"Example, on a different log whose types are not in yours. Question: "
+            f"\"{AGENT_WORKED_EXAMPLE_QUESTION}\" The root binds each book; the child binds that "
+            f"book's shelve events; NumChilds min 1 makes a book with none a violation.\n"
+            f"{json.dumps(AGENT_WORKED_EXAMPLE)}")
+
+
+def _structure_report(tree):
+    """Every structural defect of `tree`, blocking kinds first, each with its fix (F, notes 43.12).
+
+    Static: reads only the model's own tree, never the log and never gold. Capped, with the number
+    left out stated, so a badly broken tree cannot flood the transcript.
+    """
+    defects = _tree_structural_defects(tree)
+    blocking = blocking_defects(defects)
+    ordered = blocking + [d for d in defects if d not in blocking]
+    report = [f"{d} -> fix: {DEFECT_HINTS[defect_kind(d)]}" if defect_kind(d) in DEFECT_HINTS
+              else d for d in ordered[:_STRUCTURE_REPORT_CAP]]
+    if len(ordered) > _STRUCTURE_REPORT_CAP:
+        report.append(f"... and {len(ordered) - _STRUCTURE_REPORT_CAP} more")
+    return report
+
+
+def _tree_blocking_count(tree):
+    """Blocking structural defects in a tree the agent wrote -- recorded on every turn that carries
+    one, whatever the levers, so the structure rate is comparable across conditions."""
+    return len(blocking_defects(_tree_structural_defects(tree)))
+
+
+def _check_tree_result(tree):
+    report = _structure_report(tree)
+    if report:
+        return {"structure": report}
+    return {"structure": [], "note": "no structural defect found -- this checks how the tree is "
+                                     "linked, not whether it answers the question"}
+
+
+class ExampleSearchUnavailable(RuntimeError):
+    """search_examples was called but the retrieval pool or its embedding model is not loaded.
+
+    Raised, never papered over: `retrieve_examples`' fallback returns the pool's FIRST rows whatever
+    is asked, which under S would be a condition that silently shows every case the same three
+    examples."""
+
+
+def _search_examples_result(text, dataset, embeddings, shown):
+    """S (notes 45): the pool examples most similar to `text` that this case has not been shown.
+
+    Returns `(result, picked)`, where `picked` is `[(pool index, cosine similarity)]`. The same
+    embedding and similarity as the matrix's few-shot retrieval (`retrieve_examples`): the
+    MiniLM sentence embedding of the text against `embeddings`, the pool's precomputed rows. Reads
+    `dataset` and `embeddings` only -- the retrieval pool, which shares no question, query or type
+    name with the testset (notes 3, 45). Whole examples are kept within the result cap; any left
+    out are counted, never cut mid-JSON.
+    """
+    if dataset is None or embeddings is None or model is None or tokenizer is None:
+        raise ExampleSearchUnavailable(
+            f"search_examples needs the retrieval pool and its embedding model "
+            f"({embedding_load_error or 'not loaded'})")
+    text = str(text or "").strip()[:AGENT_SEARCH_TEXT_CHAR_CAP]
+    if not text:
+        return {"error": "search_examples needs a non-empty text"}, []
+    similarities = cosine_similarity([get_embedding(text)], embeddings)[0]
+    seen = set(shown)
+    picked = []
+    for index in np.argsort(-similarities, kind="stable"):
+        if int(index) not in seen:
+            picked.append((int(index), float(similarities[index])))
+            if len(picked) == agent_examples_per_search:
+                break
+    examples, used = [], 0
+    for index, _ in picked:
+        example = {"question": dataset[index]["nl"], "tree": dataset[index]["query"]}
+        size = len(json.dumps(example, separators=(",", ":"), default=str))
+        if examples and used + size > agent_example_result_char_cap:
+            break
+        examples.append(example)
+        used += size
+    result = {"note": "Solved questions on OTHER logs. Reuse how the trees are built; your type "
+                      "names are the ones in your schema, never these.",
+              "examples": examples}
+    if len(examples) < len(picked):
+        result["omitted"] = len(picked) - len(examples)
+    return result, picked[:len(examples)]
+
+
+def _agent_protocol_rules():
+    """The protocol rules for the current condition: the plain rules, plus the thought line."""
+    return AGENT_PROTOCOL_RULES + ("\n" + AGENT_THOUGHT_RULE if agent_thought else "")
+
+
+def _agent_action_model():
+    """The PARSED-turn model for the current condition. The grammar is compiled from the stricter
+    `AgentTurn` / `AgentTurnWithThought` union instead (see `_run_pipeline_agentic`)."""
+    return AgentActionWithThought if agent_thought else AgentAction
+
+
+class AgentNoFinalAnswer(ValueError):
+    """The loop ended with no usable tree: the budget ran out, or every turn was malformed.
+
+    Its own exception type because `eval_testset._classify_run_status` matches on message text, and
+    a case that never reached execution must NOT be filed as `execution_failed` -- that would move
+    `execution_success_rate`, which CLAUDE.md 6 requires to mean "the query ran".
+    """
+
+
+def _parse_agent_action(content, action_model=AgentAction):
+    """Parse one protocol turn. Returns `(action, None)` or `(None, reason)`.
+
+    `action_model` is the condition's schema (`_agent_action_model`). With the plain `AgentAction`
+    a stray `thought` key -- possible only without constrained decoding -- is ignored by Pydantic,
+    so it can never leak into the plain condition as anything but raw text.
+
+    Deliberately NOT `parse_llm_json`, which is right for queries and wrong for a control channel:
+    it takes a greedy `{.*}` span, so prose containing braces swallows everything between the first
+    and last one, and it appends a closing `}` to truncated output -- which can turn a cut-off tool
+    call into a DIFFERENT, valid action. A control channel that silently invents an action is worse
+    than one that refuses, because the refusal is measurable (`agent_malformed_actions`) and the
+    invention is not.
+
+    `raw_decode` also stops at the end of the first complete object, so trailing prose after a
+    valid action is tolerated rather than fatal.
+    """
+    if not content or not content.strip():
+        return None, "empty reply"
+    text = content.strip()
+    if text.startswith("```"):                      # a fenced block is common and harmless
+        text = text.split("```", 2)[1] if text.count("```") >= 2 else text[3:]
+        if text.lstrip().lower().startswith("json"):
+            text = text.lstrip()[4:]
+    start = text.find("{")
+    if start < 0:
+        return None, "no JSON object in the reply"
+    try:
+        parsed, _ = json.JSONDecoder().raw_decode(text[start:])
+    except json.JSONDecodeError as exc:
+        return None, f"not valid JSON ({exc.msg}); do not truncate the object"
+    if not isinstance(parsed, dict):
+        return None, "the reply must be a JSON object"
+    has_tool, has_tree = bool(parsed.get("tool")), parsed.get("final_tree") is not None
+    if has_tool and has_tree:
+        return None, "exactly one of `tool` or `final_tree`, not both"
+    if not has_tool and not has_tree:
+        return None, "the object must carry either `tool` or `final_tree`"
+
+    # Validated against the ONE variant the turn names, not the whole union: a union error lists
+    # every branch's complaint, which tells the model nothing. And every tree first gets the repair
+    # every other arm gets before validation (`_repair_agent_tree`) -- without it, trees the
+    # one-shot pipeline accepts were rejected here, 0 of 10 gate cases declared an answer.
+    del _last_agent_parse_normalized[:]
+    if has_tree:
+        tree, normalized = _repair_agent_tree(parsed.get("final_tree"))
+        try:
+            fields = {"final_tree": BindingBoxTree.model_validate(tree)}
+        except Exception as exc:  # noqa: BLE001 - the model's mistake, reported back to it
+            return None, f"`final_tree` is not a valid BindingBoxTree: {str(exc)[:400]}"
+    else:
+        tool = parsed.get("tool")
+        variant = _AGENT_TOOL_CALL_BY_NAME.get(tool)
+        if variant is None:
+            return None, (f"unknown tool {tool!r}; the tools are "
+                          f"{sorted(_AGENT_TOOL_CALL_BY_NAME)}")
+        args = parsed.get("args")
+        normalized = []
+        if (tool in ("try_query", "check_tree") and isinstance(args, dict)
+                and isinstance(args.get("tree"), dict)):
+            repaired, normalized = _repair_agent_tree(args["tree"])
+            args = dict(args, tree=repaired)
+        try:
+            call = variant.model_validate({"tool": tool, "args": {} if args is None else args})
+        except Exception as exc:  # noqa: BLE001 - the model's mistake, reported back to it
+            return None, f"malformed {tool} call: {str(exc)[:300]}"
+        fields = {"tool": tool, "args": call.args.model_dump(by_alias=True)}
+    if action_model is AgentActionWithThought and parsed.get("thought") is not None:
+        fields["thought"] = str(parsed["thought"])
+    _last_agent_parse_normalized.extend(normalized)
+    return action_model(**fields), None
+
+
+# Container fields the repair filled on the most recent parsed turn. Recorded per turn: the harness
+# doing work the model did not do has to be visible (`normalized_fields` on every other arm).
+_last_agent_parse_normalized = []
+
+_AGENT_TOOL_CALL_BY_NAME = {
+    typing.get_args(call.model_fields["tool"].annotation)[0]: call
+    for call in AGENT_TOOL_CALLS + (CheckTreeCall, SearchExamplesCall)}
+
+
+def _repair_agent_tree(tree):
+    """The one-shot pipeline's narrow container repair, applied to an agent's tree. Returns
+    `(tree, fields_filled)`.
+
+    `validate_and_normalize_ocpq_json` runs `_fill_missing_box_containers` before strict validation
+    on every other arm: xgrammar's `any_order=True` lets a required container (`filters`, ...) be
+    skipped, and an absent container is empty under OCPQ semantics. Applied to a COPY, and the
+    global normalisation record is left as it was, so the case's own record is not disturbed.
+    """
+    if not isinstance(tree, dict):
+        return tree, []
+    before = len(_last_normalized_fields)
+    repaired = _fill_missing_box_containers(copy.deepcopy(tree))
+    filled = list(_last_normalized_fields[before:])
+    del _last_normalized_fields[before:]
+    return repaired, filled
+
+
+def _agent_tool_block(probe):
+    """The tool list the model is shown, generated from the probe's own registry.
+
+    Generated rather than written out, because a tool described in the prompt but absent from the
+    dispatcher is a silent dead end -- the model spends its budget calling something that can only
+    ever answer "unknown tool".
+    """
+    def line(spec):
+        arguments = ", ".join(f"{name} ({description})" for name, description in spec["args"].items())
+        return f"- {spec['name']}({arguments}): {spec['description']}"
+
+    structural = agent_protocol["structural_feedback"]
+    examples = agent_protocol["example_search"]
+    if probe is None:
+        if examples:
+            # S (notes 45): the control keeps the STATIC tools, so A1 - A1' still isolates the log.
+            static = ([line(AGENT_CHECK_TREE_SPEC)] if structural else []) + [
+                line(AGENT_SEARCH_EXAMPLES_SPEC)]
+            return "You have NO log tools in this condition. Tools you may call:\n" + "\n".join(static)
+        if structural:
+            # The control keeps the STATIC check: A1 - A1' then isolates log access (notes 43.12).
+            return ("You have NO log tools in this condition. One tool you may call:\n"
+                    + line(AGENT_CHECK_TREE_SPEC))
+        return ("You have NO tools in this condition. Think it through and answer with "
+                "{\"final_tree\": {...}}.")
+    lines = ["Tools you may call:"] + [line(spec) for spec in ocpq_probe.TOOL_SPECS]
+    if structural:
+        lines.append(line(AGENT_CHECK_TREE_SPEC))
+    if examples:
+        lines.append(line(AGENT_SEARCH_EXAMPLES_SPEC))
+    return "\n".join(lines)
+
+
+AGENT_SYSTEM_PROMPT = ("You are a JSON-only API that writes OCPQ queries. You answer with exactly one "
+                       "JSON object per turn and never with prose.")
+
+
+def _agent_task_prompt(schema_block, query, probe):
+    """The first user message of an agentic case, for the current condition.
+
+    With every Stage 5 lever off this renders exactly what the loop sent before them, so the model
+    gate stays reproducible. `agent_prompt_sha256` hashes it with placeholders in place of the log
+    schema and the question -- the part a Stage 5 freeze fixes.
+    """
+    levers = agent_protocol
+    rules = ("Rules for every tree you write (in try_query and in final_tree):\n"
+             f"{OCPQ_TREE_RULES}")
+    if levers["worked_example"]:
+        rules += "\n\n" + _agent_structure_block()
+    extra = ""
+    if levers["structural_feedback"]:
+        # A check costs a turn: the tool rung is told try_query already reports the same defects,
+        # so it need not spend one on a tree it is about to run.
+        extra += ("\n- Check your tree with check_tree before you answer, and fix every defect it "
+                  "reports." if probe is None else
+                  "\n- try_query reports every structural defect beside the counts; check_tree "
+                  "reports them without running the tree. Fix every defect before you answer.")
+    if levers["reserve_last_turn"]:
+        extra += "\n- Your last turn must be a final answer; you will be told when it comes."
+    if levers["example_search"]:
+        extra += ("\n- search_examples shows solved questions on OTHER logs: reuse how their trees are "
+                  "built, never their type names -- your types are the ones listed above.")
+    return f"""
+Write an OCPQ query answering the question below, using the log to check your work.
+
+{schema_block}
+
+{_agent_tool_block(probe)}
+
+{_agent_protocol_rules()}
+
+{rules}
+
+How to work:
+- A query is a tree of binding boxes. The ROOT box holds the answer rows; child boxes express
+  conditions about them.
+- Before answering, run your candidate with try_query if you have it: a box that binds 0
+  situations is a box that selects nothing, and the counts tell you which one collapsed.
+- A result of 0 situations is usually wrong. So is a result that selects nearly everything.{extra}
+- When you are confident, answer with {{"final_tree": {{...}}}}.
+
+Question:
+{query}
+"""
+
+
+def agent_prompt_sha256(with_tools):
+    """sha256 of the condition's static prompt: system message + task with placeholders.
+
+    Recorded in the manifest (notes 43.12), so "the prompt was frozen before the scored runs" is a
+    value that can be compared, not a claim. Depends on the thought flag and the levers, which is
+    the point: a different condition must hash differently.
+    """
+    marker = object() if with_tools else None
+    text = AGENT_SYSTEM_PROMPT + "\n" + _agent_task_prompt("<LOG SCHEMA>", "<QUESTION>", marker)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _run_pipeline_agentic(
+    query,
+    dataset,
+    embeddings,
+    output_file="configs/test_query.json",
+    ocel_path="../hospital_log_high.json",
+    model_name=None,
+    schema_enforced=True,
+    schema_validation=True,
+    execute_query=True,
+    structure_hint=None,
+    stage_prefix="agentic",
+):
+    """Let the model probe the log for up to `agent_max_turns` turns, then score its answer.
+
+    `structure_hint` is accepted and DROPPED, and `nl_to_ocpq_pipeline` does not forward it here in
+    the first place. Two layers because it carries gold's tree shape and this arm is system
+    performance: `tests/test_structure_hint_prompt.py` pins that only the oracle branch forwards
+    gold, and `tests/test_agent_action_protocol.py` pins that a hint passed directly reaches no
+    message and no trajectory entry.
+
+    With `agent_probe` set this is the tool rung; with it None the same loop runs with the tool
+    surface withheld, which is the compute-matched control (A1'). Everything after the loop --
+    verification, normalisation, execution and the single stderr repair -- is the code every other
+    strategy runs, so the rungs differ in the loop and nothing else.
+
+    Raises:
+        AgentNoFinalAnswer: no usable tree was produced. Never raised when any turn yielded a valid
+            tree: the best one so far is finalised instead, and `final_source` records which it was.
+    """
+    global _last_agent_trajectory, _agent_turn_active
+    probe = agent_probe
+    selected_model = model_name or hf_model
+    print(f"Starting agentic NL to OCPQ pipeline "
+          f"({'with tools' if probe is not None else 'NO tools, compute-matched control'}, "
+          f"max {agent_max_turns} turns)...")
+    print(f"Using model: {selected_model}")
+
+    schema = extract_ocel_schema(ocel_path)
+    event_names, object_names = schema["event_types"], schema["object_types"]
+    schema_block = build_schema_block(schema)
+
+    messages = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
+    task = _agent_task_prompt(schema_block, query, probe)
+    messages.append({"role": "user", "content": task})
+
+    trajectory = []
+    malformed = 0
+    final_tree = None
+    final_source = "none"
+    last_valid_tree = None
+    last_evaluated_tree = None
+    levers = dict(agent_protocol)
+    # What this condition may call: the probe's tools when there is a probe, and the static
+    # check_tree under F in BOTH loop rungs (notes 43.12).
+    available_tools = (PROBE_TOOL_NAMES if probe is not None else ()) + (
+        ("check_tree",) if levers["structural_feedback"] else ()) + (
+        ("search_examples",) if levers["example_search"] else ())
+    final_bounced = False
+    check_tree_calls = 0
+    cap_hits = 0
+    # R: every tool action of this case by (tool, arguments), with the turn it was first made in.
+    seen_actions = {}
+    repeat_turns = 0
+    turns_used = 0
+    # Notes 44.7: the case ended because the next call could outgrow the verified context.
+    context_limit_hit = False
+    # S (notes 45): pool rows already shown in this case, so a repeated search returns new ones.
+    examples_shown = []
+    example_search_calls = 0
+
+    # Published BEFORE the loop and updated every turn, so a case the per-case cap kills mid-loop
+    # still leaves the turns it took. Those are exactly the cases whose mechanism matters most, and
+    # assigning the record only after the loop recorded nothing for them. `complete` says which.
+    _last_agent_trajectory = {
+        "turns": 0,
+        "max_turns": agent_max_turns,
+        "malformed_actions": 0,
+        "tool_calls": 0,
+        "final_source": "none",
+        "complete": False,
+        "trajectory": trajectory,
+        "tool_trajectory": [] if probe is None else probe.trajectory,
+    }
+
+    # The condition's schema, fixed for the whole case: the grammar is compiled from it and the
+    # parser validates against it, so the two cannot disagree mid-case.
+    action_model = _agent_action_model()
+    # The GRAMMAR is the strict union (one variant per tool + a final answer); the parsed turn is
+    # the flat `action_model`. See ocpq_schema, "THE STRICT TURN GRAMMAR".
+    thought_on = action_model is AgentActionWithThought
+    _last_agent_trajectory["thought_enabled"] = agent_thought
+    _last_agent_trajectory["protocol"] = levers
+
+    def grammar_for(turn):
+        """The turn grammar. Without levers: exactly the pre-Stage-5 grammar (the no-tools control
+        keeps the full union, whose tool calls it is told it cannot make)."""
+        final_only = levers["reserve_last_turn"] and turn == agent_max_turns - 1
+        if not final_only and (probe is not None or levers["structural_feedback"]):
+            return agent_turn_model(available_tools, thought_on, False)
+        if final_only:
+            return agent_turn_model((), thought_on, True)
+        return AgentTurnWithThought if thought_on else AgentTurn
+
+    previous_schema = get_constrained_schema()
+    turn_cap = agent_turn_token_budget or get_generation_token_budget() or 2000
+    for turn in range(agent_max_turns):
+        turns_used = turn + 1
+        turn_model = grammar_for(turn)
+        action_schema = turn_model.model_json_schema()
+        if (levers["reserve_last_turn"] and turn == agent_max_turns - 1
+                and messages[-1]["role"] == "user"):
+            # L: said in the message the model is answering, so the roles still alternate.
+            messages[-1] = dict(messages[-1], content=messages[-1]["content"] + "\n\n"
+                                + AGENT_LAST_TURN_NOTE)
+        _last_agent_trajectory["turns"] = turns_used
+        _last_agent_trajectory["malformed_actions"] = malformed
+        _last_agent_trajectory["cap_hits"] = cap_hits
+        _last_agent_trajectory["repeat_turns"] = repeat_turns
+        _last_agent_trajectory["tool_calls"] = 0 if probe is None else probe.tool_calls
+        try:
+            # Constrain to the PROTOCOL, not to a tree. Without this the xgrammar processor masks
+            # every turn to a BindingBoxTree (it is attached on every local generation), and the
+            # model could not emit a tool call at all -- which would read as "small models cannot
+            # do agentic work" when it is a grammar bug.
+            set_constrained_schema(turn_model)
+            _agent_turn_active = True
+            response = call_hf_with_retry(
+                model=selected_model,
+                messages=messages,
+                # The endpoint backend honours this directly; the local one applies the same rule
+                # in `_effective_max_tokens`.
+                max_tokens=turn_cap,
+                # A union cannot be expressed in OpenAI strict mode (no root-level anyOf, and a
+                # free-form `args` cannot satisfy additionalProperties:false), so endpoint backends
+                # get plain JSON mode and the schema is enforced on the FINAL tree instead.
+                response_format=_build_response_format("agent_action", action_schema, False),
+            )
+        except PromptTooLongError as exc:
+            # Never retried by design, and the transcript only grows -- so stop and finalise with
+            # whatever the model has already produced rather than losing the case. The model is
+            # not warned beforehand (notes 44.7); the record says the limit ended it.
+            trajectory.append({"turn": turns_used, "error": f"prompt too long: {exc}"})
+            context_limit_hit = True
+            _last_agent_trajectory["context_limit_hit"] = True
+            break
+        finally:
+            set_constrained_schema(previous_schema)
+            _agent_turn_active = False
+
+        content = response.choices[0].message.content or ""
+        action, reason = _parse_agent_action(content, action_model)
+        entry = {"turn": turns_used, "raw": content[:_AGENT_RAW_CHAR_CAP]}
+        reasoning_text = getattr(response.choices[0].message, "reasoning", None)
+        # This turn's assistant message. Under reasoning_history "keep" (notes 44.6) it carries the
+        # reasoning, in full, for the template to render next turn as it does in a tool loop; under
+        # "drop" the transcript keeps the action only, as before.
+        assistant = {"role": "assistant", "content": content}
+        if reasoning_history == "keep" and reasoning_text:
+            assistant["_reasoning"] = reasoning_text
+        if reasoning_text is not None:
+            # Evaluation 2 (notes 44): what the model thought before this action, in the trajectory
+            # for the mechanism analysis (did it SEE the empty result?).
+            entry["reasoning"] = reasoning_text[:_AGENT_RAW_CHAR_CAP]
+            entry["reasoning_tokens"] = getattr(response, "reasoning_tokens", None)
+            entry["forced_close"] = bool(getattr(response, "forced_close", False))
+        if action is not None and _last_agent_parse_normalized:
+            entry["normalized"] = list(_last_agent_parse_normalized)
+        thought = getattr(action, "thought", None) if action is not None else None
+        if thought:
+            # Mechanism evidence: the text goes to the trajectory JSONL, its length to the record.
+            entry["thought"] = str(thought)[:_AGENT_RAW_CHAR_CAP]
+
+        if action is None:
+            malformed += 1
+            # Recorded whatever the levers, so every condition's cap hits can be counted.
+            if _turn_hit_cap(response, turn_cap):
+                cap_hits += 1
+                entry["hit_cap"] = True
+                if levers["cap_feedback"]:
+                    reason = AGENT_CAP_FEEDBACK.format(cap=turn_cap)
+            entry["malformed"] = reason
+            trajectory.append(entry)
+            messages.append(assistant)
+            messages.append({"role": "user", "content":
+                             f"That reply could not be used: {reason}. {_agent_protocol_rules()}"})
+            continue
+
+        if action.final_tree is not None:
+            declared = action.final_tree.model_dump(by_alias=True)
+            entry["action"] = "final_tree"
+            entry["tree_blocking"] = _tree_blocking_count(declared)
+            if (levers["bounce_blocking_final"] and not final_bounced and entry["tree_blocking"]
+                    and turn < agent_max_turns - 1):
+                # B (notes 43.12): returned ONCE with its defects while a turn remains. Static --
+                # the same check a structural-validation rung applies -- so both loop rungs get it.
+                final_bounced = True
+                entry["bounced"] = True
+                trajectory.append(entry)
+                report = _structure_report(declared)
+                messages.append(assistant)
+                messages.append({"role": "user", "content":
+                                 "Your final_tree cannot be evaluated as written:\n- "
+                                 + "\n- ".join(report)
+                                 + "\nFix these and answer again with {\"final_tree\": {...}}."})
+                continue
+            final_tree = declared
+            trajectory.append(entry)
+            final_source = "declared"
+            break
+
+        entry["action"] = action.tool
+        # R (notes 43.17): the same tool with the same arguments as an earlier turn of this case.
+        # Recorded whatever the levers, so every condition's repeat rate can be counted; the
+        # thought is not part of the action, so a new thought on an old action is still a repeat.
+        action_key = (action.tool, json.dumps(action.args or {}, sort_keys=True, default=str))
+        # A repeated search_examples returns examples not yet shown (notes 45), so it is not a
+        # repeat in the sense of 43.17 -- same action, same result -- and is not counted as one.
+        first_turn = (turns_used if action.tool == "search_examples"
+                      else seen_actions.setdefault(action_key, turns_used))
+        if first_turn != turns_used:
+            repeat_turns += 1
+            entry["repeat_of"] = first_turn
+            if levers["repeat_guard"]:
+                # Not re-run: no probe call, no tool budget, no check_tree count -- the turn is
+                # spent, and the model is told why nothing new came back.
+                if action.tool in ("check_tree", "try_query"):
+                    entry["tree_blocking"] = _tree_blocking_count((action.args or {}).get("tree"))
+                note = AGENT_REPEAT_NOTE.format(turn=first_turn)
+                entry["guarded"] = True
+                entry["result"] = {"repeat_of": first_turn, "note": note}
+                trajectory.append(entry)
+                messages.append(assistant)
+                messages.append({"role": "user", "content": note})
+                continue
+        if action.tool == "search_examples" and "search_examples" in available_tools:
+            # S (notes 45): static, like check_tree -- no probe call, no tool budget, a turn spent.
+            example_search_calls += 1
+            result, picked = _search_examples_result(
+                (action.args or {}).get("text"), dataset, embeddings, examples_shown)
+            examples_shown.extend(index for index, _ in picked)
+            entry["examples"] = [[index, round(similarity, 4)] for index, similarity in picked]
+            entry["result"] = result
+            trajectory.append(entry)
+            messages.append(assistant)
+            messages.append({"role": "user", "content": json.dumps(result, default=str)})
+            _last_agent_trajectory["example_search_calls"] = example_search_calls
+            continue
+        if action.tool == "check_tree" and "check_tree" in available_tools:
+            tree = (action.args or {}).get("tree")
+            entry["tree_blocking"] = _tree_blocking_count(tree)
+            check_tree_calls += 1
+            result = _check_tree_result(tree)
+            entry["result"] = result
+            trajectory.append(entry)
+            messages.append(assistant)
+            messages.append({"role": "user", "content": json.dumps(result, default=str)})
+            continue
+        if probe is not None and action.tool not in available_tools:
+            # Reachable only without constrained decoding: the grammar offers available tools only.
+            entry["result"] = {"error": f"{action.tool} is not a tool in this condition"}
+            trajectory.append(entry)
+            messages.append(assistant)
+            messages.append({"role": "user", "content": json.dumps(entry["result"])})
+            continue
+        if probe is None:
+            # The control rung: the model asked for a tool it was told it does not have.
+            entry["result"] = {"error": "no tools are available in this condition"}
+            trajectory.append(entry)
+            messages.append(assistant)
+            messages.append({"role": "user", "content":
+                             "You have no tools here. Answer with {\"final_tree\": {...}}."})
+            continue
+
+        # A candidate passed to try_query is a tree the model committed to; keep the last one that
+        # validates, so a budget-exhausted case still has an answer to score (`last_valid_probe`).
+        candidate = None
+        if action.tool == "try_query" and isinstance((action.args or {}).get("tree"), dict):
+            entry["tree_blocking"] = _tree_blocking_count((action.args or {}).get("tree"))
+            candidate = validate_and_normalize_ocpq_json((action.args or {}).get("tree"))
+            if candidate is not None:
+                last_valid_tree = candidate
+
+        try:
+            result = probe.call(action.tool, action.args or {})
+        except ocpq_probe.ProbeBudgetExhausted as exc:
+            entry["result"] = {"error": str(exc)}
+            trajectory.append(entry)
+            messages.append(assistant)
+            messages.append({"role": "user", "content":
+                             "Your tool budget is spent. Answer now with {\"final_tree\": {...}}."})
+            continue
+        if action.tool == "try_query" and isinstance(result, dict):
+            if "nodes" in result and candidate is not None:
+                # E: a tree the probe returned COUNTS for -- not refused, not an error.
+                last_evaluated_tree = candidate
+            if levers["structural_feedback"] and "defects" not in result:
+                # F: what the counts or the server's error cannot say. A refused tree already
+                # carries its defects.
+                result = dict(result, structure=_structure_report((action.args or {}).get("tree")))
+        entry["result"] = result
+        trajectory.append(entry)
+        messages.append(assistant)
+        messages.append({"role": "user", "content": json.dumps(result, default=str)})
+
+    if final_tree is None and levers["finalise_evaluated"] and last_evaluated_tree is not None:
+        # E, AMENDING the pre-registered rule below (notes 43.12): the last tree the probe actually
+        # evaluated comes first. The plain rule finalised refused cyclic trees, which then crashed
+        # ocpq_cli with a stack overflow.
+        final_tree = last_evaluated_tree
+        final_source = "last_evaluated_probe"
+    if final_tree is None and last_valid_tree is not None:
+        # PRE-REGISTERED (notes 43): finalise with the best tree the model actually produced.
+        # Without this the tool rungs would lose cases to protocol compliance that the one-shot
+        # rung wins by construction, and the comparison would measure formatting, not capability.
+        final_tree = last_valid_tree
+        final_source = "last_valid_probe"
+
+    _last_agent_trajectory.update({
+        "turns": turns_used,
+        "malformed_actions": malformed,
+        "tool_calls": 0 if probe is None else probe.tool_calls,
+        "final_source": final_source,
+        "complete": True,
+        "tool_trajectory": [] if probe is None else list(probe.trajectory),
+        "final_bounced": final_bounced,
+        "check_tree_calls": check_tree_calls,
+        "cap_hits": cap_hits,
+        "repeat_turns": repeat_turns,
+        "context_limit_hit": context_limit_hit,
+        "example_search_calls": example_search_calls,
+        "examples_shown": len(examples_shown),
+    })
+
+    if final_tree is None:
+        raise AgentNoFinalAnswer(
+            f"the agent produced no usable query in {turns_used} turn(s) "
+            f"({malformed} malformed)")
+
+    ocpq_json = final_tree
+    if schema_validation:
+        ocpq_json = verify_ocpq_json(
+            ocpq_json, selected_model,
+            [messages[0], messages[1], {"role": "assistant", "content": json.dumps(
+                {"events": [{"event": name} for name in event_names],
+                 "objects": [{"object": name} for name in object_names]})}],
+            query=query, schema_enforced=schema_enforced)
+        if ocpq_json is None:
+            raise ValueError("Generated OCPQ JSON could not be validated against the schema.")
+        ocpq_json = validate_and_normalize_ocpq_json(ocpq_json)
+        if ocpq_json is None:
+            raise ValueError("Refusing to execute: OCPQ JSON failed strict Pydantic validation.")
+
+    with open(output_file, "w") as f:
+        json.dump(ocpq_json, f, indent=2)
+
+    query_result = None
+    query_result_file_path = None
+    if execute_query:
+        query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+            ocel_path=ocel_path, output_file=output_file, query=query, messages=messages,
+            stage=stage_prefix)
+
+        # The same single stderr repair every other strategy gets. Kept so that FINALISATION is
+        # identical across all four rungs and only the loop differs; it is counted in the record.
+        if schema_validation and query_stderr and not query_stderr.strip().startswith("warning:"):
+            prompt_fix = (
+                f"The generated JSON query caused this execution error:\n{query_stderr}\n\n"
+                "Please fix the OCPQ JSON to resolve this error. Output ONLY the fixed JSON in a "
+                "markdown code block.")
+            # The repair sees what the one-shot repair sees -- the task, then the query as the
+            # model's answer -- NOT the loop transcript. That transcript ends on a USER turn (a
+            # tool result, or the task itself), so appending the fix prompt made two user turns in
+            # a row: Mistral's chat template refuses that outright (the 2026-09-26 gate smoke, 5 of
+            # 10 Ministral cases ended as pipeline_error), and Llama's accepts it silently. This
+            # shape alternates under every template and keeps finalisation identical across rungs.
+            repair_messages = [messages[0], messages[1],
+                               {"role": "assistant", "content": json.dumps(ocpq_json)}]
+            fixed_json, fixed_content = schema_fix_with_llm(
+                model_name=selected_model, messages=repair_messages, prompt=prompt_fix,
+                schema_enforced=schema_enforced)
+            if fixed_json is not None and fixed_json != ocpq_json:
+                print("Attempting to re-run fixed query...")
+                with open(output_file, "w") as f:
+                    json.dump(fixed_json, f, indent=2)
+                query_result, query_stderr, query_result_file_path = run_ocpq_query_with_logging(
+                    ocel_path=ocel_path, output_file=output_file, query=query, messages=messages,
+                    stage=f"{stage_prefix}_fix")
+                ocpq_json = fixed_json
+                _last_agent_trajectory["post_execution_repair"] = True
+
+    return None, None, ocpq_json, query_result, query_result_file_path
+
+
 def nl_to_ocpq_pipeline(
     query,
     dataset,
@@ -3787,6 +5291,32 @@ def nl_to_ocpq_pipeline(
             schema_validation=schema_validation,
             execute_query=execute_query,
         )
+    if strategy in AGENTIC_PROMPT_STRATEGIES:
+        # Both agentic rungs are the same loop. Which one runs is decided by whether a probe was
+        # handed over (`set_agent_probe`), so the control cannot accidentally acquire tools: the
+        # eval config withholds the surface rather than the prompt asking the model not to use it.
+        probe = agent_probe if strategy == "agentic-log-tools" else None
+        previous_probe = agent_probe
+        set_agent_probe(probe)
+        try:
+            return _run_pipeline_agentic(
+                query,
+                dataset,
+                embeddings,
+                output_file,
+                ocel_path,
+                model_name,
+                schema_enforced=schema_enforced,
+                schema_validation=schema_validation,
+                execute_query=execute_query,
+                # `structure_hint` is deliberately NOT forwarded. It carries gold's tree shape, and
+                # this arm is system performance, so the dispatcher does not hand it over at all --
+                # a stronger guarantee than the pipeline dropping it, and it keeps the invariant
+                # `tests/test_structure_hint_prompt.py` pins: exactly one branch forwards gold.
+                stage_prefix=("agentic_tools" if probe is not None else "agentic_self_refine"),
+            )
+        finally:
+            set_agent_probe(previous_probe)
 
     raise ValueError(
         f"Unsupported prompt strategy: {prompt_strategy}. Supported: {', '.join(PROMPT_STRATEGIES)}"

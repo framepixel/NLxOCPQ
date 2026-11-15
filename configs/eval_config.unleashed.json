@@ -1,0 +1,193 @@
+{
+  "note": "EVALUATION 2, 'UNLEASHED' (notes 44). The agentic protocol of evaluation 1 (pFBEXL: same prompts, tools, grammar, per-turn action cap, scorer), with each model working as its vendor intends: every generation first reasons in the model's OWN channel for up to reasoning_token_budget tokens, without the grammar, then acts under it; vendor sampling with fixed seeds; two repeats. Compared within itself; with evaluation 1 descriptively only.",
+  "backend": "local-gpu",
+  "local_device": "cuda",
+  "local_dtype": "auto",
+  "local_quantization": "4bit",
+  "few_shot_k": 3,
+  "keep_result_files": false,
+  "result_store": true,
+  "result_store_max_situations": 200000,
+  "max_result_file_gb": 4,
+  "schema_enforced": [
+    true
+  ],
+  "schema_validation": true,
+  "schema_validation_when_no_schema": false,
+  "constrained_decoding": true,
+  "generation_token_budget": 4000,
+  "constrained_any_order": false,
+  "constrained_bounded_shape": true,
+  "constrained_bounded_note": "No free whitespace and tree lists bounded at twice the largest gold list (LLM.OCPQ_TREE_MAX_ITEMS), notes 43.8: base Llama wrote ~3900 tokens of blanks in one turn and repeated list items in others. Every gold tree still passes (tests/test_constrained_decoding.py). All rungs, A0 included.",
+  "decoding_note": "Constrained decoding and the 4000-token budget are B0's (notes 41); A0 is B0's one-shot prompt on the arm's own BASE model (notes 43.6). The grammar is ORDERED (constrained_any_order false, notes 43.7): xgrammar's any_order admits a repeated key, and base Llama looped on one in 58 of 70 smoke turns. It applies to every rung, A0 included, so the rungs share one grammar; the ordered grammar still admits every gold tree written in schema order. For the loop rungs the grammar is the AgentTurn union per turn (notes 43.5).",
+  "force_root_arity": false,
+  "type_aware_filters": false,
+  "structural_validation": false,
+  "constant_root_arity": false,
+  "corpus_check": "error",
+  "agent_max_turns": 8,
+  "agent_max_tool_calls": 12,
+  "agent_turn_token_budget": 2000,
+  "agent_structural_feedback": true,
+  "agent_bounce_blocking_final": true,
+  "agent_finalise_evaluated": true,
+  "agent_worked_example": true,
+  "agent_reserve_last_turn": true,
+  "agent_repeat_guard": false,
+  "agent_protocol_note": "Stage 5 levers (notes 43.12), letters FBEXL in the directory suffix: F structure report on try_query + a static check_tree tool in BOTH loop rungs (A1 - A1' isolates log access); B a final tree with blocking defects is returned once; E fall back to the last tree the probe EVALUATED first (amends the pre-registered rule); X tree-linking rules + one worked example (invented domain; A0 keeps B0's prompt, so A1 - A0 includes it); L the last turn admits a final answer only. All false reproduces the model gate of notes 43.11. The prompt hash is recorded in the manifest (agentic.prompt_sha256).",
+  "agent_turn_token_budget_note": "Per-TURN cap for the loop rungs (A1, A1-prime, A2, A1+thought); A0 keeps generation_token_budget. Bounds what a runaway turn costs (~48 s instead of ~95 s), not an answer: tests/test_agent_turn_budget.py checks every gold tree fits with margin in each evaluated model's own tokens. Notes 43.8.",
+  "agent_budget_note": "Defaults = A1. A2's budget is passed by flag and must be SIZED FROM THE MODEL GATE's measured per-case wall clock so it fits case_timeout_sec (600), which CLAUDE.md 6 requires to be the same on every compared arm. See TODO, Stage 4 item 7.",
+  "agent_tool_result_char_cap": 4000,
+  "agent_probe_request_timeout_sec": 30,
+  "agent_probe_load_timeout_sec": 300,
+  "agent_probe_max_restarts_per_case": 2,
+  "agent_probe_max_restarts_per_run": 10,
+  "agent_record_turn_char_cap": 600,
+  "agent_repeat_guard_note": "R (notes 43.17), letter R: an action identical to an earlier one of the case is not re-run. OFF (notes 43.18): on the dev gate it did not break Muse Glimmer's loops (57% -> 56% of turns repeated; after the note Glimmer resent the same action 128 of 167 times) and barely touched Ministral (4% -> 3%), so evaluation 1 stays on the protocol Ministral's scored run used, pFBEXL. Repeats are still recorded (agent_repeat_turn_rate) whatever this flag says.",
+  "preload_model": true,
+  "preload_model_note": "Load the model before the case loop, outside case_timeout_sec (notes 43.17). Lazily it loads inside the first case's cap, which a 60 GB checkpoint (Muse Glimmer) can exhaust. Changes no output, only where the load time is counted.",
+  "testset_path": "data/testset.json",
+  "output_dir": "eval_runs/unleashed",
+  "auto_expand_finetuned": false,
+  "fine_tune_map": {},
+  "models": [
+    {
+      "name": "unsloth/Ministral-3-14B-Reasoning-2512-unsloth-bnb-4bit",
+      "label": "ministral3-14b-reasoning",
+      "revision": "ec1befbd41647354531b2e09bd036cd1dc94b076",
+      "finetuned": false,
+      "system_prompt_prefix": "# HOW YOU SHOULD THINK AND ANSWER\n\nFirst draft your thinking process (inner monologue) until you arrive at a response. Format your response using Markdown, and use LaTeX for any mathematical equations. Write both your thoughts and the response in the same language as the input.\n\nYour thinking process must follow the template below:[THINK]Your thoughts or/and draft, like working through an exercise on scratch paper. Be as casual and as long as you want until you are confident to generate the response to the user.[/THINK]Here, provide a self-contained response.",
+      "reasoning": {
+        "open": "[THINK]",
+        "close": "[/THINK]",
+        "answer_prefix": "",
+        "history": {
+          "via": "thinking_chunk"
+        }
+      },
+      "temperature": 1.0,
+      "sampling": {
+        "top_p": 0.95
+      },
+      "max_context_tokens": 65536,
+      "runtime": {
+        "conda_env": "nlxocpq-eval-v5",
+        "hf_cache": "hpcwork"
+      },
+      "note": "The reasoning version of evaluation 1's model (unsloth pre-quantized NF4, as eval 1's Instruct). Its reasoning switch is the vendor system prompt, which its template adds only without a system prompt of ours, so it is prepended. Sampling: the card recommends temperature 1."
+    },
+    {
+      "name": "Qwen/Qwen3.8-27B",
+      "label": "qwen3.8-27b-thinking",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+      "finetuned": false,
+      "chat_template_kwargs": {
+        "enable_thinking": true,
+        "reasoning_effort": "medium",
+        "preserve_thinking": true
+      },
+      "reasoning": {
+        "open": "",
+        "close": "</think>",
+        "answer_prefix": "\n\n",
+        "history": {
+          "via": "reasoning_content"
+        }
+      },
+      "temperature": 1.0,
+      "sampling": {
+        "top_p": 0.95,
+        "top_k": 20
+      },
+      "max_context_tokens": 65536,
+      "runtime": {
+        "conda_env": "nlxocpq-eval-glimmer",
+        "hf_cache": "hpcwork"
+      },
+      "note": "Thinking mode (the template opens <think>). reasoning_effort medium: xhigh, the default, is sized for far more than the 2048-token budget. preserve_thinking true, the template's default: earlier reasoning stays in the transcript (notes 44.6). Sampling: the card's thinking-mode values."
+    },
+    {
+      "name": "meta-models/Muse-Glimmer-30B",
+      "label": "muse-glimmer-30b-reasoning",
+      "revision": "a4e59da52a7bc87ae7251dd5545c0dd437c44b68",
+      "finetuned": false,
+      "chat_template_kwargs": {
+        "reasoning_strength": "medium"
+      },
+      "reasoning": {
+        "open": " to=self<|message|>",
+        "close": "<|eom|>",
+        "answer_prefix": "<|start|>assistant to=user<|message|>",
+        "history": {
+          "via": "reasoning_content"
+        }
+      },
+      "temperature": 1.0,
+      "sampling": {
+        "top_p": 0.95,
+        "top_k": 64
+      },
+      "max_context_tokens": 65536,
+      "runtime": {
+        "conda_env": "nlxocpq-eval-glimmer",
+        "hf_cache": "hpcwork"
+      },
+      "note": "Reasons in its own to=self channel, then answers in to=user -- the template's rendering of both. Strength medium, sized to the budget. Sampling: its generation_config."
+    },
+    {
+      "name": "google/gemma-4-31B-it",
+      "label": "gemma4-31b-thinking",
+      "revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+      "finetuned": false,
+      "chat_template_kwargs": {
+        "enable_thinking": true
+      },
+      "reasoning": {
+        "open": "<|channel>thought\n",
+        "close": "<channel|>",
+        "answer_prefix": "",
+        "history": {
+          "via": "splice",
+          "after": "<|turn>model\n",
+          "format": "<|channel>thought\n{reasoning}\n<channel|>"
+        }
+      },
+      "temperature": 1.0,
+      "sampling": {
+        "top_p": 0.95,
+        "top_k": 64
+      },
+      "max_context_tokens": 49152,
+      "sdpa_kernels": [
+        "flash_attention",
+        "efficient_attention"
+      ],
+      "runtime": {
+        "conda_env": "nlxocpq-eval-v5",
+        "hf_cache": "hpcwork"
+      },
+      "note": "Thinking on (<|think|> in the system turn); the thought channel is opened explicitly. SDPA restricted to the flash and memory-efficient kernels: its gate OOMed at ~30k tokens when attention materialised (notes 43.19); verified by src/long_prompt_smoke.py before the gate. Sampling: its generation_config. Earlier reasoning (notes 44.6): the template renders it only after the last user message, and tool results are user messages, so the harness writes the template's own thought-channel text after each earlier model-turn header."
+    }
+  ],
+  "models_note": "Index order is load-bearing (submit scripts pass --model-idx); it is also the PRE-REGISTERED run order of notes 44: 0 Ministral-3-14B-Reasoning, 1 Qwen3.8-27B, 2 Muse Glimmer-30B, 3 Gemma 4 31B. Each model's `runtime` names its conda env and HF cache (slurm/unleashed_runtime.sh). Each model's max_context_tokens is the longest context its memory check (src/long_prompt_smoke.py, jobs 4521758 and 4548761) verified; a call that could exceed it ends the case on its best tree, recorded as context_limit_hit (notes 44.7).",
+  "prompt_strategies": [
+    "schema-allowed-entities-only",
+    "agentic-log-tools",
+    "agentic-self-refine"
+  ],
+  "prompt_strategies_note": "A0* one-shot, A1* tool loop, A1'* same loop without log access; the headline is A1* - A1'* (notes 44).",
+  "repeats": 2,
+  "repeats_note": "Sampling: two draws per case, fixed seeds, averaged per case before the paired bootstrap (notes 44). The gate draws once.",
+  "temperature": 1.0,
+  "generation_seed_base": 20260928,
+  "generation_seed_per_call": true,
+  "generation_seed_per_call_note": "One derived seed per generation of a record (call 0 = the record's seed). Without it every turn of a case replays the same random stream, which coupled consecutive turns in the 44.6 load smokes (notes 44.7).",
+  "case_timeout_sec": 1800,
+  "case_timeout_note": "Evaluation 2's own cap (notes 44): 8 turns x up to ~70 s of reasoning. One cap for every arm of evaluation 2.",
+  "reasoning_token_budget": 2048,
+  "reasoning_token_budget_note": "Tokens each generation may reason first; closed by the harness at the budget (a forced close). May be changed at the gate only, then frozen (notes 44).",
+  "reasoning_history": "keep",
+  "reasoning_history_note": "Each earlier turn's reasoning stays in the transcript, rendered as the model's own template renders reasoning inside a tool loop (each model's reasoning.history). Replaces the pre-registered 'dropped' before any gate output: the vendors' templates all keep reasoning within a tool loop (notes 44.6).",
+  "agent_thought": false,
+  "agent_cap_feedback": false
+}
