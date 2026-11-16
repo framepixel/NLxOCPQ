@@ -1,8 +1,8 @@
 {
   "generated": {
     "command": "python src/agent_mechanism_stats.py",
-    "utc": "2026-11-14T11:08:53+00:00",
-    "nlxocpq_commit": "644d44673a5065ccb5fd1223baae669986c59e19-dirty",
+    "utc": "2026-11-15T19:51:39+00:00",
+    "nlxocpq_commit": "468ad3d03adb0ce4ef833f17c63afdfaf6061684-dirty",
     "inputs": [
       {
         "run": "eval_runs/agentic/shard_m2_s1_e0_constrained_ordered_bounded_tok4000_turns8_tools12_turntok2000_pFBEXL_20260927_090726",

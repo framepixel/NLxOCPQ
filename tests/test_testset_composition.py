@@ -52,6 +52,25 @@ import analysis_common as ac  # noqa: E402
 check("skill is defined on 134 questions, as the tables say", ac.skill_question_count(),
       ac.SKILL_QUESTIONS)
 
+# The per-log table carries the mean trivial floor (2026-11-15): per log over its discriminating
+# entries, the Total row the overall mean the thesis quotes, and -- for a log with none.
+from testset_composition import tables  # noqa: E402
+
+grid = {k: 0.0 for k in ("horrible", "fails_80_percent", "always_trivial", "good_085",
+                         "excellent_097")}
+fake = {"entries": 3, "discriminating": 2, "mean_trivial_floor_discriminating": 0.725,
+        "per_log": {"a.json": {"entries": 2, "discriminating": 2, "mean_trivial_floor": 0.7},
+                    "b.json": {"entries": 1, "discriminating": 0, "mean_trivial_floor": None}},
+        "entries_per_block": {"V1": 3}, "skill_grid_noop_floor": grid,
+        "skill_grid_trivial_floor": grid}
+per_log_tabular = dict((name, body) for name, body, _, _ in tables(fake))["testset_per_log"]
+check("a log's row ends with its mean floor",
+      "\\texttt{a.json} & 2 & 2 & 0.7000 \\\\" in per_log_tabular, True)
+check("a log without discriminating entries shows --",
+      "\\texttt{b.json} & 1 & 0 & -- \\\\" in per_log_tabular, True)
+check("the Total row carries the overall mean", "Total & 3 & 2 & 0.7250 \\\\" in per_log_tabular,
+      True)
+
 print()
 if failures:
     print(f"{len(failures)} check(s) FAILED")

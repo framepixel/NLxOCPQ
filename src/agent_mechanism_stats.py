@@ -23,6 +23,10 @@ mentions empty      the step after an empty result has reasoning matching the co
                     pattern; the same share after NON-empty results is the base rate. The notes
                     did not record their keywords; this pattern (configs/agent_mechanism.json)
                     reproduces their 356 mentions exactly, and is the canonical one from now on.
+                    NOT IN THE TABLE since 2026-11-15 (the thesis dropped it): the pattern was
+                    chosen to reproduce a count, never checked against hand labels, and fires
+                    after 24% of NON-empty results too. Still computed into the JSON, so the
+                    reconciliation with the notes keeps running.
 ended empty         records whose last evaluated `try_query` was empty, among those with any.
 population change   among records with two or more evaluated `try_query`, those whose root
                     situation count changed between tries.
@@ -260,12 +264,8 @@ def tex_table(rows: List[dict]) -> str:
           ("Empty results in total", [str(s["empty_results"]) for s in stats]),
           ("\\quad next action was different",
            [_share(s["next_action_differs"], s["empty_results"]) for s in stats]))
-    group("Next reasoning mentions an empty result (keyword check)",
-          ("After an empty result",
-           [_share(s["mentions_empty_after_empty"], s["empty_results"]) for s in stats]),
-          ("After a non-empty result (base rate)",
-           [_share(s["mentions_empty_after_nonempty"], s["nonempty_results_followed"])
-            for s in stats]))
+    # The keyword-check group ("next reasoning mentions an empty result") is left out since
+    # 2026-11-15; see "mentions empty" in the module docstring.
     group("Root situations across a question-draw's evaluated drafts",
           ("Question-draws with two or more", [str(s["two_or_more_tries"]) for s in stats]),
           ("\\quad count changed between drafts",

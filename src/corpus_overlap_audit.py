@@ -293,14 +293,30 @@ def overlap_table(rows: List[dict], pool_types: int) -> str:
 
 
 def coverage_table(coverage: dict) -> str:
+    """Render the per-block coverage as two side-by-side halves.
+
+    Since 2026-11-15 the 42 rows are split into two blocks of 21, so the table fits under the
+    appendix heading instead of leaving the heading alone on a page.
+
+    Args:
+        coverage: The output of `block_coverage`.
+
+    Returns:
+        The tabular body for `ac.write_tex`.
+    """
+    cells = [f"{row['block']} & {row['testset']} & {ac.fmt_pct(row['testset_share'])} & "
+             f"{row['training']} & {ac.fmt_pct(row['training_share'])}"
+             for row in coverage["blocks"]]
+    half = (len(cells) + 1) // 2
+    left, right = cells[:half], cells[half:] + ["& & & &"] * (2 * half - len(cells))
+    header = "Block & Testset & Share & Corpus & Share"
     lines = ["  \\small",
-             "  \\begin{tabular}{@{}lrrrr@{}}",
+             "  \\setlength{\\tabcolsep}{4pt}",
+             "  \\begin{tabular}{@{}lrrrr@{\\hspace{2em}}lrrrr@{}}",
              "    \\toprule",
-             "    Block & Testset & Share & Corpus & Share \\\\",
+             f"    {header} & {header} \\\\",
              "    \\midrule"]
-    for row in coverage["blocks"]:
-        lines.append(f"    {row['block']} & {row['testset']} & {ac.fmt_pct(row['testset_share'])} & "
-                     f"{row['training']} & {ac.fmt_pct(row['training_share'])} \\\\")
+    lines += [f"    {a} & {b} \\\\" for a, b in zip(left, right)]
     lines += ["    \\bottomrule", "  \\end{tabular}"]
     return "\n".join(lines)
 

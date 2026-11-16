@@ -1,8 +1,8 @@
 {
   "generated": {
     "command": "python src/testset_composition.py",
-    "utc": "2026-11-11T15:43:43+00:00",
-    "nlxocpq_commit": "644d44673a5065ccb5fd1223baae669986c59e19-dirty",
+    "utc": "2026-11-15T19:51:07+00:00",
+    "nlxocpq_commit": "468ad3d03adb0ce4ef833f17c63afdfaf6061684-dirty",
     "inputs": []
   },
   "results": {
@@ -12,47 +12,58 @@
     "per_log": {
       "container_logistics.json": {
         "entries": 28,
-        "discriminating": 20
+        "discriminating": 20,
+        "mean_trivial_floor": 0.7283886
       },
       "order-management.json": {
         "entries": 26,
-        "discriminating": 18
+        "discriminating": 18,
+        "mean_trivial_floor": 0.7305833888888889
       },
       "hospital_log_high.json": {
         "entries": 23,
-        "discriminating": 23
+        "discriminating": 23,
+        "mean_trivial_floor": 0.6983260434782609
       },
       "renting_log_high.json": {
         "entries": 18,
-        "discriminating": 17
+        "discriminating": 17,
+        "mean_trivial_floor": 0.5712436470588236
       },
       "03_hiring.xml": {
         "entries": 12,
-        "discriminating": 9
+        "discriminating": 9,
+        "mean_trivial_floor": 0.6171187777777778
       },
       "lending_log_high.json": {
         "entries": 11,
-        "discriminating": 3
+        "discriminating": 3,
+        "mean_trivial_floor": 0.7562716666666667
       },
       "reasoning_benchmark.json": {
         "entries": 11,
-        "discriminating": 11
+        "discriminating": 11,
+        "mean_trivial_floor": 0.8838380909090909
       },
       "04_hospital.xml": {
         "entries": 10,
-        "discriminating": 7
+        "discriminating": 7,
+        "mean_trivial_floor": 0.847461
       },
       "angular_github_commits_ocel.xml": {
         "entries": 10,
-        "discriminating": 10
+        "discriminating": 10,
+        "mean_trivial_floor": 0.8479133
       },
       "bpic2017-ocel2.json": {
         "entries": 10,
-        "discriminating": 10
+        "discriminating": 10,
+        "mean_trivial_floor": 0.7758262
       },
       "ocel2-p2p.json": {
         "entries": 10,
-        "discriminating": 7
+        "discriminating": 7,
+        "mean_trivial_floor": 0.6676175714285715
       }
     },
     "min_entries_per_log": 10,
