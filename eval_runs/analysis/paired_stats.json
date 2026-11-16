@@ -1,8 +1,8 @@
 {
   "generated": {
     "command": "python src/paired_stats.py",
-    "utc": "2026-11-12T14:08:49+00:00",
-    "nlxocpq_commit": "644d44673a5065ccb5fd1223baae669986c59e19-dirty",
+    "utc": "2026-11-16T10:17:09+00:00",
+    "nlxocpq_commit": "468ad3d03adb0ce4ef833f17c63afdfaf6061684-dirty",
     "inputs": [
       {
         "run": "eval_runs/matrix_v2/merged_regold_20260922",

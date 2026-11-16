@@ -121,6 +121,10 @@ def compose() -> Dict[str, Any]:
 
     per_log = Counter(os.path.basename(t["ocel_path"]) for t in test)
     per_log_disc = Counter(os.path.basename(test[a["index"]]["ocel_path"]) for a in disc)
+    floors_by_log: Dict[str, List[float]] = {}
+    for a in disc:
+        floors_by_log.setdefault(os.path.basename(test[a["index"]]["ocel_path"]),
+                                 []).append(a["trivial_floor"])
     blocks = Counter(b for row in labels for b in row["bb_labels"])
     boxes = Counter(len(t["ocpq_query"]["nodes"]) for t in test)
     root_lists = [roots(t["ocpq_query"]) for t in test]
@@ -137,7 +141,11 @@ def compose() -> Dict[str, Any]:
         "entries": len(test),
         "discriminating": len(disc),
         "non_discriminating": len(non_disc),
-        "per_log": {log: {"entries": per_log[log], "discriminating": per_log_disc[log]}
+        # mean_trivial_floor (2026-11-15): over the log's discriminating entries, so the table that
+        # lists the logs also carries the 0.7250 the thesis quotes (its Total row).
+        "per_log": {log: {"entries": per_log[log], "discriminating": per_log_disc[log],
+                          "mean_trivial_floor": (statistics.mean(floors_by_log[log])
+                                                 if floors_by_log.get(log) else None)}
                     for log in sorted(per_log, key=lambda l: (-per_log[l], l))},
         "min_entries_per_log": min(per_log.values()),
         "excluded_by_reason": dict(Counter(e["reason"] for e in excluded).most_common()),
@@ -199,13 +207,15 @@ def reconcile(results: dict, expected: dict) -> List[str]:
 
 def tables(results: dict) -> List[tuple]:
     """(name, tabular, caption, label) for Appendix A."""
-    log_lines = ["  \\small", "  \\begin{tabular}{@{}lrr@{}}", "    \\toprule",
-                 "    Log & Entries & Discriminating \\\\", "    \\midrule"]
+    log_lines = ["  \\small", "  \\begin{tabular}{@{}lrrr@{}}", "    \\toprule",
+                 "    Log & Entries & Discriminating & \\makecell[r]{Mean trivial floor\\\\"
+                 "(discriminating)} \\\\", "    \\midrule"]
     for log, row in results["per_log"].items():
         log_lines.append(f"    \\texttt{{{log.replace('_', chr(92) + '_')}}} & {row['entries']} & "
-                         f"{row['discriminating']} \\\\")
+                         f"{row['discriminating']} & {ac.fmt(row.get('mean_trivial_floor'))} \\\\")
     log_lines += ["    \\midrule",
-                  f"    Total & {results['entries']} & {results['discriminating']} \\\\",
+                  f"    Total & {results['entries']} & {results['discriminating']} & "
+                  f"{ac.fmt(results['mean_trivial_floor_discriminating'])} \\\\",
                   "    \\bottomrule", "  \\end{tabular}"]
 
     blocks = list(results["entries_per_block"].items())
@@ -230,7 +240,8 @@ def tables(results: dict) -> List[tuple]:
     grid_lines += ["    \\bottomrule", "  \\end{tabular}"]
     return [
         ("testset_per_log", "\n".join(log_lines),
-         "Testset entries per log, and how many are discriminating.", "tab:testset:logs"),
+         "Testset entries per log, how many are discriminating, and their mean trivial floor.",
+         "tab:testset:logs"),
         ("testset_blocks", "\n".join(block_lines),
          "Testset entries using each building block.", "tab:testset:blocks"),
         ("testset_skill_grid", "\n".join(grid_lines),

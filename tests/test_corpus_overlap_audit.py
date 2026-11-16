@@ -20,6 +20,7 @@ from corpus_overlap_audit import (  # noqa: E402
     block_coverage,
     canonical,
     contamination,
+    coverage_table,
     declared_types,
     fold,
     name_free_shape,
@@ -90,6 +91,21 @@ check("a block the training never shows is reported",
 coverage = block_coverage(gold, gold * 50)
 check("identical distributions report nothing", (coverage["testset_uses_training_never_shows"],
                                                  coverage["under_trained"]), ([], []))
+
+# The coverage table renders in two halves (2026-11-15): every block exactly once, rows of ten
+# cells, and an odd count padded on the right.
+for n_blocks in (42, 5):
+    fake = {"blocks": [{"block": f"X{i}", "testset": i, "testset_share": 0.1, "training": i,
+                        "training_share": 0.2} for i in range(n_blocks)]}
+    body = coverage_table(fake)
+    rows = [line for line in body.splitlines() if line.strip().endswith("\\\\")][1:]
+    check(f"{n_blocks} blocks: rows are half the blocks, rounded up", len(rows),
+          (n_blocks + 1) // 2)
+    check(f"{n_blocks} blocks: every row has ten cells",
+          {row.count("&") for row in rows}, {9})
+    check(f"{n_blocks} blocks: every block appears once",
+          sorted(int(cell.strip()[1:]) for row in rows for cell in row.split("&")
+                 if cell.strip().startswith("X")), list(range(n_blocks)))
 
 print()
 if failures:
