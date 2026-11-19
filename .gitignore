@@ -219,3 +219,6 @@ output_2/
 # (via .gitkeep) because SBATCH --output cannot create it and the job dies if it is absent.
 logs/*
 !logs/.gitkeep
+
+# Personal working notes, kept locally only
+/TODO
