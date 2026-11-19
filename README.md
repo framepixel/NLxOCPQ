@@ -1,142 +1,254 @@
 # NLxOCPQ
-Natural language to OCPQ queries converter
 
-## Automatic Execution
-The `src/LLM.py` script utilizes `src/QueryExecutor.py` to automatically execute the generated queries right after generation using the Rust backend `ocpq_cli`. Output noise from `cargo` is suppressed to only show you the relevant query results (via the `-q` parameter).
+Translating natural-language questions about object-centric event logs into
+[OCPQ](https://github.com/aarkue/OCPQ) queries with open-weight LLMs, and benchmarking how well
+that works.
 
-### Dependencies & Required Repositories
-To utilize automatic execution successfully, note the following dependencies:
+This repository holds the code, data, fine-tuned adapters and analysis outputs of the Master's
+thesis *Benchmarking Large Language Models for Natural-Language Object-Centric Process Querying*
+(Ayoub Lamrani, RWTH Aachen University, 2026).
 
-1. **Rust & Cargo**: You must have Rust installed. Set it up using [rustup](https://rustup.rs/). The script currently expects `cargo` to be in your PATH or at `~/.cargo/bin/cargo`.
-2. **OCPQ CLI Repository**: `OCPQ/backend/ocpq_cli` must exist in the root of the project (i.e. one directory level up from this `NLxOCPQ` directory) and be building correctly.
-3. **Event Log**: By default, `src/LLM.py` assumes there is an object-centric event log named `hospital_log_high.json` at the parent directory (`../hospital_log_high.json`).
+## Overview
 
-### Colab GPU Serving
-If your local machine has no GPU, you can run the fine-tuned LoRA model in Google Colab and point the Streamlit UI at it through the existing custom-endpoint mode.
+Given a question such as *"For any person, the diagnosis must be completed within 3 days after the
+registration at ER"* and an OCEL 2.0 log, the pipeline
 
-The repository now includes:
+1. extracts the log's schema (event and object types, attributes, E2O/O2O relations),
+2. retrieves similar examples from a synthetic corpus of 20,000 question/query pairs,
+3. prompts the model with one of three strategies (`schema-allowed-entities-only`,
+   `schema-grammar-guided`, `schema-chain-of-thought-plus`), optionally with the output
+   constrained to the OCPQ JSON schema,
+4. validates the query and, if enabled, lets the model repair schema or execution errors once,
+5. executes the query with OCPQ's `ocpq_cli` and returns the result.
 
-- [`src/colab_serve.py`](src/colab_serve.py) for serving the adapter as an OpenAI-compatible chat endpoint.
-- [`requirements/requirements.colab-serve.txt`](requirements/requirements.colab-serve.txt) for the minimal Colab inference stack.
-- [`docs/COLAB_SERVER.md`](docs/COLAB_SERVER.md) with the launch steps.
+A second, agentic arm gives the model tools to inspect the log and try queries against a running
+OCPQ server before it answers.
 
-The UI accepts a custom `HF_BASE_URL`, and custom-endpoint mode no longer requires a Hugging Face token if your Colab server is open or uses its own auth.
+What was evaluated:
 
-## Console Runner
-You can run the full NL-to-OCPQ pipeline without Streamlit using `src/cli.py`.
+- **Models:** Llama 3.1 8B, Ministral 3 3B, Ministral 3 14B and Gemma 3 4B, each as the base model
+  and with a LoRA adapter fine-tuned on the synthetic corpus, all run in 4-bit. The agentic arm
+  adds larger open-weight models (see `configs/eval_config.agentic.json`).
+- **Testset:** 169 hand-written questions with gold OCPQ queries over 11 public OCEL logs
+  (`data/testset.json`). 135 of them are *discriminating*: a do-nothing query can't score
+  perfectly on them.
+- **Metrics:** the primary metric is `result_set_f1_strict`, the F1 between the predicted and
+  gold result sets of the root binding box, with unparsable or failed queries scoring 0. It is
+  reported next to `structural_f1` (did the query use the right constructs?),
+  `execution_success_rate`, and a `skill_score` that rescales F1 against the best trivial
+  strategy for each question.
 
-Each invocation creates a timestamped run directory in `results/` and writes multiple artifacts:
+## Repository layout
 
-- `query_input.json`
-- `extracted_structure.json`
-- `planned_query_tree.json`
-- `generated_ocpq.json`
-- `query_executor_stdout.txt`
-- `query_executor_stderr.txt`
-- `query_result.json` (if the backend exported one)
-- `run_summary.json`
+| Path | Contents |
+|---|---|
+| `src/` | All Python, flat (modules import each other by bare name). Entry points: `cli.py`, `ui.py`, `eval_testset.py`, `train_unsloth.py` |
+| `configs/` | Evaluation configs: the main matrix, the agentic arm and every ablation |
+| `data/` | Testset, synthetic corpus (`ocpq_dataset.json`), its embeddings, the fine-tuning set and the log manifest |
+| `models/adapters/` | The four thesis LoRA adapters (Git LFS) |
+| `eval_runs/analysis/` | Analysis JSON behind every table in the thesis |
+| `slurm/` | Batch scripts for training and evaluation on the RWTH cluster |
+| `scripts/` | Environment setup and model prefetching for the cluster |
+| `requirements/` | Pinned dependencies, one file per environment |
+| `tests/` | Assertion scripts, run one by one with `python tests/test_<name>.py` |
+| `docs/ocpq-nlxocpq-pinned.patch` | The two local changes to OCPQ the evaluation depends on |
+| `notebooks/` | Exploration only |
 
-### Backend Selection
-- `--backend local-gpu`: run the selected model locally on CUDA with `transformers`
-- `--backend hf-provider`: run via Hugging Face Inference Providers
+`models/lora_model_ocpq/` is an early Llama 3 8B adapter that predates the thesis models. It is
+kept for provenance only.
 
-### Examples
+## Setup
 
-Run with local GPU:
+### 1. Clone with Git LFS
+
+The adapters and the larger data files are stored in Git LFS:
+
+```bash
+git lfs install
+git clone https://github.com/framepixel/NLxOCPQ.git
+```
+
+### 2. Directory layout
+
+OCPQ and the event logs live next to this repository, not inside it:
+
+```
+parent/
+├── NLxOCPQ/   this repository
+├── OCPQ/      OCPQ checkout (step 3)
+└── Logs/      the OCEL logs (step 4)
+```
+
+Set `OCPQ_REPO_DIR` and `OCPQ_LOGS_DIR` to use other locations.
+
+### 3. OCPQ
+
+Install Rust with [rustup](https://rustup.rs/). The evaluation uses OCPQ at commit `2c5e0d6`
+with two local changes. Later versions replace the `/ocel/*` HTTP API that the agentic arm talks
+to.
+
+```bash
+git clone https://github.com/aarkue/OCPQ.git
+cd OCPQ
+git checkout 2c5e0d631bd10a8ecea1cea3c3d8703d5942b4a3
+git am ../NLxOCPQ/docs/ocpq-nlxocpq-pinned.patch
+```
+
+`src/QueryExecutor.py` runs `ocpq_cli` through `cargo run --release`, so the first query also
+compiles it. The agentic arm builds OCPQ's web server on first use, which takes several minutes.
+
+### 4. Event logs
+
+All 11 logs are public:
+
+| Log file | Source |
+|---|---|
+| `03_hiring.xml`, `04_hospital.xml` | [10.5281/zenodo.13879980](https://doi.org/10.5281/zenodo.13879980) |
+| `hospital_log_high.json`, `lending_log_high.json`, `renting_log_high.json` | [10.5281/zenodo.18333683](https://doi.org/10.5281/zenodo.18333683) |
+| `container_logistics.json` | [10.5281/zenodo.18373888](https://doi.org/10.5281/zenodo.18373888) |
+| `order-management.json` | [10.5281/zenodo.18373906](https://doi.org/10.5281/zenodo.18373906) |
+| `ocel2-p2p.json` | [10.5281/zenodo.8412920](https://doi.org/10.5281/zenodo.8412920) |
+| `reasoning_benchmark.json` | [10.5281/zenodo.18333784](https://doi.org/10.5281/zenodo.18333784) |
+| `bpic2017-ocel2.json` | [aarkue/ocpq-eval](https://github.com/aarkue/ocpq-eval/blob/main/bpic2017-ocel2.zip), converted from the [BPI Challenge 2017](https://doi.org/10.4121/uuid:5f3067df-f10b-45da-b98b-86ae4c7a310b) |
+| `angular_github_commits_ocel.xml` | [10.5281/zenodo.8430332](https://doi.org/10.5281/zenodo.8430332) |
+
+`data/corpus_manifest.json` pins every log by size and SHA-256, and an evaluation refuses to
+start if a log on disk differs. Three logs were modified for the thesis: `renting_log_high`,
+`ocel2-p2p` and `container_logistics`. Some string attributes were retyped to integer or
+boolean, and `DepartureDate` in `container_logistics` became a timestamp, so that OCPQ can filter
+on them. The modified copies are not part of this repository, so the original downloads of those
+three logs fail the check. Setting `"corpus_check": "warn"` in the config lets a run continue,
+but scores on those logs are then not comparable to the thesis.
+
+### 5. Python environments
+
+| Environment | Requirements | Used for |
+|---|---|---|
+| Base | `requirements/requirements.txt` | `cli.py`, `ui.py`, analysis scripts |
+| Training | `requirements/requirements.unsloth-train-v5.txt` (conda, Python 3.10, CUDA 12.6) | `train_unsloth.py`, `merge_gemma.py` |
+| Evaluation | `scripts/make_eval_env.sh` clones the training env and adds `scikit-learn`, `openai` and `xgrammar` | `eval_testset.py` |
+
+Evaluation loads the adapters with the same torch/transformers/peft build that trained them,
+which is why its environment is a clone of the training one rather than a fresh install.
+
+## Usage
+
+All commands run from the repository root.
+
+### Single query
 
 ```bash
 python src/cli.py \
-	--backend local-gpu \
-	--model meta-llama/Meta-Llama-3-8B-Instruct \
-	--ocel ../hospital_log_high.json \
-	"For any person, the diagnosis must be completed within 3 days after the registration at ER."
+    --backend local-gpu \
+    --model unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit \
+    --ocel ../Logs/hospital_log_high.json \
+    --prompt-strategy schema-grammar-guided \
+    "For any person, the diagnosis must be completed within 3 days after the registration at ER."
 ```
 
-Run with HF inference provider:
+- `--model` also takes an adapter directory such as
+  `models/adapters/llama31-8b-fine-tuned-quantized`. The base model is read from its
+  `adapter_config.json`.
+- `--backend hf-provider` runs the model through Hugging Face Inference Providers instead
+  (`--hf-provider`, and `--hf-token` or `HF_TOKEN`).
+
+Each run writes a timestamped directory under `results/` with the extracted schema, the generated
+query, the `ocpq_cli` output, the query result and a `run_summary.json`.
+
+### Web UI
 
 ```bash
-python src/cli.py \
-	--backend hf-provider \
-	--model meta-llama/Meta-Llama-3-8B-Instruct \
-	--hf-provider together \
-	--hf-token "$HF_TOKEN" \
-	--ocel ../hospital_log_high.json \
-	"For any person, the diagnosis must be completed within 3 days after the registration at ER."
+streamlit run src/ui.py
 ```
 
-## Testset Evaluation
-Use `src/eval_testset.py` to evaluate the handcrafted `data/testset.json` across models, prompting strategies, and schema settings.
+The UI sends requests to Hugging Face Inference Providers or to any OpenAI-compatible
+chat-completions endpoint (set in the sidebar or through `HF_BASE_URL`).
 
-1. Copy the template config and edit it:
-
-```bash
-cp configs/eval_config.example.json configs/eval_config.json
-```
-
-2. Run the evaluator:
+### Evaluation
 
 ```bash
+python src/eval_testset.py --config configs/eval_config.json --dry-run   # planned run counts
 python src/eval_testset.py --config configs/eval_config.json
 ```
 
-Outputs are stored under `eval_runs/` and include:
+A run writes `eval_runs/<run_id>/` with `config_resolved.json`, `predictions.json`,
+`summary.json` (with per-stratum metrics under `by_stratum`), `result_store/` and error-analysis
+reports (`bb_breakdown.json`, `divergence_report.json`, `failure_log.jsonl`).
 
-- `predictions.json` (per-run records)
-- `summary.json` (aggregated metrics + consistency)
-- `config_resolved.json` (run manifest)
+| Config | Experiment |
+|---|---|
+| `eval_config.json`, `eval_config.matrix_v2.json` | Main matrix: 8 models × 3 strategies × 2 schema settings |
+| `eval_config.agentic.json`, `eval_config.agentic_gate.json` | Agentic arm and its model gate |
+| `eval_config.non_oracle.json` | Pipeline rungs without gold-derived (oracle) hints |
+| `eval_config.unleashed*.json` | Agentic evaluation 2: each model with its own native reasoning |
+| `eval_config.{decoding,arity,structural,structure,typed}_ablation.json`, `eval_config.selfconsistency.json` | Ablations |
+| `eval_config.smoke*.json` | Short smoke runs |
 
-## Fine-tuning an LLM with src/train_unsloth.py
+The full matrix takes tens of GPU hours, so on the cluster it runs as a SLURM array of shards that
+are merged afterwards:
 
-You can fine-tune a base LLM using `src/train_unsloth.py`. The script auto-detects available CUDA resources and will choose between a quantized (4-bit) or full-precision training setup by default. You can override behavior with environment variables.
-
-Quick checklist
-- Ensure CUDA is available and appropriate drivers are installed.
-- Install training dependencies (see `requirements/requirements.unsloth-train.txt` or install `unsloth`, `trl`, `datasets`, `peft`, `transformers`).
-- Prepare a fine-tuning JSONL dataset (the repo uses `data/finetune_ocpq.jsonl`).
-
-Important environment variables
-- `OCPQ_FINETUNE_DATASET`: path to the JSONL dataset (default: `data/finetune_ocpq.jsonl`).
-- `OCPQ_ADAPTER_OUTPUT_DIR`: directory to write the LoRA adapter (default: `models/adapters/<run_label>`).
-- `OCPQ_FORCE_4BIT`: if set (`1`, `true`) force the quantized 4-bit model path.
-- `OCPQ_FORCE_FULL_PRECISION`: if set (`1`, `true`) force full-precision loading.
-- `OCPQ_QUANTIZED_MODEL`: HF/local id for the quantized model (default: `unsloth/llama-3-8b-Instruct-bnb-4bit`).
-- `OCPQ_FULL_PRECISION_MODEL`: HF/local id for the full-precision model (default: `meta-llama/Meta-Llama-3-8B-Instruct`).
-- `OCPQ_MIN_FULL_PRECISION_GB`: free VRAM threshold (GB) above which full-precision is chosen by default (default: `32`).
-
-If `torch` fails to import with `CXXABI_1.3.11 not found`, the Python environment is picking up an older `libstdc++.so.6` than the PyTorch wheel requires. On the RWTH cluster, the repo already uses a newer GCC runtime in `slurm/submit_query.sh`; for interactive training, load a newer GCC module and make sure its `lib` directory appears before the conda/env `lib` directory in `LD_LIBRARY_PATH`.
-
-How the script decides and labels outputs
-- The script probes CUDA and available free VRAM; if free VRAM is below `OCPQ_MIN_FULL_PRECISION_GB` it will select the quantized model path.
-- The saved adapter folder and a printed `Training label` include a descriptive name: `<model>-fine-tuned-quantized` or `<model>-fine-tuned-full-precision` (slugified). This makes it easy to reference the adapter in evaluation configs.
-
-Example commands
-- Auto-detect mode (recommended):
 ```bash
-OCPQ_FINETUNE_DATASET=data/finetune_ocpq.jsonl python src/train_unsloth.py
-```
-- Force quantized 4-bit training:
-```bash
-OCPQ_FORCE_4BIT=1 OCPQ_FINETUNE_DATASET=data/finetune_ocpq.jsonl python src/train_unsloth.py
-```
-- Force full-precision training and set custom model id:
-```bash
-OCPQ_FORCE_FULL_PRECISION=1 OCPQ_FULL_PRECISION_MODEL=meta-llama/Meta-Llama-3-8B-Instruct \
-	OCPQ_FINETUNE_DATASET=data/finetune_ocpq.jsonl python src/train_unsloth.py
+sbatch slurm/submit_eval_smoke.sh            # all conditions on a 4-case slice; run this first
+sbatch slurm/submit_eval_array.sh            # 96 shards = 48 conditions × 2 case halves
+python src/eval_testset.py --merge-shards eval_runs/shard_* --merge-output eval_runs/merged
 ```
 
-Using the adapter in evaluation
-- After training, point your evaluation config to the adapter directory. There are two options:
-	- Use the adapter directory as a local model name in `configs/eval_config.json` (set `models[].name` to the adapter path). The evaluator's backend will detect a local adapter directory and load it.
-	- Or use the `fine_tune_map` in `configs/eval_config.json` to map the base model to the adapter (see `configs/eval_config.example.json`). Example mapping entry:
-```json
-"fine_tune_map": {
-	"meta-llama/Meta-Llama-3-8B-Instruct": {
-		"name": "models/adapters/meta-llama-3-8b-instruct-fine-tuned-quantized",
-		"label": "meta-llama-3-8b-instruct-fine-tuned-quantized"
-	}
+`--recompute <run_dir>` rescores a finished run from its result store into a new directory,
+without a GPU or OCPQ. `--resume-from <run_dir>` continues an interrupted run. For dead shards,
+resubmit the array script with `--resume`, e.g.
+`sbatch --array=48-71%24 slurm/submit_eval_array.sh --resume`.
+
+The SLURM scripts target the RWTH CLAIX cluster. Their `--partition` and `--account` lines need
+changing for any other cluster.
+
+### Fine-tuning
+
+`src/train_unsloth.py` trains a LoRA adapter with Unsloth on `data/finetune_ocpq.jsonl` and is
+configured through environment variables, e.g. `OCPQ_QUANTIZED_MODEL`, `OCPQ_CHAT_TEMPLATE`,
+`OCPQ_MAX_SEQ_LENGTH`, `OCPQ_NUM_TRAIN_EPOCHS`, `OCPQ_LEARNING_RATE` and
+`OCPQ_ADAPTER_OUTPUT_DIR`. The thesis adapters come from one script per model:
+
+```bash
+sbatch slurm/submit_job_v5_llama31_8b.sh
+sbatch slurm/submit_job_v5_ministral3_3b.sh
+sbatch slurm/submit_job_v5_ministral3_14b.sh
+sbatch slurm/submit_job_v5_gemma3_4b.sh
+```
+
+Keep `OCPQ_MAX_SEQ_LENGTH` at 4096 or more. The trainer truncates the end of each example, which
+is the JSON query the model is supposed to learn.
+
+Gemma 3 is evaluated from merged 16-bit checkpoints rather than base model plus adapter. Its
+adapter was trained against Unsloth's pre-quantized checkpoint, which plain transformers cannot
+load. `python src/merge_gemma.py` (in the training environment) writes both Gemma arms to
+`models/adapters/gemma3-4b-base-16bit/` and `models/adapters/gemma3-4b-merged-16bit/`. These are
+not in the repository.
+
+`data/finetune_ocpq.jsonl` is generated from `data/ocpq_dataset.json` by
+`src/convert_dataset_for_finetuning.py` and should not be edited by hand.
+
+### Thesis tables
+
+The analysis scripts in `src/` (`main_tables.py`, `matrix_tables.py`, `paired_stats.py`,
+`rung_tables.py`, `ablation_tables.py`, `agentic_eval1_tables.py`, ...) read finished runs and
+write JSON to `eval_runs/analysis/` and LaTeX tables to `$THESIS_TABLES_DIR`. The run directories
+are not committed because of their size, but the analysis JSON is, and most of those files record
+the commit they were produced from.
+
+## License
+
+The code is released under the [MIT License](LICENSE). The adapters in `models/` are derived from
+their base models and remain subject to those models' licences (Llama 3.1 Community License,
+Gemma Terms of Use, and the Ministral 3 licence). The event logs are not included and are
+distributed under their own terms.
+
+## Citation
+
+```bibtex
+@mastersthesis{lamrani2026nlxocpq,
+  author = {Ayoub Lamrani},
+  title  = {Benchmarking Large Language Models for Natural-Language Object-Centric Process Querying},
+  school = {RWTH Aachen University},
+  year   = {2026}
 }
 ```
-
-Notes
-- The script prints `CUDA resources detected:` and `Training label:` so you can confirm which path and label were chosen.
-- If you plan to run multiple experiments, keep `OCPQ_ADAPTER_OUTPUT_DIR` or the run label descriptive so the evaluation harness can automatically expand and reference the correct adapter.
